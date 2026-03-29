@@ -68,7 +68,11 @@ Required settings (adjust `/Users/<you>/` to your home directory):
 
 ### Build Commands
 
-The VS Code tasks (`Cmd+Shift+B`) and ESP-IDF extension commands handle environment sourcing automatically. For CLI usage:
+This project is set up to be built and maintained using the [ESP-IDF VS Code Extension](https://marketplace.visualstudio.com/items?itemName=espressif.esp-idf-extension). The extension provides all the tools needed to clean, build, flash, and monitor the project directly from VS Code — no CLI setup required. Use the command palette (`Cmd+Shift+P`) and search for "ESP-IDF" to access the available commands.
+
+### CLI Build Commands
+
+For CLI usage outside of VS Code:
 
 ```bash
 # Source ESP-IDF environment
