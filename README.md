@@ -9,6 +9,7 @@ An Altair 8800 emulator running on ESP32-S3 with WebSocket terminal access.
 ### Prerequisites
 
 - ESP-IDF v6.0 (stable release) installed (see [ESP-IDF Getting Started](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/))
+- [ESP-IDF Toolchain](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/index.html#get-started-build) (CMake, Ninja, cross-compiler)
 - ESP32-S3 target board
 
 ### Setup ESP-IDF Environment
@@ -47,22 +48,19 @@ Then simply run `get_idf` before building.
 
 The [ESP-IDF VS Code Extension](https://marketplace.visualstudio.com/items?itemName=espressif.esp-idf-extension) (`espressif.esp-idf-extension`) provides build/flash/monitor commands and IntelliSense.
 
-After installing the extension, configure `.vscode/settings.json` with **absolute paths** for the `idf.*` settings. The extension does not reliably resolve `${env:HOME}` and will fail to activate if the paths are wrong.
-
-Required settings (adjust `/Users/<you>/` to your home directory):
+After installing the extension, configure `.vscode/settings.json` with the `idf.*` settings. Use `${env:HOME}` to keep paths portable across machines:
 
 ```json
 {
-  "idf.espIdfPath": "/Users/<you>/.espressif/v6.0/esp-idf",
-  "idf.toolsPath": "/Users/<you>/.espressif",
-  "idf.pythonInstallPath": "/Users/<you>/.espressif/python_env/idf6.0_py3.14_env/bin/python"
+  "idf.espIdfPath": "${env:HOME}/.espressif/v6.0/esp-idf",
+  "idf.toolsPath": "${env:HOME}/.espressif",
+  "idf.pythonInstallPath": "${env:HOME}/.espressif/python_env/idf6.0_py3.14_env/bin/python"
 }
 ```
 
 **Troubleshooting:**
 
-- **`command 'espIdf.buildDevice' not found`** — The extension failed to activate. Check the Output panel (`Cmd+Shift+U` → "ESP-IDF") for errors. Common cause: `idf.*` paths using `${env:HOME}` instead of absolute paths.
-- **`TypeError: Cannot convert undefined or null to object`** in the extension host log — Same root cause: variable-based paths in `idf.*` settings. Switch to absolute paths.
+- **`command 'espIdf.buildDevice' not found`** — The extension failed to activate. Check the Output panel (`Cmd+Shift+U` → "ESP-IDF") for errors.
 - **Python virtual environment not found** — Run `~/.espressif/v6.0/esp-idf/install.sh esp32s3` to create it.
 - **`idf.toolsPath`** should point to `~/.espressif` (the root), not `~/.espressif/tools`.
 
