@@ -1,5 +1,5 @@
 {
-  "C_Cpp.default.compilerPath": "${env:HOME}/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
+  "C_Cpp.default.compilerPath": "${env:HOME}/.espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
   "C_Cpp.default.includePath": [
     "${workspaceFolder}/altair8800",
     "${workspaceFolder}/main",
@@ -9,7 +9,7 @@
     "${workspaceFolder}/drivers",
     "${workspaceFolder}/terminal",
     "${workspaceFolder}/build/config",
-    "${env:HOME}/esp/esp-idf/components/**"
+    "${env:HOME}/.espressif/v6.0/esp-idf/components/**"
   ],
   "C_Cpp.files.exclude": {
     "**/build": true,
@@ -27,9 +27,9 @@
     "sdkconfig": "ini",
     "*.h": "c"
   },
-  "idf.espIdfPath": "${env:HOME}/esp/v6.0/esp-idf",
+  "idf.espIdfPath": "${env:HOME}/.espressif/v6.0/esp-idf",
   "idf.toolsPath": "${env:HOME}/.espressif",
-  "idf.pythonInstallPath": "/opt/homebrew/bin/python3",
+  "idf.pythonInstallPath": "${env:HOME}/.espressif/python_env/idf6.0_py3.14_env/bin/python",
   "idf.port": "/dev/tty.usbmodem101",
   "idf.openOcdConfigs": [
     "board/esp32s3-builtin.cfg"
@@ -37,5 +37,6 @@
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3"
   },
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.currentSetup": "${env:HOME}/.espressif/v6.0/esp-idf"
 }

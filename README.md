@@ -1,5 +1,7 @@
 # ESP32-S3 Altair 8800 Emulator
 
+> **Target SDK:** ESP-IDF v6.0 (Espressif IoT Development Framework)
+
 An Altair 8800 emulator running on ESP32-S3 with WebSocket terminal access.
 
 ## Building
@@ -11,36 +13,78 @@ An Altair 8800 emulator running on ESP32-S3 with WebSocket terminal access.
 
 ### Setup ESP-IDF Environment
 
-Before running any `idf.py` commands, you must source the ESP-IDF environment script. This adds `idf.py` to your PATH and sets required environment variables.
+#### 1. Install ESP-IDF
+
+Follow the [ESP-IDF Getting Started](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/) guide. On macOS, the default install location is `~/.espressif/v6.0/esp-idf/`.
+
+#### 2. Set up the Python virtual environment
+
+After installing ESP-IDF, you must run the install script to create the Python virtual environment:
 
 ```bash
-# Run this in each new terminal session (adjust path to your ESP-IDF installation)
-source $HOME/esp/v6.0/esp-idf/export.sh
+~/.espressif/v6.0/esp-idf/install.sh esp32s3
 ```
 
-**Tip:** Add an alias to your shell profile (`~/.zshrc`, `.zprofile` or `~/.bashrc`):
+If you see `ESP-IDF Python virtual environment ... not found` when sourcing `export.sh`, re-run this step.
+
+#### 3. Source the environment
+
+Before running any `idf.py` commands, source the ESP-IDF environment script:
 
 ```bash
-alias get_idf='source $HOME/esp/v6.0/esp-idf/export.sh'
+source $HOME/.espressif/v6.0/esp-idf/export.sh
+```
+
+**Tip:** Add an alias to your shell profile (`~/.zshrc` or `~/.zprofile`):
+
+```bash
+alias get_idf='source $HOME/.espressif/v6.0/esp-idf/export.sh'
 ```
 
 Then simply run `get_idf` before building.
 
+### VS Code Extension Setup
+
+The [ESP-IDF VS Code Extension](https://marketplace.visualstudio.com/items?itemName=espressif.esp-idf-extension) (`espressif.esp-idf-extension`) provides build/flash/monitor commands and IntelliSense.
+
+After installing the extension, configure `.vscode/settings.json` with **absolute paths** for the `idf.*` settings. The extension does not reliably resolve `${env:HOME}` and will fail to activate if the paths are wrong.
+
+Required settings (adjust `/Users/<you>/` to your home directory):
+
+```json
+{
+  "idf.espIdfPath": "/Users/<you>/.espressif/v6.0/esp-idf",
+  "idf.toolsPath": "/Users/<you>/.espressif",
+  "idf.pythonInstallPath": "/Users/<you>/.espressif/python_env/idf6.0_py3.14_env/bin/python"
+}
+```
+
+**Troubleshooting:**
+
+- **`command 'espIdf.buildDevice' not found`** — The extension failed to activate. Check the Output panel (`Cmd+Shift+U` → "ESP-IDF") for errors. Common cause: `idf.*` paths using `${env:HOME}` instead of absolute paths.
+- **`TypeError: Cannot convert undefined or null to object`** in the extension host log — Same root cause: variable-based paths in `idf.*` settings. Switch to absolute paths.
+- **Python virtual environment not found** — Run `~/.espressif/v6.0/esp-idf/install.sh esp32s3` to create it.
+- **`idf.toolsPath`** should point to `~/.espressif` (the root), not `~/.espressif/tools`.
+
 ### Build Commands
+
+The VS Code tasks (`Cmd+Shift+B`) and ESP-IDF extension commands handle environment sourcing automatically. For CLI usage:
 
 ```bash
 # Source ESP-IDF environment
-source $HOME/esp/v6.0/esp-idf/export.sh
+source $HOME/.espressif/v6.0/esp-idf/export.sh
 
 # Set target (first time only)
 idf.py set-target esp32s3
 
-# Build
-idf.py build
+# Build (use ninja directly for parallel control — j=6 benchmarked fastest on Apple Silicon)
+idf.py reconfigure && ninja -C build -j6 all
 
-# Flash and monitor
-idf.py -p /dev/ttyUSB0 flash monitor
+# Flash and monitor (adjust port for your board)
+idf.py -p /dev/cu.usbmodem1101 flash monitor
 ```
+
+If the build fails with a Python environment mismatch, run `idf.py fullclean` first.
 
 ## Configuration
 
