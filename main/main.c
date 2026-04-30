@@ -51,6 +51,12 @@
 
 // Front panel display
 #include "altair_panel.h"
+#include "panel_display.h"
+
+// VT100 terminal (ST7305 / Waveshare RLCD only)
+#if CONFIG_ALTAIR_DISPLAY_ST7305
+#include "vt100_terminal.h"
+#endif
 
 // I/O port handlers
 #include "port_drivers/io_ports.h"
@@ -165,33 +171,24 @@ static uint8_t process_ansi_sequence(uint8_t ch)
 }
 
 // Terminal read function - non-blocking
-// Reads from WebSocket console if enabled, otherwise USB Serial JTAG
+// Always reads from USB Serial JTAG (WebSocket input disabled)
 static uint8_t terminal_read(void)
 {
     uint8_t ch = 0x00;
-    
-    if (s_ws_enabled_cached) {
-        // WebSocket enabled - read from WebSocket console
-        uint8_t ws_ch;
-        if (websocket_console_try_dequeue_input(&ws_ch)) {
-            ch = (uint8_t)(ws_ch & ASCII_MASK_7BIT);
-        }
-    } else {
-        // WebSocket not enabled - fall back to USB Serial JTAG
-        uint8_t c;
-        int len = usb_serial_jtag_read_bytes(&c, 1, 0);
-        if (len > 0) {
-            ch = (uint8_t)(c & ASCII_MASK_7BIT);
-            ch = process_ansi_sequence(ch);
-        }
+
+    uint8_t c;
+    int len = usb_serial_jtag_read_bytes(&c, 1, 0);
+    if (len > 0) {
+        ch = (uint8_t)(c & ASCII_MASK_7BIT);
+        ch = process_ansi_sequence(ch);
     }
-    
+
     // Check for CTRL-M (ASCII 28) - toggle CPU mode
     if (ch == 28) {
         cpu_state_toggle_mode();
         return 0x00;  // Don't pass to emulator
     }
-    
+
     return ch;
 }
 
@@ -201,11 +198,10 @@ static void terminal_write(uint8_t c)
 {
     c &= ASCII_MASK_7BIT;  // Take first 7 bits only
 
-    // Send to WebSocket client (if enabled)
-    // Uses cached value to avoid atomic_load overhead in hot path
-    if (s_ws_enabled_cached) {
-        websocket_console_enqueue_output(c);
-    }
+    // Mirror output to the on-device VT100 terminal (ST7305 / Waveshare only)
+#if CONFIG_ALTAIR_DISPLAY_ST7305
+    vt100_terminal_putchar(c);
+#endif
 
     // Always send to USB Serial JTAG as well
     // usb_serial_jtag_write_bytes(&c, 1, 0);
@@ -281,11 +277,82 @@ static bool check_config_clear_request(void)
     return false;  // Config not cleared
 }
 
+static bool serial_read_line(const char *prompt, char *buffer, size_t buffer_len, bool mask_input)
+{
+    size_t length = 0;
+
+    if (!buffer || buffer_len == 0) {
+        return false;
+    }
+
+    buffer[0] = '\0';
+    printf("%s", prompt);
+
+    for (;;) {
+        uint8_t c;
+        int read_len = usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(100));
+        if (read_len <= 0) {
+            continue;
+        }
+
+        if (c == '\r' || c == '\n') {
+            printf("\n");
+            buffer[length] = '\0';
+            return true;
+        }
+
+        if (c == 0x08 || c == 0x7F) {
+            if (length > 0) {
+                length--;
+                buffer[length] = '\0';
+                printf("\b \b");
+            }
+            continue;
+        }
+
+        if (c < 32 || c > 126) {
+            continue;
+        }
+
+        if (length + 1 >= buffer_len) {
+            continue;
+        }
+
+        buffer[length++] = (char)c;
+        buffer[length] = '\0';
+        printf(mask_input ? "*" : "%c", c);
+    }
+}
+
+static bool prompt_serial_wifi_credentials(char *ssid, size_t ssid_len,
+                                           char *password, size_t password_len)
+{
+    printf("\n");
+    printf("No stored WiFi credentials were found.\n");
+    printf("Enter credentials in the serial monitor, or press Enter on SSID to use captive portal instead.\n\n");
+
+    if (!serial_read_line("WiFi SSID: ", ssid, ssid_len, false)) {
+        return false;
+    }
+    if (ssid[0] == '\0') {
+        return false;
+    }
+
+    if (!serial_read_line("WiFi Password: ", password, password_len, true)) {
+        return false;
+    }
+
+    return true;
+}
+
 /**
  * @brief Initialize WiFi - connect to stored network or start captive portal
  */
 static void setup_wifi(void)
 {
+    char serial_ssid[CONFIG_SSID_MAX_LEN + 1] = {0};
+    char serial_password[CONFIG_PASSWORD_MAX_LEN + 1] = {0};
+
     // Initialize WiFi subsystem
     if (!wifi_init()) {
         printf("WiFi initialization failed!\n");
@@ -329,7 +396,40 @@ static void setup_wifi(void)
             printf("WiFi connection failed (result=%d), starting captive portal...\n", result);
         }
     } else {
-        printf("No WiFi credentials configured - starting captive portal\n");
+        if (prompt_serial_wifi_credentials(serial_ssid, sizeof(serial_ssid),
+                                           serial_password, sizeof(serial_password))) {
+            if (config_save(serial_ssid, serial_password, NULL)) {
+                printf("Connecting to WiFi using serial-entered credentials...\n");
+                wifi_result_t result = wifi_connect();
+                if (result == WIFI_RESULT_OK) {
+                    g_wifi_connected = true;
+                    wifi_get_ip(g_ip_address, sizeof(g_ip_address));
+                    printf("WiFi connected! IP: %s\n", g_ip_address);
+
+                    const char* mdns_name = get_mdns_hostname();
+                    if (mdns_name) {
+                        printf("mDNS hostname: %s.local\n", mdns_name);
+                    }
+
+                    printf("Starting WebSocket terminal server...\n");
+                    websocket_console_init();
+                    if (websocket_console_start_server()) {
+                        printf("WebSocket server started\n");
+                        printf("Terminal page: http://%s/\n", g_ip_address);
+                        atomic_store(&g_websocket_enabled, true);
+                    } else {
+                        printf("Failed to start WebSocket server\n");
+                    }
+                    return;
+                }
+
+                printf("Serial-entered WiFi credentials did not connect (result=%d). Falling back to captive portal.\n", result);
+            } else {
+                printf("Failed to save serial-entered WiFi credentials. Falling back to captive portal.\n");
+            }
+        } else {
+            printf("No WiFi credentials configured - starting captive portal\n");
+        }
     }
 
     // Start captive portal for configuration
@@ -366,7 +466,11 @@ static void panel_update_task(void *pvParameters)
 
     TickType_t last_wake = xTaskGetTickCount();
     for (;;) {
+#if CONFIG_ALTAIR_DISPLAY_ST7305
+        vt100_terminal_flush();
+#else
         altair_panel_update(&cpu);
+#endif
         // If we overran the period, reset to avoid "catch-up" bursts.
         if ((xTaskGetTickCount() - last_wake) > pdMS_TO_TICKS(PANEL_UPDATE_INTERVAL_MS)) {
             last_wake = xTaskGetTickCount();
@@ -602,10 +706,20 @@ void app_main(void)
     config_init();
 
     // Initialize front panel display on Core 0
-    printf("Initializing front panel display on Core 0...\n");
+    printf("Initializing display on Core 0...\n");
+#if CONFIG_ALTAIR_DISPLAY_ST7305
+    // Waveshare RLCD: initialise hardware then switch straight to VT100 mode.
+    // The front-panel LED layout is not shown; the display acts as a text terminal.
+    panel_display_init();
+    vt100_terminal_init();
+    printf("VT100 terminal ready: %d cols x %d rows\n", VT100_COLS, VT100_ROWS);
+#else
     altair_panel_init();
+    printf("Running display DMA test before emulator startup...\n");
+    altair_panel_run_startup_test(2000);
     // Keep backlight off during WiFi connect to reduce cold-boot power draw
     altair_panel_set_backlight(0);
+#endif
 
     // Start panel update task on Core 0
     xTaskCreatePinnedToCore(

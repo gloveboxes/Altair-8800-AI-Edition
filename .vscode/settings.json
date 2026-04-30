@@ -9,7 +9,7 @@
     "${workspaceFolder}/drivers",
     "${workspaceFolder}/terminal",
     "${workspaceFolder}/build/config",
-    "${env:HOME}/.espressif/v6.0/esp-idf/components/**"
+    "${env:HOME}/esp/esp-idf/components/**"
   ],
   "C_Cpp.files.exclude": {
     "**/build": true,
@@ -27,9 +27,9 @@
     "sdkconfig": "ini",
     "*.h": "c"
   },
-  "idf.espIdfPath": "${env:HOME}/.espressif/v6.0/esp-idf",
+  "idf.espIdfPath": "${env:HOME}/esp/esp-idf",
   "idf.toolsPath": "${env:HOME}/.espressif",
-  "idf.pythonInstallPath": "${env:HOME}/.espressif/python_env/idf6.0_py3.14_env/bin/python",
+  "idf.pythonInstallPath": "${env:HOME}/.espressif/python_env/idf6.1_py3.14_env/bin/python",
   "idf.port": "/dev/tty.usbmodem101",
   "idf.openOcdConfigs": [
     "board/esp32s3-builtin.cfg"
@@ -38,5 +38,5 @@
     "IDF_TARGET": "esp32s3"
   },
   "idf.flashType": "UART",
-  "idf.currentSetup": "${env:HOME}/.espressif/v6.0/esp-idf"
+  "idf.currentSetup": "${env:HOME}/esp/esp-idf"
 }

@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "iPhone-Camera-Server": {
+      "type": "stdio",
+      "command": "/Users/dave/GitHub/camera-server/.venv/bin/python",
+      "args": ["/Users/dave/GitHub/camera-server/camera_server.py"]
+    }
+  }
+}

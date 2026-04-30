@@ -1,5 +1,7 @@
 # Build output
 build/
+build-freenove/
+build-waveshare/
 reference/
 
 # Generated config
