@@ -2,8 +2,8 @@
   "servers": {
     "iPhone-Camera-Server": {
       "type": "stdio",
-      "command": "/Users/dave/GitHub/camera-server/.venv/bin/python",
-      "args": ["/Users/dave/GitHub/camera-server/camera_server.py"]
+      "command": "/Users/dave/GitHub/continuity-camera-mcp-server/.venv/bin/python",
+      "args": ["/Users/dave/GitHub/continuity-camera-mcp-server/camera_server.py"]
     }
   }
 }
