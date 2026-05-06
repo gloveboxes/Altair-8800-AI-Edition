@@ -35,11 +35,6 @@ int panel_display_height(void)
 #endif
 }
 
-bool panel_display_is_monochrome(void)
-{
-    return false;
-}
-
 bool panel_display_is_banded(void)
 {
     return false;

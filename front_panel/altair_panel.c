@@ -60,51 +60,28 @@ static panel_theme_t s_theme;
 
 static void configure_layout_and_theme(void)
 {
-    const int led_rows_shift_x = 4;
+    const int led_rows_shift_x = 0;
 
-    if (panel_display_is_monochrome()) {
-        s_layout.led_size = 18;
-        s_layout.led_spacing_status = 39;
-        s_layout.led_spacing_address = 24;
-        s_layout.led_spacing_data = 24;
-        s_layout.led_label_offset_y = 26;
-        s_layout.x_text_left = 10;
-        s_layout.x_text_right_margin = 12;
-        s_layout.y_title = 12;
-        s_layout.y_status = 60;
-        s_layout.y_address = 144;
-        s_layout.y_data = 216;
-        s_layout.x_address_start = 8;
-        s_layout.y_ip_address = panel_display_height() - 24;
+    s_layout.led_size = 15;
+    s_layout.led_spacing_status = 32;
+    s_layout.led_spacing_address = 20;
+    s_layout.led_spacing_data = 20;
+    s_layout.led_label_offset_y = 17;
+    s_layout.x_text_left = 2;
+    s_layout.x_text_right_margin = 2;
+    s_layout.y_title = 5;
+    s_layout.y_status = 35;
+    s_layout.y_address = 100;
+    s_layout.y_data = 170;
+    s_layout.x_address_start = 2;
+    s_layout.y_ip_address = 220;
 
-        s_theme.background = PANEL_COLOR_WHITE;
-        s_theme.led_on = PANEL_COLOR_BLACK;
-        s_theme.led_off = PANEL_COLOR_WHITE;
-        s_theme.text_primary = PANEL_COLOR_BLACK;
-        s_theme.text_secondary = PANEL_COLOR_BLACK;
-        s_theme.title_accent = PANEL_COLOR_BLACK;
-    } else {
-        s_layout.led_size = 15;
-        s_layout.led_spacing_status = 32;
-        s_layout.led_spacing_address = 20;
-        s_layout.led_spacing_data = 20;
-        s_layout.led_label_offset_y = 2;
-        s_layout.x_text_left = 2;
-        s_layout.x_text_right_margin = 2;
-        s_layout.y_title = 2;
-        s_layout.y_status = 22;
-        s_layout.y_address = 78;
-        s_layout.y_data = 130;
-        s_layout.x_address_start = 2;
-        s_layout.y_ip_address = 162;
-
-        s_theme.background = 0x18C8;
-        s_theme.led_on = PANEL_COLOR_RED;
-        s_theme.led_off = 0x3000;
-        s_theme.text_primary = 0xEF5D;
-        s_theme.text_secondary = 0xBDF7;
-        s_theme.title_accent = 0xD69A;
-    }
+    s_theme.background = 0x18C8;
+    s_theme.led_on = PANEL_COLOR_RED;
+    s_theme.led_off = 0x3000;
+    s_theme.text_primary = 0xEF5D;
+    s_theme.text_secondary = 0xBDF7;
+    s_theme.title_accent = 0xD69A;
 
     int address_right_led_x = s_layout.x_address_start + (15 * s_layout.led_spacing_address);
     s_layout.x_status_start = address_right_led_x - (9 * s_layout.led_spacing_status);
@@ -113,6 +90,8 @@ static void configure_layout_and_theme(void)
     s_layout.x_status_start += led_rows_shift_x;
     s_layout.x_address_start += led_rows_shift_x;
     s_layout.x_data_start += led_rows_shift_x;
+
+    s_layout.x_status_start -= 4;
 }
 
 //-----------------------------------------------------------------------------
@@ -205,13 +184,14 @@ static bool update_led_row_span(uint32_t new_bits, uint32_t old_bits, int num_le
 
 static void draw_status_labels(void)
 {
-    const char *status_labels[] = {"INT", "WO", "STCK", "HLTA", "OUT", "M1", "INP", "MEMR", "PROT", "INTE"};
+    const char *status_labels[] = {"INT ", "WO ", "STCK", "HLTA", "OUT ", "M1 ", "INP ", "MEMR", "PROT", "INTE"};
     int status_led_center_offset = s_layout.led_size / 2;
     int x = s_layout.x_status_start;
 
     for (int i = 9; i >= 0; i--) {
         int label_width = (int)strlen(status_labels[i]) * 6;
         int label_x = x + status_led_center_offset - (label_width / 2);
+        label_x += 4;
         panel_display_draw_string_small(label_x, s_layout.y_status + s_layout.led_label_offset_y,
                                         status_labels[i], s_theme.text_secondary,
                                         s_theme.background);
@@ -244,57 +224,11 @@ static void draw_data_labels(void)
     for (int i = 7; i >= 0; i--) {
         char label[3];
         snprintf(label, sizeof(label), "%d", i);
-        panel_display_draw_string_small(x + data_label_offset_x,
+        panel_display_draw_string_small(x + data_label_offset_x + 5,
                                         s_layout.y_data + s_layout.led_label_offset_y,
                                         label, s_theme.text_secondary, s_theme.background);
         x += s_layout.led_spacing_data;
     }
-}
-
-static int led_rows_band_left(void)
-{
-    return s_layout.x_status_start - 4;
-}
-
-static int led_rows_band_width(void)
-{
-    int rightmost_led_x = s_layout.x_address_start + (15 * s_layout.led_spacing_address);
-    return (rightmost_led_x + s_layout.led_size + 4) - led_rows_band_left();
-}
-
-static int led_rows_band_height(void)
-{
-    int height = s_layout.led_label_offset_y + 7;
-    return (height > s_layout.led_size) ? height : s_layout.led_size;
-}
-
-static void redraw_monochrome_led_rows(uint16_t status, uint16_t address, uint8_t data)
-{
-    int band_left = led_rows_band_left();
-    int band_width = led_rows_band_width();
-    int band_height = led_rows_band_height();
-
-    panel_display_fill_rect(band_left, s_layout.y_status, band_width, band_height,
-                            s_theme.background);
-    panel_display_fill_rect(band_left, s_layout.y_address, band_width, band_height,
-                            s_theme.background);
-    panel_display_fill_rect(band_left, s_layout.y_data, band_width, band_height,
-                            s_theme.background);
-
-    draw_status_labels();
-    draw_address_labels();
-    draw_data_labels();
-
-    panel_display_draw_led_row(status, 10, s_layout.x_status_start, s_layout.y_status,
-                               s_layout.led_size, s_layout.led_spacing_status,
-                               s_theme.led_on, s_theme.led_off, s_theme.background);
-    panel_display_draw_led_row(address, 16, s_layout.x_address_start, s_layout.y_address,
-                               s_layout.led_size, s_layout.led_spacing_address,
-                               s_theme.led_on, s_theme.led_off, s_theme.background);
-    panel_display_draw_led_row(data, 8, s_layout.x_data_start, s_layout.y_data,
-                               s_layout.led_size, s_layout.led_spacing_data,
-                               s_theme.led_on, s_theme.led_off, s_theme.background);
-    panel_display_present();
 }
 
 /**
@@ -402,13 +336,6 @@ static void update_changed_leds(uint16_t new_status, uint16_t old_status,
                                  uint16_t new_address, uint16_t old_address,
                                  uint8_t new_data, uint8_t old_data)
 {
-    if (panel_display_is_monochrome()) {
-        if (new_status != old_status || new_address != old_address || new_data != old_data) {
-            redraw_monochrome_led_rows(new_status, new_address, new_data);
-        }
-        return;
-    }
-
     bool any_updated = false;
 
     any_updated |= update_led_row_span(new_status, old_status, 10,

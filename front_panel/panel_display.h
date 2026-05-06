@@ -19,7 +19,6 @@ typedef uint16_t panel_color_t;
 bool panel_display_init(void);
 int panel_display_width(void);
 int panel_display_height(void);
-bool panel_display_is_monochrome(void);
 bool panel_display_is_banded(void);
 bool panel_display_bands_are_vertical(void);
 int panel_display_band_height(void);

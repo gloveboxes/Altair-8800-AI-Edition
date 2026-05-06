@@ -59,16 +59,12 @@ void vt100_terminal_putchar(uint8_t c);
 void vt100_terminal_flush(void);
 
 /**
- * @brief Update the status bar CPU LEDs on colour VT100 displays.
- *
- * Monochrome displays do not have a status bar, so this is a no-op there.
+ * @brief Update the status bar CPU LEDs on VT100 displays.
  */
 void vt100_terminal_update_status(uint16_t address, uint8_t data, uint16_t status);
 
 /**
- * @brief Update the IP/host text shown in the colour VT100 status bar.
- *
- * Monochrome displays do not have a status bar, so this is a no-op there.
+ * @brief Update the IP/host text shown in the VT100 status bar.
  */
 void vt100_terminal_set_ip(const char *ip_addr, const char *hostname);
 
