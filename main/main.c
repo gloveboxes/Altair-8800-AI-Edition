@@ -65,6 +65,7 @@
 #include "port_drivers/io_ports.h"
 #include "port_drivers/chat_io.h"
 #include "port_drivers/files_io.h"
+#include "port_drivers/weather_io.h"
 
 // CPU state and virtual monitor
 #include "cpu_state.h"
@@ -245,6 +246,7 @@ static void emulator_task(void *pvParameters)
     // Initialize file transfer driver (creates Core 0 socket task)
     files_io_init();
     chat_io_init();
+    weather_io_init();
 
     //-------------------------------------------------------------------------
     // Initialize SD card and disk system on Core 1 (same core as emulator)

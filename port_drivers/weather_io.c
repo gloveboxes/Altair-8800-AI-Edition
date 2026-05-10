@@ -1,0 +1,897 @@
+/**
+ * @file weather_io.c
+ * @brief OpenWeatherMap I/O port driver.
+ *
+ * A background FreeRTOS task fetches current conditions and a near-term
+ * forecast from OpenWeatherMap once at startup (after the network is
+ * up) and then every WEATHER_REFRESH_INTERVAL_MS. Parsed string
+ * fields live in a single PSRAM-resident state struct guarded by a
+ * mutex; the Altair side reads them through ports 46/47/200 with no
+ * blocking and no allocation.
+ *
+ * Altair port contract:
+ *   OUT 46, field_id   -> selects one field; reply available on port 200
+ *   OUT 47, anything   -> wakes task to refresh now
+ *   IN  47             -> WEATHER_STATUS_*
+ *   IN  200            -> next byte of selected field reply (NUL-terminated)
+ */
+
+#include "port_drivers/weather_io.h"
+
+#include "config.h"
+#include "wifi.h"
+
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "cJSON.h"
+#include "driver/usb_serial_jtag.h"
+#include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
+#include "esp_http_client.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#define WEATHER_TAG "WEATHER_IO"
+
+#define WEATHER_REFRESH_INTERVAL_MS (15 * 60 * 1000)
+#define WEATHER_RETRY_INTERVAL_MS   (60 * 1000)
+#define WEATHER_HTTP_TIMEOUT_MS     15000
+#define WEATHER_HTTP_HOST           "api.openweathermap.org"
+/* Keep response buffers small. /weather is ~500B, /forecast?cnt=1 is ~2KB. */
+#define WEATHER_RESP_MAX            4096
+#define WEATHER_URL_MAX             320
+#define WEATHER_TASK_STACK          6144
+#define WEATHER_TASK_PRIORITY       4
+#define WEATHER_TASK_CORE           0
+
+#define WEATHER_STR_MAX             40
+#define WEATHER_DESC_MAX            48
+#define WEATHER_LOC_MAX             64
+#define WEATHER_KEY_MAX             40
+#define WEATHER_ERR_MAX             96
+#define WEATHER_NUM_MAX             12
+#define WEATHER_WHEN_MAX            20
+
+typedef struct
+{
+    /* Pre-formatted strings; access guarded by s_mutex. */
+    char city[WEATHER_STR_MAX];
+    char cur_main[WEATHER_STR_MAX];
+    char cur_desc[WEATHER_DESC_MAX];
+    char cur_temp[WEATHER_NUM_MAX];
+    char cur_humid[WEATHER_NUM_MAX];
+    char cur_wind[WEATHER_NUM_MAX];
+    char fc_main[WEATHER_STR_MAX];
+    char fc_desc[WEATHER_DESC_MAX];
+    char fc_temp[WEATHER_NUM_MAX];
+    char fc_when[WEATHER_WHEN_MAX];
+    char units[4];      /* "C" / "F" / "K" */
+    char err[WEATHER_ERR_MAX];
+    int64_t last_fetch_us;
+    uint8_t status;
+} weather_state_t;
+
+static weather_state_t *s_state = NULL;
+static SemaphoreHandle_t s_mutex = NULL;
+static TaskHandle_t s_task = NULL;
+static volatile bool s_network_available = false;
+static volatile bool s_initialized = false;
+
+/* Settings (loaded from NVS). Location can be a city name like
+ * "London,UK" or "lat=...&lon=..." raw fragment. */
+static char s_api_key[WEATHER_KEY_MAX + 1];
+static char s_location[WEATHER_LOC_MAX + 1];
+static char s_units_str[12]; /* "metric" / "imperial" / "standard" */
+
+/* Active field reply, reused across reads from port 200. */
+static char s_reply[WEATHER_DESC_MAX + 4];
+static size_t s_reply_len = 0;
+static size_t s_reply_pos = 0;
+
+/* HTTP body capture (PSRAM). */
+typedef struct
+{
+    char *buf;
+    size_t cap;
+    size_t len;
+    bool truncated;
+} weather_http_ctx_t;
+
+/* ---- forward decls ---- */
+static void weather_task(void *arg);
+static bool weather_fetch_once(void);
+static void weather_load_settings(void);
+static void weather_set_units_letter(void);
+static void weather_set_error(const char *fmt, ...);
+static void weather_clear_data_locked(void);
+static esp_err_t weather_http_event(esp_http_client_event_t *evt);
+static bool weather_http_get(const char *url, weather_http_ctx_t *ctx);
+static bool weather_parse_current(const char *json);
+static bool weather_parse_forecast(const char *json);
+static void weather_copy_string(char *dst, size_t dst_len, const cJSON *node);
+static void weather_copy_number(char *dst, size_t dst_len, const cJSON *node);
+static void weather_capitalize(char *s);
+
+/* PSRAM-aware allocators for cJSON. cJSON pulls many small allocs;
+ * routing them to PSRAM keeps internal DRAM free for SDMMC/Wi-Fi. */
+static void *weather_cjson_malloc(size_t sz)
+{
+    void *p = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p)
+    {
+        p = malloc(sz);
+    }
+    return p;
+}
+
+static void weather_cjson_free(void *p)
+{
+    free(p);
+}
+
+static int64_t weather_now_us(void)
+{
+    return esp_timer_get_time();
+}
+
+void weather_io_init(void)
+{
+    if (s_initialized)
+    {
+        return;
+    }
+
+    s_state = heap_caps_calloc(1, sizeof(weather_state_t),
+                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_state)
+    {
+        s_state = calloc(1, sizeof(weather_state_t));
+    }
+    if (!s_state)
+    {
+        ESP_LOGE(WEATHER_TAG, "Failed to allocate weather state");
+        return;
+    }
+
+    s_mutex = xSemaphoreCreateMutex();
+    if (!s_mutex)
+    {
+        ESP_LOGE(WEATHER_TAG, "Failed to allocate weather mutex");
+        free(s_state);
+        s_state = NULL;
+        return;
+    }
+
+    cJSON_Hooks hooks = { .malloc_fn = weather_cjson_malloc, .free_fn = weather_cjson_free };
+    cJSON_InitHooks(&hooks);
+
+    weather_load_settings();
+    weather_set_units_letter();
+    s_state->status = WEATHER_STATUS_NONE;
+
+    BaseType_t ok = xTaskCreatePinnedToCore(weather_task, "weather_io",
+                                            WEATHER_TASK_STACK, NULL,
+                                            WEATHER_TASK_PRIORITY,
+                                            &s_task, WEATHER_TASK_CORE);
+    if (ok != pdPASS)
+    {
+        ESP_LOGE(WEATHER_TAG, "Failed to create weather task");
+        vSemaphoreDelete(s_mutex);
+        s_mutex = NULL;
+        free(s_state);
+        s_state = NULL;
+        return;
+    }
+
+    s_initialized = true;
+    printf("[Weather] driver initialized on ports 46/47\n");
+}
+
+void weather_io_set_network_available(bool available)
+{
+    bool was = s_network_available;
+    s_network_available = available;
+    if (available && !was && s_task)
+    {
+        /* Wake task to fetch immediately on transition to up. */
+        xTaskNotifyGive(s_task);
+    }
+}
+
+/* ---- task ---- */
+
+static void weather_task(void *arg)
+{
+    (void)arg;
+
+    for (;;)
+    {
+        /* Wait for network. Re-check every second so we don't burn CPU. */
+        while (!s_network_available || !wifi_is_connected())
+        {
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+        }
+
+        if (s_api_key[0] == '\0' || s_location[0] == '\0')
+        {
+            weather_set_error("API key or location not configured");
+            /* Wait for refresh trigger or 60s. */
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WEATHER_RETRY_INTERVAL_MS));
+            continue;
+        }
+
+        if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            s_state->status = WEATHER_STATUS_FETCHING;
+            xSemaphoreGive(s_mutex);
+        }
+
+        bool ok = weather_fetch_once();
+        TickType_t wait = pdMS_TO_TICKS(ok ? WEATHER_REFRESH_INTERVAL_MS
+                                          : WEATHER_RETRY_INTERVAL_MS);
+        ulTaskNotifyTake(pdTRUE, wait);
+    }
+}
+
+/* ---- HTTP ---- */
+
+static esp_err_t weather_http_event(esp_http_client_event_t *evt)
+{
+    weather_http_ctx_t *ctx = (weather_http_ctx_t *)evt->user_data;
+    if (evt->event_id == HTTP_EVENT_ON_DATA && ctx && evt->data && evt->data_len > 0)
+    {
+        size_t copy = (size_t)evt->data_len;
+        if (ctx->len + copy + 1 > ctx->cap)
+        {
+            copy = (ctx->cap > ctx->len + 1) ? (ctx->cap - ctx->len - 1) : 0;
+            ctx->truncated = true;
+        }
+        if (copy > 0)
+        {
+            memcpy(ctx->buf + ctx->len, evt->data, copy);
+            ctx->len += copy;
+            ctx->buf[ctx->len] = '\0';
+        }
+    }
+    return ESP_OK;
+}
+
+static bool weather_http_get(const char *url, weather_http_ctx_t *ctx)
+{
+    ctx->len = 0;
+    ctx->truncated = false;
+    if (ctx->buf && ctx->cap > 0)
+    {
+        ctx->buf[0] = '\0';
+    }
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .timeout_ms = WEATHER_HTTP_TIMEOUT_MS,
+        .event_handler = weather_http_event,
+        .user_data = ctx,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size = 1024,
+        .buffer_size_tx = 1024,
+        .disable_auto_redirect = false,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client)
+    {
+        weather_set_error("HTTP client init failed");
+        return false;
+    }
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status = err == ESP_OK ? esp_http_client_get_status_code(client) : 0;
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK)
+    {
+        weather_set_error("HTTP error: %s", esp_err_to_name(err));
+        return false;
+    }
+    if (status != 200)
+    {
+        weather_set_error("HTTP %d from OpenWeatherMap", status);
+        return false;
+    }
+    if (ctx->truncated)
+    {
+        ESP_LOGW(WEATHER_TAG, "response truncated to %u bytes", (unsigned)ctx->len);
+    }
+    return true;
+}
+
+/* ---- fetch ---- */
+
+static void weather_build_url(char *url, size_t url_len, const char *path, int cnt)
+{
+    /* Location may be either a "q=..." style string or a "lat=...&lon=..."
+     * raw fragment. We pass it through as a query parameter unchanged
+     * unless it looks like coordinates. */
+    bool is_coords = (strchr(s_location, '=') != NULL);
+    if (cnt > 0)
+    {
+        snprintf(url, url_len,
+                 "https://%s/data/2.5/%s?%s%s&appid=%s&units=%s&cnt=%d",
+                 WEATHER_HTTP_HOST, path,
+                 is_coords ? "" : "q=",
+                 s_location, s_api_key, s_units_str, cnt);
+    }
+    else
+    {
+        snprintf(url, url_len,
+                 "https://%s/data/2.5/%s?%s%s&appid=%s&units=%s",
+                 WEATHER_HTTP_HOST, path,
+                 is_coords ? "" : "q=",
+                 s_location, s_api_key, s_units_str);
+    }
+}
+
+static bool weather_fetch_once(void)
+{
+    char *url = heap_caps_malloc(WEATHER_URL_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!url)
+    {
+        url = malloc(WEATHER_URL_MAX);
+    }
+    weather_http_ctx_t ctx = {0};
+    ctx.cap = WEATHER_RESP_MAX;
+    ctx.buf = heap_caps_malloc(ctx.cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!ctx.buf)
+    {
+        ctx.buf = malloc(ctx.cap);
+    }
+
+    if (!url || !ctx.buf)
+    {
+        weather_set_error("Out of memory");
+        free(url);
+        free(ctx.buf);
+        if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            s_state->status = WEATHER_STATUS_ERROR;
+            xSemaphoreGive(s_mutex);
+        }
+        return false;
+    }
+
+    bool ok = false;
+
+    weather_build_url(url, WEATHER_URL_MAX, "weather", 0);
+    if (weather_http_get(url, &ctx) && weather_parse_current(ctx.buf))
+    {
+        weather_build_url(url, WEATHER_URL_MAX, "forecast", 1);
+        if (weather_http_get(url, &ctx))
+        {
+            weather_parse_forecast(ctx.buf); /* forecast is best-effort */
+        }
+
+        if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            s_state->status = WEATHER_STATUS_READY;
+            s_state->last_fetch_us = weather_now_us();
+            s_state->err[0] = '\0';
+            xSemaphoreGive(s_mutex);
+        }
+        ok = true;
+    }
+    else
+    {
+        if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            s_state->status = WEATHER_STATUS_ERROR;
+            xSemaphoreGive(s_mutex);
+        }
+    }
+
+    free(url);
+    free(ctx.buf);
+    return ok;
+}
+
+/* ---- JSON parsing ---- */
+
+static void weather_copy_string(char *dst, size_t dst_len, const cJSON *node)
+{
+    if (!node || !cJSON_IsString(node) || !node->valuestring)
+    {
+        if (dst_len > 0) dst[0] = '\0';
+        return;
+    }
+    strncpy(dst, node->valuestring, dst_len - 1);
+    dst[dst_len - 1] = '\0';
+}
+
+static void weather_copy_number(char *dst, size_t dst_len, const cJSON *node)
+{
+    if (!node || !cJSON_IsNumber(node))
+    {
+        if (dst_len > 0) dst[0] = '\0';
+        return;
+    }
+    /* Round to nearest int; keeps display compact. */
+    double v = node->valuedouble;
+    int iv = (int)(v >= 0 ? v + 0.5 : v - 0.5);
+    snprintf(dst, dst_len, "%d", iv);
+}
+
+static void weather_capitalize(char *s)
+{
+    if (s && s[0] >= 'a' && s[0] <= 'z')
+    {
+        s[0] = (char)(s[0] - 'a' + 'A');
+    }
+}
+
+static bool weather_parse_current(const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (!root)
+    {
+        weather_set_error("Invalid current JSON");
+        return false;
+    }
+
+    cJSON *weather_arr = cJSON_GetObjectItemCaseSensitive(root, "weather");
+    cJSON *main_obj    = cJSON_GetObjectItemCaseSensitive(root, "main");
+    cJSON *wind_obj    = cJSON_GetObjectItemCaseSensitive(root, "wind");
+    cJSON *name_obj    = cJSON_GetObjectItemCaseSensitive(root, "name");
+    cJSON *cod_obj     = cJSON_GetObjectItemCaseSensitive(root, "cod");
+
+    if (cJSON_IsNumber(cod_obj) && cod_obj->valueint != 200)
+    {
+        cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "message");
+        weather_set_error("OWM cod=%d: %s", cod_obj->valueint,
+                          (msg && cJSON_IsString(msg) && msg->valuestring) ? msg->valuestring : "");
+        cJSON_Delete(root);
+        return false;
+    }
+
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        weather_copy_string(s_state->city, sizeof(s_state->city), name_obj);
+
+        if (cJSON_IsArray(weather_arr) && cJSON_GetArraySize(weather_arr) > 0)
+        {
+            cJSON *w0 = cJSON_GetArrayItem(weather_arr, 0);
+            weather_copy_string(s_state->cur_main, sizeof(s_state->cur_main),
+                                cJSON_GetObjectItemCaseSensitive(w0, "main"));
+            weather_copy_string(s_state->cur_desc, sizeof(s_state->cur_desc),
+                                cJSON_GetObjectItemCaseSensitive(w0, "description"));
+            weather_capitalize(s_state->cur_desc);
+        }
+
+        weather_copy_number(s_state->cur_temp, sizeof(s_state->cur_temp),
+                            cJSON_GetObjectItemCaseSensitive(main_obj, "temp"));
+        weather_copy_number(s_state->cur_humid, sizeof(s_state->cur_humid),
+                            cJSON_GetObjectItemCaseSensitive(main_obj, "humidity"));
+        weather_copy_number(s_state->cur_wind, sizeof(s_state->cur_wind),
+                            cJSON_GetObjectItemCaseSensitive(wind_obj, "speed"));
+        xSemaphoreGive(s_mutex);
+    }
+
+    cJSON_Delete(root);
+    return true;
+}
+
+static bool weather_parse_forecast(const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (!root)
+    {
+        return false;
+    }
+
+    cJSON *list = cJSON_GetObjectItemCaseSensitive(root, "list");
+    if (!cJSON_IsArray(list) || cJSON_GetArraySize(list) < 1)
+    {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    cJSON *item = cJSON_GetArrayItem(list, 0);
+    cJSON *weather_arr = cJSON_GetObjectItemCaseSensitive(item, "weather");
+    cJSON *main_obj    = cJSON_GetObjectItemCaseSensitive(item, "main");
+    cJSON *dt_txt      = cJSON_GetObjectItemCaseSensitive(item, "dt_txt");
+
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        if (cJSON_IsArray(weather_arr) && cJSON_GetArraySize(weather_arr) > 0)
+        {
+            cJSON *w0 = cJSON_GetArrayItem(weather_arr, 0);
+            weather_copy_string(s_state->fc_main, sizeof(s_state->fc_main),
+                                cJSON_GetObjectItemCaseSensitive(w0, "main"));
+            weather_copy_string(s_state->fc_desc, sizeof(s_state->fc_desc),
+                                cJSON_GetObjectItemCaseSensitive(w0, "description"));
+            weather_capitalize(s_state->fc_desc);
+        }
+        weather_copy_number(s_state->fc_temp, sizeof(s_state->fc_temp),
+                            cJSON_GetObjectItemCaseSensitive(main_obj, "temp"));
+        weather_copy_string(s_state->fc_when, sizeof(s_state->fc_when), dt_txt);
+        xSemaphoreGive(s_mutex);
+    }
+
+    cJSON_Delete(root);
+    return true;
+}
+
+/* ---- helpers ---- */
+
+static void weather_clear_data_locked(void)
+{
+    s_state->city[0] = '\0';
+    s_state->cur_main[0] = '\0';
+    s_state->cur_desc[0] = '\0';
+    s_state->cur_temp[0] = '\0';
+    s_state->cur_humid[0] = '\0';
+    s_state->cur_wind[0] = '\0';
+    s_state->fc_main[0] = '\0';
+    s_state->fc_desc[0] = '\0';
+    s_state->fc_temp[0] = '\0';
+    s_state->fc_when[0] = '\0';
+}
+
+static void weather_set_error(const char *fmt, ...)
+{
+    if (!s_state || !s_mutex) return;
+    char tmp[WEATHER_ERR_MAX];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap);
+    va_end(ap);
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        strncpy(s_state->err, tmp, sizeof(s_state->err) - 1);
+        s_state->err[sizeof(s_state->err) - 1] = '\0';
+        s_state->status = WEATHER_STATUS_ERROR;
+        xSemaphoreGive(s_mutex);
+    }
+    ESP_LOGW(WEATHER_TAG, "%s", tmp);
+}
+
+static void weather_set_units_letter(void)
+{
+    if (!s_state) return;
+    if (strcmp(s_units_str, "imperial") == 0)
+    {
+        strcpy(s_state->units, "F");
+    }
+    else if (strcmp(s_units_str, "standard") == 0)
+    {
+        strcpy(s_state->units, "K");
+    }
+    else
+    {
+        strcpy(s_state->units, "C");
+    }
+}
+
+/* ---- settings (NVS via config.c helpers) ---- */
+
+static void weather_load_settings(void)
+{
+    s_api_key[0] = '\0';
+    s_location[0] = '\0';
+    s_units_str[0] = '\0';
+    config_load_weather_settings(s_api_key, sizeof(s_api_key),
+                                 s_location, sizeof(s_location),
+                                 s_units_str, sizeof(s_units_str));
+    if (s_units_str[0] == '\0')
+    {
+        strcpy(s_units_str, "metric");
+    }
+}
+
+/* ---- boot-shell config ---- */
+
+static void weather_serial_drain_line(uint32_t idle_timeout_ms)
+{
+    int64_t idle_start = esp_timer_get_time();
+    while ((esp_timer_get_time() - idle_start) < ((int64_t)idle_timeout_ms * 1000))
+    {
+        uint8_t c = 0;
+        int len = usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(10));
+        if (len <= 0) continue;
+        if (c == '\r' || c == '\n') return;
+        idle_start = esp_timer_get_time();
+    }
+}
+
+static int weather_serial_read_command_ms(uint32_t timeout_ms)
+{
+    int64_t start = esp_timer_get_time();
+    while ((esp_timer_get_time() - start) < ((int64_t)timeout_ms * 1000))
+    {
+        uint8_t c = 0;
+        int len = usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(100));
+        if (len <= 0) continue;
+        if (c == '\r' || c == '\n') return 0;
+        if (c == ' ' || c == '\t') continue;
+        weather_serial_drain_line(50);
+        if (c >= 'a' && c <= 'z') c = (uint8_t)(c - 'a' + 'A');
+        return c;
+    }
+    return -1;
+}
+
+static void weather_serial_write(const char *s)
+{
+    if (!s) return;
+    size_t len = strlen(s);
+    while (len > 0)
+    {
+        int w = usb_serial_jtag_write_bytes((const uint8_t *)s, len, pdMS_TO_TICKS(100));
+        if (w <= 0) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
+        s += w; len -= (size_t)w;
+    }
+}
+
+static bool weather_serial_read_line(const char *prompt, char *buffer, size_t buffer_len, bool mask)
+{
+    size_t length = 0;
+    if (!buffer || buffer_len == 0) return false;
+    buffer[0] = '\0';
+    weather_serial_write(prompt);
+    for (;;)
+    {
+        uint8_t c = 0;
+        int n = usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(100));
+        if (n <= 0) continue;
+        if (c == '\r' || c == '\n')
+        {
+            weather_serial_write("\r\n");
+            buffer[length] = '\0';
+            return true;
+        }
+        if (c == 0x08 || c == 0x7F)
+        {
+            if (length > 0)
+            {
+                length--;
+                buffer[length] = '\0';
+                weather_serial_write("\b \b");
+            }
+            continue;
+        }
+        if (c < 32 || c > 126 || length + 1 >= buffer_len) continue;
+        buffer[length++] = (char)c;
+        buffer[length] = '\0';
+        uint8_t out = mask ? (uint8_t)'*' : c;
+        usb_serial_jtag_write_bytes(&out, 1, pdMS_TO_TICKS(100));
+    }
+}
+
+static void weather_print_menu(void)
+{
+    printf("\nOpenWeatherMap manager\n");
+    printf("  1 - edit API key, location, units\n");
+    printf("  S - show current settings\n");
+    printf("  Q - return to main config menu\n");
+}
+
+static void weather_print_settings(void)
+{
+    printf("\nOpenWeatherMap settings\n");
+    printf("  API key: %s\n", s_api_key[0] ? "set" : "not set");
+    printf("  Location: %s\n", s_location[0] ? s_location : "(not set)");
+    printf("  Units: %s\n", s_units_str[0] ? s_units_str : "metric");
+}
+
+static void weather_configure_settings(void)
+{
+    char key[WEATHER_KEY_MAX + 1];
+    char location[WEATHER_LOC_MAX + 1];
+    char units[12];
+
+    printf("\nEdit OpenWeatherMap settings\n");
+    printf("Current API key: %s\n", s_api_key[0] ? "set" : "not set");
+    printf("Current location: %s\n", s_location[0] ? s_location : "(not set)");
+    printf("Current units: %s\n", s_units_str);
+    printf("Press Enter at any prompt to keep the existing value, '-' to clear.\n");
+
+    if (!weather_serial_read_line("api key> ", key, sizeof(key), true))
+        return;
+    if (key[0] == '\0')
+    {
+        strncpy(key, s_api_key, sizeof(key) - 1);
+        key[sizeof(key) - 1] = '\0';
+    }
+    else if (strcmp(key, "-") == 0)
+    {
+        key[0] = '\0';
+    }
+
+    printf("Location examples: London,UK   Seattle,US   lat=47.6&lon=-122.3\n");
+    if (!weather_serial_read_line("location> ", location, sizeof(location), false))
+        return;
+    if (location[0] == '\0')
+    {
+        strncpy(location, s_location, sizeof(location) - 1);
+        location[sizeof(location) - 1] = '\0';
+    }
+    else if (strcmp(location, "-") == 0)
+    {
+        location[0] = '\0';
+    }
+
+    printf("Units: metric (C), imperial (F), or standard (K)\n");
+    if (!weather_serial_read_line("units> ", units, sizeof(units), false))
+        return;
+    if (units[0] == '\0')
+    {
+        strncpy(units, s_units_str, sizeof(units) - 1);
+        units[sizeof(units) - 1] = '\0';
+    }
+    if (strcmp(units, "metric") != 0 &&
+        strcmp(units, "imperial") != 0 &&
+        strcmp(units, "standard") != 0)
+    {
+        printf("Unknown units '%s' - keeping '%s'\n", units, s_units_str);
+        strncpy(units, s_units_str, sizeof(units) - 1);
+        units[sizeof(units) - 1] = '\0';
+    }
+
+    if (config_save_weather_settings(key, location, units))
+    {
+        weather_load_settings();
+        if (s_state)
+        {
+            weather_set_units_letter();
+            if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+            {
+                weather_clear_data_locked();
+                s_state->status = WEATHER_STATUS_NONE;
+                xSemaphoreGive(s_mutex);
+            }
+            if (s_task) xTaskNotifyGive(s_task);
+        }
+        printf("Weather settings saved.\n");
+    }
+}
+
+void weather_io_run_config_shell(void)
+{
+    weather_load_settings();
+    weather_print_menu();
+
+    for (;;)
+    {
+        printf("weather> ");
+        int cmd = weather_serial_read_command_ms(60000);
+        printf("\n");
+        if (cmd == -1)
+        {
+            printf("OpenWeatherMap manager timed out.\n\n");
+            return;
+        }
+
+        switch (cmd)
+        {
+        case 0:
+            break;
+
+        case '1':
+            weather_configure_settings();
+            weather_print_menu();
+            break;
+
+        case 'S':
+            weather_print_settings();
+            weather_print_menu();
+            break;
+
+        case 'Q':
+            printf("Leaving OpenWeatherMap manager.\n\n");
+            return;
+
+        default:
+            if (cmd > ' ')
+            {
+                printf("Unknown command '%c'. Use 1, S, or Q.\n", (char)cmd);
+            }
+            break;
+        }
+    }
+}
+
+/* ---- port surface ---- */
+
+static const char *weather_field_locked(uint8_t field, char *scratch, size_t scratch_len)
+{
+    switch (field)
+    {
+        case WEATHER_FIELD_CITY:      return s_state->city;
+        case WEATHER_FIELD_CUR_MAIN:  return s_state->cur_main;
+        case WEATHER_FIELD_CUR_DESC:  return s_state->cur_desc;
+        case WEATHER_FIELD_CUR_TEMP:  return s_state->cur_temp;
+        case WEATHER_FIELD_CUR_HUMID: return s_state->cur_humid;
+        case WEATHER_FIELD_CUR_WIND:  return s_state->cur_wind;
+        case WEATHER_FIELD_FC_MAIN:   return s_state->fc_main;
+        case WEATHER_FIELD_FC_DESC:   return s_state->fc_desc;
+        case WEATHER_FIELD_FC_TEMP:   return s_state->fc_temp;
+        case WEATHER_FIELD_FC_WHEN:   return s_state->fc_when;
+        case WEATHER_FIELD_UNITS:     return s_state->units;
+        case WEATHER_FIELD_ERROR:     return s_state->err;
+        case WEATHER_FIELD_AGE_SEC:
+        {
+            int64_t age = 0;
+            if (s_state->last_fetch_us > 0)
+            {
+                age = (weather_now_us() - s_state->last_fetch_us) / 1000000;
+                if (age < 0) age = 0;
+            }
+            snprintf(scratch, scratch_len, "%lld", (long long)age);
+            return scratch;
+        }
+        default:
+            scratch[0] = '\0';
+            return scratch;
+    }
+}
+
+size_t weather_output(int port, uint8_t data, char *buffer, size_t buffer_length)
+{
+    if (!s_initialized || !s_state) return 0;
+
+    if (port == WEATHER_PORT_FIELD)
+    {
+        char scratch[WEATHER_NUM_MAX];
+        s_reply[0] = '\0';
+        s_reply_len = 0;
+        s_reply_pos = 0;
+        if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            const char *src = weather_field_locked(data, scratch, sizeof(scratch));
+            strncpy(s_reply, src ? src : "", sizeof(s_reply) - 1);
+            s_reply[sizeof(s_reply) - 1] = '\0';
+            xSemaphoreGive(s_mutex);
+        }
+        s_reply_len = strlen(s_reply);
+
+        /* If caller provided the standard request buffer, populate it
+         * so port 200 reads work via the existing io_ports.c plumbing. */
+        if (buffer && buffer_length > 0)
+        {
+            size_t n = s_reply_len;
+            if (n >= buffer_length) n = buffer_length - 1;
+            memcpy(buffer, s_reply, n);
+            buffer[n] = '\0';
+            return n;
+        }
+        return 0;
+    }
+
+    if (port == WEATHER_PORT_STATUS)
+    {
+        if (s_task) xTaskNotifyGive(s_task);
+    }
+
+    return 0;
+}
+
+uint8_t weather_input(uint8_t port)
+{
+    if (!s_initialized || !s_state) return WEATHER_STATUS_NONE;
+    if (port == WEATHER_PORT_STATUS)
+    {
+        uint8_t s = WEATHER_STATUS_NONE;
+        if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            s = s_state->status;
+            xSemaphoreGive(s_mutex);
+        }
+        return s;
+    }
+    return 0;
+}

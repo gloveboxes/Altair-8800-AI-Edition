@@ -23,6 +23,9 @@ extern "C" {
 #define CONFIG_OPENAI_KEY_MAX_LEN 192
 #define CONFIG_CHAT_PROVIDER_MAX_LEN 16
 #define CONFIG_CHAT_ENDPOINT_MAX_LEN 160
+#define CONFIG_WEATHER_KEY_MAX_LEN 40
+#define CONFIG_WEATHER_LOC_MAX_LEN 64
+#define CONFIG_WEATHER_UNITS_MAX_LEN 12
 
 /**
  * @brief Initialize the configuration module
@@ -117,6 +120,25 @@ bool config_load_chat_settings(char* provider, size_t provider_len,
  */
 bool config_save_chat_settings(const char* provider, const char* endpoint,
 							   const char* key);
+
+/**
+ * @brief Load OpenWeatherMap settings (API key, location, units).
+ *
+ * Any output buffer may be NULL/zero-length to skip that field.
+ *
+ * @return true if at least one weather setting was loaded.
+ */
+bool config_load_weather_settings(char* key, size_t key_len,
+								  char* location, size_t location_len,
+								  char* units, size_t units_len);
+
+/**
+ * @brief Save OpenWeatherMap settings.
+ *
+ * Empty strings clear the corresponding NVS entry.
+ */
+bool config_save_weather_settings(const char* key, const char* location,
+								  const char* units);
 
 /**
  * @brief Run the boot-time serial configuration shell

@@ -27,6 +27,7 @@
 
 #include "config.h"
 #include "port_drivers/chat_io.h"
+#include "port_drivers/weather_io.h"
 #include "wifi.h"
 #include "captive_portal.h"
 #include "websocket_console.h"
@@ -412,6 +413,7 @@ static void sntp_sync_callback(struct timeval *tv)
     (void)tv;
     s_time_synced = true;
     chat_io_set_network_available(g_wifi_connected);
+    weather_io_set_network_available(g_wifi_connected);
 }
 
 static void sync_network_time(void)
@@ -483,6 +485,7 @@ static void setup_wifi(bool allow_serial_setup)
 
                 sync_network_time();
                 chat_io_set_network_available(s_time_synced);
+                weather_io_set_network_available(s_time_synced && g_wifi_connected);
                 if (!s_time_synced)
                 {
                     printf("OpenAI chat disabled until time sync succeeds.\n");
@@ -497,6 +500,7 @@ static void setup_wifi(bool allow_serial_setup)
             {
                 printf("WiFi connection failed (result=%d); captive portal disabled during normal boot.\n", result);
                 chat_io_set_network_available(false);
+                weather_io_set_network_available(false);
                 return;
             }
 
@@ -520,6 +524,7 @@ static void setup_wifi(bool allow_serial_setup)
 
                     sync_network_time();
                     chat_io_set_network_available(s_time_synced);
+                    weather_io_set_network_available(s_time_synced && g_wifi_connected);
                     if (!s_time_synced)
                     {
                         printf("OpenAI chat disabled until time sync succeeds.\n");
@@ -542,6 +547,7 @@ static void setup_wifi(bool allow_serial_setup)
             {
                 printf("No WiFi credentials configured; captive portal disabled during normal boot.\n");
                 chat_io_set_network_available(false);
+                weather_io_set_network_available(false);
                 return;
             }
 

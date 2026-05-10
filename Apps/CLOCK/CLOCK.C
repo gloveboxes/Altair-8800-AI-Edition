@@ -24,6 +24,28 @@
 #define UPRT 41
 #define RPRT 200
 
+#define WFLD 46
+#define WSTA 47
+
+#define WS_NONE 0
+#define WS_FETCH 1
+#define WS_OK 2
+#define WS_ERR 3
+
+#define WF_CITY 0
+#define WF_CMAIN 1
+#define WF_CDESC 2
+#define WF_CTEMP 3
+#define WF_CHUM 4
+#define WF_CWIND 5
+#define WF_FMAIN 6
+#define WF_FDESC 7
+#define WF_FTEMP 8
+#define WF_FWHEN 9
+#define WF_AGE 10
+#define WF_UNIT 11
+#define WF_ERR 12
+
 #define E_OK 0
 
 #define ESC 27
@@ -31,6 +53,13 @@
 
 #define BROW 10
 #define BCOL 14
+
+/* Weather panel rows */
+#define WROW 21
+#define WCOL 22
+
+/* Footer row (single centered line) */
+#define FROW 27
 
 #define SCRW 80
 #define SCRH 30
@@ -49,6 +78,7 @@ int itol();
 int ldiv();
 int lmod();
 int ltoi();
+char *strcpy();
 
 /* signed UTC->local offset in hours (from env OFFSET) */
 int offset;
@@ -72,6 +102,11 @@ int blink;
 
 /* active time text: HH:MM */
 char timtxt[6];
+
+/* Weather field buffer and last-known status */
+char wbuf[64];
+int wlast;
+int wtick;
 
 /* Seven-segment-ish rows. Each glyph is 5 chars wide. */
 char *dig0[7];
@@ -327,13 +362,20 @@ int max;
  */
 char upbuf[32];
 
-int shoupt(row, col)
+/*
+ * Render the centered footer line:
+ *   UTC offset: +HH h    Uptime: HH:MM:SS
+ * Always written as one full-width line so the uptime field
+ * doesn't leave stale characters behind.
+ */
+int shoupt(row)
 int row;
-int col;
 {
     char lup[4], l3600[4], l60[4];
     char lhr[4], lrem[4], lmn[4], lsc[4];
     int hrs, mns, scs;
+    char sign;
+    int absoff;
 
     outp(UPRT, 1);
     rdstr(upbuf, 31);
@@ -348,8 +390,104 @@ int col;
     mns = ltoi(lmn);
     scs = ltoi(lsc);
 
-    curmv(row, col);
-    printf("\033[1;93mUptime: %02d:%02d:%02d\033[0m", hrs, mns, scs);
+    sign = (offset >= 0) ? '+' : '-';
+    absoff = (offset >= 0) ? offset : -offset;
+
+    /* Line is 37 chars: "UTC offset: +10 h    Uptime: 00:00:00".
+     * Centered on 80-col screen: col = (80-37)/2 + 1 = 22. */
+    curmv(row, 22);
+    printf("\033[1;93mUTC offset: %c%d h    Uptime: %02d:%02d:%02d\033[0m",
+           sign, absoff, hrs, mns, scs);
+    return 0;
+}
+
+/* ---- Weather helpers ---- */
+
+/*
+ * Read one weather field id into wbuf via ports 46/200.
+ * Returns string length.
+ */
+int wfget(id)
+int id;
+{
+    outp(WFLD, id);
+    return rdstr(wbuf, 63);
+}
+
+/*
+ * Erase WCOL..SCRW-3 on `row` (preserves border).
+ */
+int werase(row)
+int row;
+{
+    int c;
+
+    curmv(row, WCOL);
+    for (c = WCOL; c < SCRW - 2; c = c + 1)
+        chout(' ');
+    return 0;
+}
+
+/*
+ * Render the weather panel in green. Reads each field
+ * fresh so updates from the background task show up.
+ */
+int drwx(stat)
+int stat;
+{
+    char city[40];
+    char unit[4];
+    char cmain[40];
+    char ctemp[12];
+    char chum[12];
+    char cwind[12];
+    char fmain[40];
+    char ftemp[12];
+    int i;
+
+    /* Clear the 3 weather rows first. */
+    for (i = 0; i < 3; i = i + 1)
+        werase(WROW + i);
+
+    if (stat == WS_NONE || stat == WS_FETCH)
+    {
+        curmv(WROW, WCOL);
+        if (stat == WS_FETCH)
+            printf("\033[1;92mWeather: fetching...\033[0m");
+        else
+            printf("\033[1;92mWeather: waiting for network...\033[0m");
+        return 0;
+    }
+
+    if (stat == WS_ERR)
+    {
+        wfget(WF_ERR);
+        curmv(WROW, WCOL);
+        printf("\033[1;92mWeather: \033[1;91m%s\033[0m", wbuf);
+        return 0;
+    }
+
+    /* WS_OK */
+    wfget(WF_CITY);  strcpy(city,  wbuf);
+    wfget(WF_UNIT);  strcpy(unit,  wbuf);
+    wfget(WF_CMAIN); strcpy(cmain, wbuf);
+    wfget(WF_CTEMP); strcpy(ctemp, wbuf);
+    wfget(WF_CHUM);  strcpy(chum,  wbuf);
+    wfget(WF_CWIND); strcpy(cwind, wbuf);
+    wfget(WF_FMAIN); strcpy(fmain, wbuf);
+    wfget(WF_FTEMP); strcpy(ftemp, wbuf);
+
+    curmv(WROW, WCOL);
+    printf("\033[1;92mWeather  \033[0;92m%s\033[0m", city);
+
+    curmv(WROW + 1, WCOL);
+    printf("\033[0;92m  Now : %s  %s%s  %s%% RH  wind %s\033[0m",
+           cmain, ctemp, unit, chum, cwind);
+
+    curmv(WROW + 2, WCOL);
+    printf("\033[0;92m  +3h : %s  %s%s\033[0m",
+           fmain, ftemp, unit);
+
     return 0;
 }
 
@@ -523,6 +661,8 @@ int setup()
     ph0 = -1; ph1 = -1;
     pm0 = -1; pm1 = -1;
     blink = 0;
+    wlast = -1;
+    wtick = 0;
 
     return 0;
 }
@@ -538,6 +678,7 @@ int main()
     int hh;
     int sec;
     int nblink;
+    int wnow;
 
     setup();
     lofset();
@@ -545,13 +686,9 @@ int main()
     hidecr();
     brdr();
 
-    curmv(BROW + DHGT + 4, 30);
-    if (offset >= 0)
-        printf("\033[1;93mUTC offset: +%d h\033[0m", offset);
-    else
-        printf("\033[1;93mUTC offset: %d h\033[0m", offset);
-    curmv(BROW + DHGT + 8, 30);
-    printf("\033[1;93mPress ESC to quit\033[0m");
+    /* Initial footer line and weather panel. */
+    shoupt(FROW);
+    drwx(WS_NONE);
 
     tick = 0;
     tset(50);
@@ -590,9 +727,9 @@ int main()
                     pm0 = gm0; pm1 = gm1;
                 }
 
-                /* Refresh uptime once per second (when blink toggles). */
+                /* Refresh footer (UTC offset + uptime) once per second. */
                 if (chgs || chgm || chgh)
-                    shoupt(BROW + DHGT + 6, 30);
+                    shoupt(FROW);
             }
             else
             {
@@ -604,6 +741,18 @@ int main()
                 printf("\033[1;91mWaiting for SNTP: \033[0m\033[K");
                 printf("\033[1;97m%s\033[0m", tbuf);
             }
+
+            /* Refresh weather panel when status changes, or every
+             * 10 minutes while OK. (50ms tick * 12000 = 600s.) */
+            wtick = wtick + 1;
+            wnow = inp(WSTA);
+            if (wnow != wlast || (wnow == WS_OK && wtick >= 12000))
+            {
+                drwx(wnow);
+                wlast = wnow;
+                wtick = 0;
+            }
+
             tset(50);
         }
 

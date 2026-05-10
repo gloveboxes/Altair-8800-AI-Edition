@@ -15,6 +15,7 @@ set(app_sources
     "../port_drivers/files_io.c"
     "../port_drivers/time_io.c"
     "../port_drivers/utility_io.c"
+    "../port_drivers/weather_io.c"
     "../altair8800/intel8080.c"
     "../altair8800/memory.c"
     "../altair8800/pico_88dcdd_flash.c"
@@ -58,11 +59,13 @@ idf_component_register(SRCS ${app_sources}
                                 nvs_flash
                                 esp_wifi
                                 esp_http_server
+                                esp_http_client
                                 esp_netif
                                 esp_event
                                 esp-tls
                                 mbedtls
-                                lwip)
+                                lwip
+                                cjson)
 
 # Enable stricter warnings for app code only
 target_compile_options(${COMPONENT_LIB} PRIVATE

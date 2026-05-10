@@ -13,6 +13,7 @@
 
 #include "bt_keyboard.h"
 #include "port_drivers/chat_io.h"
+#include "port_drivers/weather_io.h"
 #include "wifi_setup.h"
 
 #include "driver/usb_serial_jtag.h"
@@ -32,6 +33,9 @@
 #define NVS_KEY_OPENAI  "openai_key"
 #define NVS_KEY_CHAT_PROVIDER "chat_provider"
 #define NVS_KEY_CHAT_ENDPOINT "chat_endpoint"
+#define NVS_KEY_WX_KEY        "wx_key"
+#define NVS_KEY_WX_LOC        "wx_loc"
+#define NVS_KEY_WX_UNITS      "wx_units"
 
 // Static storage for retrieved values
 static char s_ssid[CONFIG_SSID_MAX_LEN + 1] = {0};
@@ -100,6 +104,7 @@ static void config_print_boot_menu(void)
     printf("  1 - Bluetooth keyboard\n");
     printf("  2 - OpenAI / compatible chat endpoint\n");
     printf("  3 - WiFi credentials\n");
+    printf("  4 - OpenWeatherMap\n");
     printf("  Q - continue boot\n");
 }
 
@@ -154,6 +159,11 @@ void config_run_boot_shell(void)
             config_print_boot_menu();
             break;
 
+        case '4':
+            weather_io_run_config_shell();
+            config_print_boot_menu();
+            break;
+
         case 'Q':
             printf("Leaving boot configuration manager.\n\n");
             return;
@@ -161,7 +171,7 @@ void config_run_boot_shell(void)
         default:
             if (cmd > ' ')
             {
-                printf("Unknown command '%c'. Use 1, 2, 3, or Q.\n", (char)cmd);
+                printf("Unknown command '%c'. Use 1, 2, 3, 4, or Q.\n", (char)cmd);
             }
             break;
         }
@@ -608,6 +618,68 @@ bool config_save_chat_settings(const char* provider, const char* endpoint,
     s_openai_key[CONFIG_OPENAI_KEY_MAX_LEN] = '\0';
 
     printf("[Config] Chat settings saved\n");
+    return true;
+}
+
+bool config_load_weather_settings(char* key, size_t key_len,
+                                  char* location, size_t location_len,
+                                  char* units, size_t units_len)
+{
+    bool loaded = false;
+
+    if (key && key_len > 0)
+    {
+        loaded |= config_nvs_get_string(NVS_KEY_WX_KEY, key, key_len);
+    }
+    if (location && location_len > 0)
+    {
+        loaded |= config_nvs_get_string(NVS_KEY_WX_LOC, location, location_len);
+    }
+    if (units && units_len > 0)
+    {
+        loaded |= config_nvs_get_string(NVS_KEY_WX_UNITS, units, units_len);
+    }
+    return loaded;
+}
+
+bool config_save_weather_settings(const char* key, const char* location,
+                                  const char* units)
+{
+    if (!s_initialized)
+    {
+        altair_config_init();
+    }
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK)
+    {
+        printf("[Config] Failed to open NVS for weather settings: %s\n", esp_err_to_name(err));
+        return false;
+    }
+
+    err = config_nvs_set_or_erase(handle, NVS_KEY_WX_KEY, key);
+    if (err == ESP_OK)
+    {
+        err = config_nvs_set_or_erase(handle, NVS_KEY_WX_LOC, location);
+    }
+    if (err == ESP_OK)
+    {
+        err = config_nvs_set_or_erase(handle, NVS_KEY_WX_UNITS, units);
+    }
+    if (err == ESP_OK)
+    {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err != ESP_OK)
+    {
+        printf("[Config] Failed to save weather settings: %s\n", esp_err_to_name(err));
+        return false;
+    }
+
+    printf("[Config] Weather settings saved\n");
     return true;
 }
 

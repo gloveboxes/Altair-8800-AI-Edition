@@ -10,6 +10,7 @@
 #include "port_drivers/files_io.h"
 #include "port_drivers/time_io.h"
 #include "port_drivers/utility_io.h"
+#include "port_drivers/weather_io.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -51,6 +52,12 @@ void io_port_out(uint8_t port, uint8_t data)
             request_unit.len = utility_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
 
+        // Weather ports (OpenWeatherMap)
+        case 46:
+        case 47:
+            request_unit.len = weather_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
+            break;
+
         // Stats ports (50, 51) - not implemented on ESP32 yet
         // HTTP ports (109, 110, 114) - not implemented on ESP32 yet
         // OpenAI chat ports
@@ -84,6 +91,10 @@ uint8_t io_port_in(uint8_t port)
         case 29:
         case 30:
             return time_input(port);
+
+        // Weather status
+        case 47:
+            return weather_input(port);
 
         // Request buffer read port
         case 200:
