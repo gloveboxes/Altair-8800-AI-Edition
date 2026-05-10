@@ -30,7 +30,7 @@
 #define KCC 3
 
 #define BROW 10
-#define BCOL 13
+#define BCOL 14
 
 #define SCRW 80
 #define SCRH 30
