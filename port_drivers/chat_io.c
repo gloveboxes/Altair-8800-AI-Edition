@@ -38,10 +38,19 @@
 #define CHAT_REQUEST_MAX 8192
 #define CHAT_RX_BUFFER_SIZE 1024
 #define CHAT_SSE_LINE_MAX 1024
-#define CHAT_RESPONSE_QUEUE_DEPTH 2048
+/* Response queue depth: the Altair app polls one byte at a time via
+ * CHAT_PORT_DATA, so a deep queue is unnecessary. The producer task
+ * blocks with a short timeout when full, providing natural
+ * back-pressure rather than dropping bytes. Items live in PSRAM. */
+#define CHAT_RESPONSE_QUEUE_DEPTH 128
+#define CHAT_QUEUE_SEND_TIMEOUT_MS 100
+#define CHAT_HEADER_MAX 768
+#define CHAT_AUTH_HEADER_MAX 224
 #define CHAT_CONNECT_TIMEOUT_MS 15000
 #define CHAT_STREAM_TIMEOUT_MS 120000
-#define CHAT_TASK_STACK_SIZE 8192
+/* Reduced from 8192: large request/parser/rx buffers now live on the
+ * heap (PSRAM-preferred) rather than the task stack. */
+#define CHAT_TASK_STACK_SIZE 4096
 #define CHAT_TASK_PRIORITY 5
 #define CHAT_TASK_CORE 0
 
@@ -102,6 +111,16 @@ typedef struct
     bool response_truncated;
 } chat_parse_t;
 
+/* Per-request workspace allocated from PSRAM to keep the chat task
+ * stack small. Sizes here dominate the previous 8KB stack budget. */
+typedef struct
+{
+    chat_parse_t parser;
+    uint8_t rx_buffer[CHAT_RX_BUFFER_SIZE];
+    char header[CHAT_HEADER_MAX];
+    char auth_header[CHAT_AUTH_HEADER_MAX];
+} chat_workspace_t;
+
 static const char *TAG = "CHAT_IO";
 
 static const unsigned char CHAT_GTS_ROOT_R4_PEM[] =
@@ -129,7 +148,10 @@ static bool s_initialized = false;
 
 static struct
 {
-    char request[CHAT_REQUEST_MAX];
+    /* Heap-allocated (PSRAM-preferred) so the 8KB request buffer does
+     * not sit in internal DRAM via BSS. Allocated in chat_io_init. */
+    char *request;
+    size_t request_capacity;
     size_t request_len;
     uint32_t generation;
     uint32_t next_generation;
@@ -152,7 +174,7 @@ static void chat_process_request(chat_request_t *request);
 static void chat_load_settings(void);
 static bool chat_parse_endpoint(const char *endpoint, chat_endpoint_t *parsed);
 static bool chat_send_all(esp_tls_t *tls, const uint8_t *data, size_t len);
-static bool chat_read_response(esp_tls_t *tls, chat_parse_t *parser);
+static bool chat_read_response(esp_tls_t *tls, chat_workspace_t *ws);
 static void chat_log_tls_error(esp_tls_t *tls, int ret);
 static void chat_process_rx_byte(chat_parse_t *parser, uint8_t ch);
 static void chat_process_body_byte(chat_parse_t *parser, uint8_t ch);
@@ -459,6 +481,25 @@ void chat_io_init(void)
     port_state.next_generation = 1;
     s_network_available = false;
 
+    /* Move the 8KB request buffer out of internal DRAM into PSRAM. */
+    port_state.request_capacity = CHAT_REQUEST_MAX;
+    port_state.request = heap_caps_malloc(port_state.request_capacity,
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!port_state.request)
+    {
+        port_state.request = malloc(port_state.request_capacity);
+    }
+    if (!port_state.request)
+    {
+        ESP_LOGE(TAG, "Failed to allocate chat request buffer");
+        vQueueDelete(s_chat_request_queue);
+        vQueueDelete(s_chat_response_queue);
+        s_chat_request_queue = NULL;
+        s_chat_response_queue = NULL;
+        return;
+    }
+    port_state.request[0] = '\0';
+
     BaseType_t ret = xTaskCreatePinnedToCore(chat_client_task,
                                              "chat_client",
                                              CHAT_TASK_STACK_SIZE,
@@ -561,7 +602,10 @@ void chat_io_run_boot_shell(void)
 static void chat_reset_request(void)
 {
     port_state.request_len = 0;
-    port_state.request[0] = '\0';
+    if (port_state.request)
+    {
+        port_state.request[0] = '\0';
+    }
     port_state.request_overflow = false;
 }
 
@@ -578,16 +622,22 @@ static void chat_reset_response(void)
 
 static void chat_request_add_char(uint8_t data)
 {
+    if (!port_state.request)
+    {
+        port_state.request_overflow = true;
+        return;
+    }
+
     if (data == 0)
     {
-        if (port_state.request_len < sizeof(port_state.request))
+        if (port_state.request_len < port_state.request_capacity)
         {
             port_state.request[port_state.request_len] = '\0';
         }
         return;
     }
 
-    if (port_state.request_len + 1 < sizeof(port_state.request))
+    if (port_state.request_len + 1 < port_state.request_capacity)
     {
         port_state.request[port_state.request_len++] = (char)data;
         port_state.request[port_state.request_len] = '\0';
@@ -873,6 +923,25 @@ static void chat_process_request(chat_request_t *request)
         return;
     }
 
+    /* Allocate the parser, RX buffer and HTTP header buffers from PSRAM
+     * in a single block so the chat task stack stays small. */
+    chat_workspace_t *ws = heap_caps_malloc(sizeof(chat_workspace_t),
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!ws)
+    {
+        ws = malloc(sizeof(chat_workspace_t));
+    }
+    if (!ws)
+    {
+        chat_queue_text(request->generation, "Chat out of memory\n");
+        chat_queue_eof(NULL, request->generation);
+        return;
+    }
+    memset(&ws->parser, 0, sizeof(ws->parser));
+    ws->parser.generation = request->generation;
+    ws->parser.chunk_state = CHUNK_SIZE;
+    ws->auth_header[0] = '\0';
+
     size_t body_len = request->len;
     const char *body = request->json;
 
@@ -881,6 +950,7 @@ static void chat_process_request(chat_request_t *request)
     {
         chat_queue_text(request->generation, "Chat TLS init failed\n");
         chat_queue_eof(NULL, request->generation);
+        free(ws);
         return;
     }
 
@@ -909,16 +979,16 @@ static void chat_process_request(chat_request_t *request)
         chat_queue_text(request->generation, "Chat connect failed\n");
         chat_queue_eof(NULL, request->generation);
         esp_tls_conn_destroy(tls);
+        free(ws);
         return;
     }
 
-    char header[768];
-    char auth_header[224] = {0};
     if (s_chat_api_key[0] != '\0')
     {
-        snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s\r\n", s_chat_api_key);
+        snprintf(ws->auth_header, CHAT_AUTH_HEADER_MAX,
+                 "Authorization: Bearer %s\r\n", s_chat_api_key);
     }
-    int header_len = snprintf(header, sizeof(header),
+    int header_len = snprintf(ws->header, CHAT_HEADER_MAX,
                               "POST %s HTTP/1.1\r\n"
                               "Host: %s\r\n"
                               "%s"
@@ -926,36 +996,34 @@ static void chat_process_request(chat_request_t *request)
                               "Accept: text/event-stream\r\n"
                               "Connection: close\r\n"
                               "Content-Length: %u\r\n\r\n",
-                              parsed_endpoint.path, parsed_endpoint.host_header, auth_header, (unsigned int)body_len);
-    if (header_len <= 0 || (size_t)header_len >= sizeof(header))
+                              parsed_endpoint.path, parsed_endpoint.host_header, ws->auth_header, (unsigned int)body_len);
+    if (header_len <= 0 || (size_t)header_len >= CHAT_HEADER_MAX)
     {
         chat_queue_text(request->generation, "Chat request header error\n");
         chat_queue_eof(NULL, request->generation);
         esp_tls_conn_destroy(tls);
+        free(ws);
         return;
     }
 
-    if (!chat_send_all(tls, (const uint8_t *)header, (size_t)header_len) ||
+    if (!chat_send_all(tls, (const uint8_t *)ws->header, (size_t)header_len) ||
         !chat_send_all(tls, (const uint8_t *)body, body_len))
     {
         chat_queue_text(request->generation, "Chat send failed\n");
         chat_queue_eof(NULL, request->generation);
         esp_tls_conn_destroy(tls);
+        free(ws);
         return;
     }
 
-    chat_parse_t parser;
-    memset(&parser, 0, sizeof(parser));
-    parser.generation = request->generation;
-    parser.chunk_state = CHUNK_SIZE;
-
-    if (!chat_read_response(tls, &parser) && !parser.done)
+    if (!chat_read_response(tls, ws) && !ws->parser.done)
     {
         chat_queue_text(request->generation, "Chat stream error\n");
     }
-    chat_queue_eof(&parser, request->generation);
+    chat_queue_eof(&ws->parser, request->generation);
 
     esp_tls_conn_destroy(tls);
+    free(ws);
 }
 
 static void chat_log_tls_error(esp_tls_t *tls, int ret)
@@ -1007,20 +1075,20 @@ static bool chat_send_all(esp_tls_t *tls, const uint8_t *data, size_t len)
     return true;
 }
 
-static bool chat_read_response(esp_tls_t *tls, chat_parse_t *parser)
+static bool chat_read_response(esp_tls_t *tls, chat_workspace_t *ws)
 {
-    uint8_t rx_buffer[CHAT_RX_BUFFER_SIZE];
+    chat_parse_t *parser = &ws->parser;
     uint32_t last_rx_ms = chat_ms();
 
     while (!parser->done)
     {
-        ssize_t len = esp_tls_conn_read(tls, rx_buffer, sizeof(rx_buffer));
+        ssize_t len = esp_tls_conn_read(tls, ws->rx_buffer, CHAT_RX_BUFFER_SIZE);
         if (len > 0)
         {
             last_rx_ms = chat_ms();
             for (ssize_t i = 0; i < len && !parser->done; i++)
             {
-                chat_process_rx_byte(parser, rx_buffer[i]);
+                chat_process_rx_byte(parser, ws->rx_buffer[i]);
             }
             continue;
         }
@@ -1063,8 +1131,40 @@ static void chat_process_rx_byte(chat_parse_t *parser, uint8_t ch)
                 }
                 if (parser->status_code != 200)
                 {
-                    char msg[48];
-                    snprintf(msg, sizeof(msg), "Chat HTTP %d\n", parser->status_code);
+                    char msg[160];
+                    if (parser->status_code == 404)
+                    {
+                        snprintf(msg, sizeof(msg),
+                                 "Chat HTTP 404 - endpoint or model not found.\n"
+                                 "Check 'endpoint' URL and 'model' in chat.cfg.\n");
+                    }
+                    else if (parser->status_code == 401 || parser->status_code == 403)
+                    {
+                        snprintf(msg, sizeof(msg),
+                                 "Chat HTTP %d - auth failed. Check API key.\n",
+                                 parser->status_code);
+                    }
+                    else if (parser->status_code == 400)
+                    {
+                        snprintf(msg, sizeof(msg),
+                                 "Chat HTTP 400 - bad request. Check 'model' in chat.cfg\n"
+                                 "and chat.sys content.\n");
+                    }
+                    else if (parser->status_code == 429)
+                    {
+                        snprintf(msg, sizeof(msg),
+                                 "Chat HTTP 429 - rate limit or quota exceeded.\n");
+                    }
+                    else if (parser->status_code >= 500)
+                    {
+                        snprintf(msg, sizeof(msg),
+                                 "Chat HTTP %d - server error. Try again later.\n",
+                                 parser->status_code);
+                    }
+                    else
+                    {
+                        snprintf(msg, sizeof(msg), "Chat HTTP %d\n", parser->status_code);
+                    }
                     chat_queue_text(parser->generation, msg);
                     parser->done = true;
                     return;
@@ -1344,25 +1444,39 @@ static void chat_extract_content(chat_parse_t *parser, const char *json)
 
 static void chat_queue_response(chat_parse_t *parser, const chat_response_t *response, bool force)
 {
-    if (s_chat_response_queue && xQueueSend(s_chat_response_queue, response, 0) == pdTRUE)
+    if (!s_chat_response_queue)
     {
         return;
     }
 
-    if (parser)
+    /* Force path: used for EOF / truncation messages. Displaces the
+     * oldest queued char if the consumer is wedged so the EOF always
+     * gets through. */
+    if (force)
     {
-        parser->response_truncated = true;
-    }
-    if (!force || !s_chat_response_queue)
-    {
-        return;
-    }
-
-    chat_response_t discarded;
-    while (xQueueSend(s_chat_response_queue, response, 0) != pdTRUE)
-    {
-        if (xQueueReceive(s_chat_response_queue, &discarded, 0) != pdTRUE)
+        if (xQueueSend(s_chat_response_queue, response, 0) == pdTRUE)
         {
+            return;
+        }
+        chat_response_t discarded;
+        while (xQueueSend(s_chat_response_queue, response, 0) != pdTRUE)
+        {
+            if (xQueueReceive(s_chat_response_queue, &discarded, 0) != pdTRUE)
+            {
+                return;
+            }
+        }
+        return;
+    }
+
+    /* Streaming chars: block with a short timeout so we apply
+     * back-pressure rather than dropping data. If the app has moved on
+     * to a new generation, abort the stream cleanly. */
+    while (xQueueSend(s_chat_response_queue, response, pdMS_TO_TICKS(CHAT_QUEUE_SEND_TIMEOUT_MS)) != pdTRUE)
+    {
+        if (parser && port_state.generation != parser->generation)
+        {
+            parser->done = true;
             return;
         }
     }
