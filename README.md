@@ -112,6 +112,10 @@ docs/                 Development notes
 - ESP32-S3 board matching one of the supported configs.
 - SD card formatted for the project disk layout when using CP/M disk images.
 
+> **Install location.** This project expects ESP-IDF and its tools to live under `$HOME/.espressif/` — specifically `$HOME/.espressif/<version>/esp-idf/` for the SDK and `$HOME/.espressif/tools/` for the toolchain. The `.vscode/settings.json` paths use `${userHome}/.espressif/...` and assume this layout. If you install elsewhere, update those settings to match.
+
+> **SDK version pinned in settings.** `.vscode/settings.json` hard-codes the v6.0.1 SDK path (`${userHome}/.espressif/v6.0.1/esp-idf`) along with version-specific subdirectories of the toolchain (e.g. `tools/xtensa-esp-elf/esp-15.2.0_20251204`, `tools/esp-clang/esp-20.1.1_20250829`, `python_env/idf6.0_py3.14_env`). When upgrading to a newer ESP-IDF, update these paths in `.vscode/settings.json` (and the `source` paths in `.vscode/tasks.json`) to match the new install. The CMake guard in `CMakeLists.txt` enforces only the *minimum* SDK version (v6.0.1) and is independent of these IDE paths.
+
 Install ESP-IDF tools for ESP32-S3 if needed:
 
 ```bash
