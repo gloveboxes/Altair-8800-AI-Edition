@@ -316,7 +316,7 @@ static void wifi_setup_print_menu(void)
     printf("  C - configure WiFi credentials\n");
     printf("  U - clear stored WiFi credentials\n");
     printf("  S - show current settings\n");
-    printf("  Q - return to boot config\n");
+    printf("  Q - return to main config menu\n");
 }
 
 void wifi_setup_run_config_shell(void)

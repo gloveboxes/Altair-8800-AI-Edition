@@ -765,7 +765,7 @@ static void bt_keyboard_print_menu(void)
     printf("  U - clear stored Bluetooth bond\n");
     printf("  D - disconnect current keyboard\n");
     printf("  S - show status\n");
-    printf("  Q - continue boot\n");
+    printf("  Q - return to main config menu\n");
 }
 
 void bt_keyboard_run_config_shell(void)

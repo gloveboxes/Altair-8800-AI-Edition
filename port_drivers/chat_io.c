@@ -290,7 +290,7 @@ static void chat_print_menu(void)
     printf("  1 - configure OpenAI\n");
     printf("  2 - configure OpenAI Compatible endpoint\n");
     printf("  S - show current settings\n");
-    printf("  Q - continue boot\n");
+    printf("  Q - return to main config menu\n");
 }
 
 static bool chat_serial_read_line(const char *prompt, char *buffer, size_t buffer_len, bool mask_input)
