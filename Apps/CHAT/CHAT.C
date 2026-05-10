@@ -486,9 +486,12 @@ int ch_chat()
 
     x_clrsc();
     printf("=== Chat Session ===\n");
-    printf("Type 'quit' to exit, 'clear' to clear screen\n");
-    printf("Model: %s\n", g_model);
-    printf("System message:\n%s\n\n", g_sys);
+    printf("Type 'quit' to exit, 'clear' to clear screen\n\n");
+    printf("Config (chat.cfg)\n");
+    printf("- Model: %s\n", g_model);
+    printf("- Temperature: %s\n", g_tempv);
+    printf("- Max Tokens: %s\n\n", g_mtok);
+    printf("System message (chat.sys):\n%s\n\n", g_sys);
 
 
     while (1)

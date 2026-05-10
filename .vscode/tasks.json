@@ -17,9 +17,9 @@
       }
     },
     {
-      "label": "Altair: Switch config to Freenove ILI9341",
+      "label": "Altair: Switch config to Freenove ESP32-S3 LCD 2.8",
       "type": "shell",
-      "command": "source \"$HOME/.espressif/v6.0.1/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.freenove.defaults\" reconfigure",
+      "command": "source \"$HOME/.espressif/v6.0.1/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults\" reconfigure",
       "options": {
         "cwd": "${workspaceFolder}"
       },

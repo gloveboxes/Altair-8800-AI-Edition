@@ -2,36 +2,49 @@ era chatjson.*
 era chat.com
 era chat.c
 era chat.crl
-
-ft -g file://chat/chat.c
-ft -g file://chat/chat.sys
-ft -g file://chat/chat.cfg
-ft -g file://chat/chatjson.c
-ft -g file://chat/chatjson.h
+era dxterm.*
+era dxtimer.*
 
 ft -g file://sdk/dxtimer.c
 ft -g file://sdk/dxtimer.h
+
+cc dxtimer
+era dxtimer.c
+era dxtimer.h
 
 ft -g file://sdk/dxterm.c
 ft -g file://sdk/dxterm.h
 
 cc dxterm
-cc dxtimer
+era dxterm.c
+
+ft -g file://chat/chatjson.c
+ft -g file://chat/chatjson.h
+
 cc chatjson
+era chatjson.c
+
+ft -g file://chat/chat.c
+
 cc chat
+era chat.c
+era dxterm.h
+era chatjson.h
 
 clink chat chatjson dxterm dxtimer
+
+era chat.crl
+era chatjson.crl
+era dxterm.crl
+era dxtimer.crl
+
+ft -g file://chat/chat.sys
+ft -g file://chat/chat.cfg
 
 a:pip a:chat.com=chat.com
 a:pip a:chat.sys=chat.sys
 a:pip a:chat.cfg=chat.cfg
 
-era chat.crl
-era chatjson.*
-era dxterm.*
-era dxtimer.*
-
-era chat.c
 era chat.com
 era chat.cfg
 era chat.sys
