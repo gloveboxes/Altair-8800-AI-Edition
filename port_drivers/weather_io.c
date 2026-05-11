@@ -11,7 +11,6 @@
  *
  * Altair port contract:
  *   OUT 46, field_id   -> selects one field; reply available on port 200
- *   OUT 47, anything   -> wakes task to refresh now
  *   IN  47             -> WEATHER_STATUS_*
  *   IN  200            -> next byte of selected field reply (NUL-terminated)
  */
@@ -223,8 +222,8 @@ static void weather_task(void *arg)
         if (s_api_key[0] == '\0' || s_location[0] == '\0')
         {
             weather_set_error("API key or location not configured");
-            /* Wait for refresh trigger or 60s. */
-            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WEATHER_RETRY_INTERVAL_MS));
+            /* Nothing useful to retry until settings change. */
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             continue;
         }
 
@@ -870,11 +869,6 @@ size_t weather_output(int port, uint8_t data, char *buffer, size_t buffer_length
             return n;
         }
         return 0;
-    }
-
-    if (port == WEATHER_PORT_STATUS)
-    {
-        if (s_task) xTaskNotifyGive(s_task);
     }
 
     return 0;

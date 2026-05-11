@@ -55,9 +55,8 @@ void io_port_out(uint8_t port, uint8_t data)
             request_unit.len = utility_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
 
-        // Weather ports (OpenWeatherMap)
+        // Weather field port (OpenWeatherMap)
         case 46:
-        case 47:
             request_unit.len = weather_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
 

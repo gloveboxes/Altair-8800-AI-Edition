@@ -451,11 +451,6 @@ int stat;
 
     if (stat == WS_NONE || stat == WS_FETCH)
     {
-        curmv(WROW, WCOL);
-        if (stat == WS_FETCH)
-            printf("\033[1;92mWeather: fetching...\033[0m");
-        else
-            printf("\033[1;92mWeather: waiting for network...\033[0m");
         return 0;
     }
 
@@ -742,11 +737,14 @@ int main()
                 printf("\033[1;97m%s\033[0m", tbuf);
             }
 
-            /* Refresh weather panel when status changes, or every
-             * 10 minutes while OK. (50ms tick * 12000 = 600s.) */
+            /* Re-read cached weather when status changes, or every
+             * 15 minutes while OK. (50ms tick * 18000 = 900s.)
+             * This only reads the ESP32 cache; it does not ask the
+             * ESP32 to fetch OpenWeatherMap.
+             */
             wtick = wtick + 1;
             wnow = inp(WSTA);
-            if (wnow != wlast || (wnow == WS_OK && wtick >= 12000))
+            if (wnow != wlast || (wnow == WS_OK && wtick >= 18000))
             {
                 drwx(wnow);
                 wlast = wnow;

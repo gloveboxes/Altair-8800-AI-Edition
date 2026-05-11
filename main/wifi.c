@@ -34,7 +34,7 @@ static const char* TAG = "WiFi";
 #define WIFI_FAIL_BIT       BIT1
 
 // Default connection timeout (WPA3-SAE can require multiple retries, DHCP needs time)
-#define DEFAULT_WIFI_TIMEOUT_MS  60000
+#define DEFAULT_WIFI_TIMEOUT_MS  20000
 
 // Maximum connection retry attempts
 #define WIFI_MAX_RETRY  15

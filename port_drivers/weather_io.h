@@ -10,7 +10,6 @@
  * Port map:
  *   Port 46 (OUT) - select field id; the snprintf'd value is then read
  *                   byte-by-byte from port 200 until a NUL.
- *   Port 47 (OUT) - any value triggers an immediate refresh request.
  *   Port 47 (IN)  - status byte:
  *                       WEATHER_STATUS_NONE     0  (no data yet)
  *                       WEATHER_STATUS_FETCHING 1  (refresh in progress)
