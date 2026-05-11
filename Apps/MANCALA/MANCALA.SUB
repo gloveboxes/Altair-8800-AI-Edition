@@ -1,29 +1,3 @@
-era dxsys.c
-era dxsys.h
-era dxsys.crl
-era dxterm.c
-era dxterm.h
-era dxterm.crl
-era mancala.c
-era mancala.crl
-era chat.c
-era chat.com
-era chat.crl
-era chat.sys
-era chat.cfg
-era chatjson.c
-era chatjson.h
-era chatjson.crl
-era env.com
-era env.crl
-era game.com
-era game.crl
-era gf.com
-era power.c
-era power.com
-era weather.com
-era weather.crl
-
 ft -g file://sdk/dxsys.c
 ft -g file://sdk/dxsys.h
 cc dxsys

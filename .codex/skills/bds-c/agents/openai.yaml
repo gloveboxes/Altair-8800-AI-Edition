@@ -1,0 +1,4 @@
+interface:
+  display_name: "BDS C"
+  short_description: "Write and review BDS C 1.6 code safely."
+  default_prompt: "Use the BDS C skill to review or implement CP/M Altair C code."

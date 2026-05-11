@@ -87,7 +87,7 @@ b:cc dxenv
 era dxenv.c
 b:ft -g env/env.c
 b:cc env
-b:clink env dxenv long
+b:clink env dxenv
 a:pip a:env.com=env.com
 era env.*
 b:ft -g clock/clock.c

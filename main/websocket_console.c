@@ -26,7 +26,7 @@ static const char* TAG = "WS_Console";
 #define WS_TX_QUEUE_DEPTH   4096   // Output to WebSocket client - large for fast output
 
 // Maximum bytes to batch in a single WebSocket send
-#define WS_TX_BATCH_SIZE    512
+#define WS_TX_BATCH_SIZE    1024
 
 // Timer interval for batched output (microseconds)
 // 10ms for high throughput while still batching efficiently
@@ -279,11 +279,16 @@ bool websocket_console_start_server(void)
         return false;
     }
 
+    if (!websocket_server_start()) {
+        return false;
+    }
+
     // Start the TX batching timer
     if (s_tx_timer) {
         esp_err_t err = esp_timer_start_periodic(s_tx_timer, WS_TX_TIMER_INTERVAL_US);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to start TX timer: %s", esp_err_to_name(err));
+            websocket_server_stop();
             return false;
         }
         ESP_LOGI(TAG, "TX batching timer started (%dms interval)", WS_TX_TIMER_INTERVAL_US / 1000);
@@ -300,7 +305,7 @@ bool websocket_console_start_server(void)
         }
     }
 
-    return websocket_server_start();
+    return true;
 }
 
 void websocket_console_stop_server(void)
@@ -325,23 +330,35 @@ bool websocket_console_has_clients(void)
 
 void websocket_console_enqueue_output(uint8_t value)
 {
+    bool queued;
+    static uint32_t no_client_drops = 0;
+
     if (!s_initialized || !s_tx_queue) {
         return;
     }
 
     // If no client connected, clear the queue to prevent accumulation
     if (!websocket_console_has_clients()) {
+        no_client_drops++;
+        if (no_client_drops == 1 || (no_client_drops % 1024) == 0) {
+            ESP_LOGW(TAG, "Dropping WebSocket TX because no client is tracked (%lu)", (unsigned long)no_client_drops);
+        }
         clear_tx_queue();
         return;
     }
 
+    no_client_drops = 0;
+
     // Non-blocking enqueue - drop if queue full (real-time data)
-    if (xQueueSend(s_tx_queue, &value, 0) != pdTRUE) {
+    queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
+    if (!queued) {
         // Queue full - drop oldest and try again
         uint8_t discard;
         xQueueReceive(s_tx_queue, &discard, 0);
-        xQueueSend(s_tx_queue, &value, 0);
+        queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
     }
+
+    (void)queued;
 }
 
 bool websocket_console_try_dequeue_input(uint8_t* value)

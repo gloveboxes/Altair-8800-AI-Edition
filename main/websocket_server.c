@@ -23,6 +23,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
 
@@ -30,6 +31,16 @@
 #include "static_html_hex.h"
 
 static const char* TAG = "WS_Server";
+
+typedef struct {
+    int fd;
+    size_t len;
+    uint8_t data[];
+} ws_send_work_t;
+
+// Track consecutive ping failures to detect dead connections
+static int s_ping_failures = 0;
+#define MAX_PING_FAILURES 3
 
 // External callbacks from websocket_console.c
 extern void websocket_console_handle_rx(const uint8_t* data, size_t len);
@@ -41,6 +52,22 @@ static httpd_handle_t s_server = NULL;
 
 // Single WebSocket client fd (-1 = no client)
 static volatile int s_client_fd = -1;
+
+/**
+ * @brief Mark the tracked WebSocket client disconnected.
+ *
+ * Once the terminal is gone, emulator characters should be dropped by
+ * websocket_console_enqueue_output() instead of queued for a dead socket.
+ */
+static void mark_client_disconnected(int fd, const char* reason)
+{
+    if (fd >= 0 && fd == s_client_fd) {
+        s_client_fd = -1;
+        s_ping_failures = 0;
+        ESP_LOGI(TAG, "WebSocket client disconnected (fd=%d, %s)", fd, reason);
+        websocket_console_on_disconnect();
+    }
+}
 
 /**
  * @brief HTTP handler for root path - serves terminal HTML
@@ -72,6 +99,7 @@ static esp_err_t ws_handler(httpd_req_t* req)
 
         // Accept new client
         s_client_fd = new_fd;
+        ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", new_fd);
         websocket_console_on_connect();
 
         // Set TCP_NODELAY for low latency
@@ -79,6 +107,12 @@ static esp_err_t ws_handler(httpd_req_t* req)
         setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
         return ESP_OK;
+    }
+
+    int frame_fd = httpd_req_to_sockfd(req);
+    if (frame_fd >= 0 && frame_fd != s_client_fd) {
+        ESP_LOGW(TAG, "Refreshing WebSocket client fd: %d -> %d", s_client_fd, frame_fd);
+        s_client_fd = frame_fd;
     }
 
     // Handle WebSocket frames
@@ -153,6 +187,8 @@ static esp_err_t ws_handler(httpd_req_t* req)
  */
 static esp_err_t socket_open_callback(httpd_handle_t hd, int sockfd)
 {
+    (void)hd;
+
     // SO_LINGER with zero timeout: RST on close, bypasses TIME_WAIT
     struct linger so_linger = { .l_onoff = 1, .l_linger = 0 };
     setsockopt(sockfd, SOL_SOCKET, SO_LINGER, &so_linger, sizeof(so_linger));
@@ -165,20 +201,14 @@ static esp_err_t socket_open_callback(httpd_handle_t hd, int sockfd)
 }
 
 /**
- * @brief Session close callback - cleanup on disconnect
- * 
- * IMPORTANT: With custom close_fn, we must call lwip_close() ourselves.
- * See esp_http_server.h documentation.
+ * @brief Socket close callback - clear tracked client and queues.
  */
-static void session_close_callback(httpd_handle_t hd, int sockfd)
+static void socket_close_callback(httpd_handle_t hd, int sockfd)
 {
-    // Only notify if this was our active WebSocket client
-    if (sockfd == s_client_fd) {
-        s_client_fd = -1;
-        websocket_console_on_disconnect();
-    }
-    
-    lwip_close(sockfd);
+    (void)hd;
+
+    mark_client_disconnected(sockfd, "socket closed");
+    close(sockfd);
 }
 
 bool websocket_server_start(void)
@@ -193,13 +223,13 @@ bool websocket_server_start(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = WEBSOCKET_SERVER_PORT;
     config.ctrl_port = WEBSOCKET_SERVER_PORT + 1;
-    // Raise HTTP server priority above other app tasks for fast page/WS handshakes.
     config.task_priority = tskIDLE_PRIORITY + 12;
+    config.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     config.max_open_sockets = 4;     // Minimal: 1 WS + 1 HTTP + headroom
     config.backlog_conn = 2;
     config.lru_purge_enable = true;
     config.open_fn = socket_open_callback;
-    config.close_fn = session_close_callback;
+    config.close_fn = socket_close_callback;
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;   // Allow more time for congested links
     config.keep_alive_enable = false;
@@ -254,6 +284,34 @@ uint32_t websocket_server_get_client_count(void)
     return (s_client_fd >= 0) ? 1 : 0;
 }
 
+static void websocket_send_work(void *arg)
+{
+    ws_send_work_t *work = (ws_send_work_t *)arg;
+
+    if (!work) {
+        return;
+    }
+
+    if (s_server && work->fd >= 0 && work->fd == s_client_fd && work->len > 0) {
+        httpd_ws_frame_t ws_pkt = {
+            .final = true,
+            .fragmented = false,
+            .type = HTTPD_WS_TYPE_BINARY,
+            .payload = work->data,
+            .len = work->len
+        };
+
+        esp_err_t ret = httpd_ws_send_frame_async(s_server, work->fd, &ws_pkt);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "WebSocket send failed: %s", esp_err_to_name(ret));
+            mark_client_disconnected(work->fd, "send failed");
+            httpd_sess_trigger_close(s_server, work->fd);
+        }
+    }
+
+    free(work);
+}
+
 bool websocket_server_broadcast(const uint8_t* data, size_t len)
 {
     int fd = s_client_fd;
@@ -261,23 +319,25 @@ bool websocket_server_broadcast(const uint8_t* data, size_t len)
         return false;
     }
 
-    httpd_ws_frame_t ws_pkt = {
-        .final = true,
-        .fragmented = false,
-        .type = HTTPD_WS_TYPE_BINARY,
-        .payload = (uint8_t*)data,
-        .len = len
-    };
+    ws_send_work_t *work = malloc(sizeof(ws_send_work_t) + len);
+    if (!work) {
+        ESP_LOGW(TAG, "Failed to allocate WebSocket send work (%u bytes)", (unsigned)len);
+        return false;
+    }
 
-    // Just try to send - if buffer is full, httpd will log a warning but
-    // we won't disconnect. Ping failures detect truly dead connections.
-    esp_err_t ret = httpd_ws_send_frame_async(s_server, fd, &ws_pkt);
-    return (ret == ESP_OK);
+    work->fd = fd;
+    work->len = len;
+    memcpy(work->data, data, len);
+
+    esp_err_t ret = httpd_queue_work(s_server, websocket_send_work, work);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to queue WebSocket send: %s", esp_err_to_name(ret));
+        free(work);
+        return false;
+    }
+
+    return true;
 }
-
-// Track consecutive ping failures to detect dead connections
-static int s_ping_failures = 0;
-#define MAX_PING_FAILURES 3
 
 void websocket_server_send_ping(void)
 {
@@ -300,8 +360,8 @@ void websocket_server_send_ping(void)
         if (s_ping_failures >= MAX_PING_FAILURES) {
             // Multiple ping failures - connection is truly dead
             ESP_LOGW(TAG, "Connection dead after %d ping failures", s_ping_failures);
+            mark_client_disconnected(fd, "ping failed");
             httpd_sess_trigger_close(s_server, fd);
-            s_ping_failures = 0;
         }
     } else {
         s_ping_failures = 0;  // Reset on success

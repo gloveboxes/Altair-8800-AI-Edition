@@ -5,9 +5,12 @@
  * Player vs computer, Kalah-style rules.
  *
  * Keys:
- *   1/2/3 at startup   Easy / Medium / Hard
+ *   E/M/H              Easy / Medium / Hard
  *   Left/Right arrows  Select pit
+ *   1-6                Select pit
  *   Space or Return    Sow selected pit
+ *   U                  Undo last player move
+ *   ? or T             Hint
  *   Q, ESC, Ctrl-C     Quit
  */
 
@@ -44,11 +47,16 @@
 #define KQUI 4
 
 int pit[TOT];
+int upit[TOT];
 int sel;
+int usel;
 int quit;
 int over;
 int escst;
 int lvl;
+int uok;
+
+int hshow();
 
 /* pstr(s) - Print a NUL-terminated string. */
 int pstr(s)
@@ -151,11 +159,11 @@ int stat()
     num2(pit[CST]);
     pstr("  ");
     if (lvl == 0)
-        pstr("EASY");
+        pstr("E:EASY");
     else if (lvl == 1)
-        pstr("MED");
+        pstr("M:MED");
     else
-        pstr("HARD");
+        pstr("H:HARD");
     x_ereol();
     return 0;
 }
@@ -374,6 +382,17 @@ char *s;
     return 0;
 }
 
+/* help() - Draw persistent shortcut keys. */
+int help()
+{
+    clrnot(28);
+    x_setc(37);
+    x_curmv(28, 5);
+    pstr("KEYS: 1-6 SELECT  SPACE SOW  U UNDO  E/M/H LEVEL  ? HINT  Q QUIT");
+    x_rstc();
+    return 0;
+}
+
 /* drall() - Draw board and pits. */
 int drall()
 {
@@ -391,7 +410,8 @@ int drall()
         drpit(i, i == sel);
     for (i = 7; i < CST; i++)
         drpit(i, 0);
-    note("ARROWS OR 1-6 SELECT, SPACE SOWS, Q QUITS");
+    note("YOUR TURN: CHOOSE A PIT WITH BEANS");
+    help();
     return 0;
 }
 
@@ -437,54 +457,8 @@ int init()
     quit = 0;
     over = 0;
     escst = 0;
-    lvl = 2;
-    return 0;
-}
-
-/* picklv() - Select computer difficulty. */
-int picklv()
-{
-    int c;
-
-    x_clrsc();
-    x_hidcr();
-    brdr();
-    x_setc(37);
-    x_curmv(9, 22);
-    pstr("MANCALA - SELECT COMPUTER LEVEL");
-    x_curmv(12, 28);
-    pstr("1  EASY    RANDOM PLAY");
-    x_curmv(14, 28);
-    pstr("2  MEDIUM  MINIMAX DEPTH 2");
-    x_curmv(16, 28);
-    pstr("3  HARD    MINIMAX DEPTH 4");
-    x_curmv(20, 24);
-    pstr("PRESS 1, 2, OR 3   (RETURN = HARD)");
-    x_rstc();
-    while (1)
-    {
-        c = x_keyrd();
-        if (c == '1')
-        {
-            lvl = 0;
-            return 0;
-        }
-        if (c == '2')
-        {
-            lvl = 1;
-            return 0;
-        }
-        if (c == '3' || c == KEYR)
-        {
-            lvl = 2;
-            return 0;
-        }
-        if (c == KEYQ || c == KEYq || c == XK_ESC || x_iscc(c))
-        {
-            quit = 1;
-            return 0;
-        }
-    }
+    lvl = 1;
+    uok = 0;
     return 0;
 }
 
@@ -796,6 +770,8 @@ int p;
     int pos;
     int op;
     int st;
+    int hs;
+    int cs;
 
     if (!owned(i, p) || b[i] == 0)
         return 0;
@@ -825,7 +801,9 @@ int p;
             b[pos] = 0;
         }
     }
-    if (bsumh(b) == 0 || bsumc(b) == 0)
+    hs = bsumh(b);
+    cs = bsumc(b);
+    if (hs == 0 || cs == 0)
     {
         bfin(b);
         return 0;
@@ -835,62 +813,181 @@ int p;
     return 1;
 }
 
-/* bmob() - Count legal simulated moves. */
-int bmob(b, p)
+/* iabs(n) - Return absolute value. */
+int iabs(n)
+int n;
+{
+    if (n < 0)
+        return -n;
+    return n;
+}
+
+/* bord(b,i,p) - Immediate move ordering score. */
+int bord(b, i, p)
 int b[];
+int i;
 int p;
 {
-    int i;
-    int n;
+    int tb[TOT];
+    int st;
+    int old;
+    int res;
+    int gain;
+    int dif;
+    int val;
 
-    n = 0;
-    if (p == 0)
+    if (!owned(i, p) || b[i] == 0)
+        return -30000;
+    bcopy(tb, b);
+    st = store(p);
+    old = tb[st];
+    res = bmov(tb, i, p);
+    gain = tb[st] - old;
+    val = (gain * 100) + b[i];
+    if (res == 2)
+        val += 60;
+    if (res == 0)
     {
-        for (i = 0; i < HST; i++)
-            if (b[i] > 0)
-                n++;
+        dif = tb[CST] - tb[HST];
+        val += iabs(dif) * 20;
     }
-    else
-    {
-        for (i = 7; i < CST; i++)
-            if (b[i] > 0)
-                n++;
-    }
-    return n;
+    return val;
 }
 
 /* bscore() - Evaluate a simulated board for the computer. */
 int bscore(b)
 int b[];
 {
+    int i;
+    int hs;
+    int cs;
+    int hm;
+    int cm;
     int cdif;
     int pdif;
     int mdif;
 
-    if (bsumh(b) == 0 || bsumc(b) == 0)
-        return ((b[CST] + bsumc(b)) - (b[HST] + bsumh(b))) * 1000;
+    hs = 0;
+    cs = 0;
+    hm = 0;
+    cm = 0;
+    for (i = 0; i < HST; i++)
+    {
+        hs += b[i];
+        if (b[i] > 0)
+            hm++;
+    }
+    for (i = 7; i < CST; i++)
+    {
+        cs += b[i];
+        if (b[i] > 0)
+            cm++;
+    }
+    if (hs == 0 || cs == 0)
+        return ((b[CST] + cs) - (b[HST] + hs)) * 1000;
     cdif = b[CST] - b[HST];
-    pdif = bsumc(b) - bsumh(b);
-    mdif = bmob(b, 1) - bmob(b, 0);
+    pdif = cs - hs;
+    mdif = cm - hm;
     return (cdif * 100) + (pdif * 4) + (mdif * 3);
 }
 
-/* mmx() - Minimax score for simulated play. */
-int mmx(b, p, dep)
+/* ordmv() - Build a tactical move order. */
+int ordmv(b, p, mv)
+int b[];
+int p;
+int mv[];
+{
+    int i;
+    int j;
+    int n;
+    int lo;
+    int hi;
+    int tmp;
+    int va[6];
+
+    n = 0;
+    if (p == 0)
+    {
+        lo = 0;
+        hi = HST;
+    }
+    else
+    {
+        lo = 7;
+        hi = CST;
+    }
+    for (i = lo; i < hi; i++)
+    {
+        if (b[i] > 0)
+        {
+            mv[n] = i;
+            va[n] = bord(b, i, p);
+            n++;
+        }
+    }
+    for (i = 0; i < n - 1; i++)
+    {
+        for (j = i + 1; j < n; j++)
+        {
+            if (va[j] > va[i])
+            {
+                tmp = va[i];
+                va[i] = va[j];
+                va[j] = tmp;
+                tmp = mv[i];
+                mv[i] = mv[j];
+                mv[j] = tmp;
+            }
+        }
+    }
+    return n;
+}
+
+/* abeta() - Alpha-beta score for simulated play. */
+int abeta(b, p, dep, alp, bet, ord)
 int b[];
 int p;
 int dep;
+int alp;
+int bet;
+int ord;
 {
     int i;
+    int n;
     int res;
     int val;
     int best;
+    int mv[6];
     int nb[TOT];
 
-    if (dep <= 0 || bsumh(b) == 0 || bsumc(b) == 0)
+    if (dep <= 0)
         return bscore(b);
     if (!blegal(b, p))
         return bscore(b);
+    if (ord)
+        n = ordmv(b, p, mv);
+    else
+    {
+        n = 0;
+        if (p == 0)
+        {
+            for (i = 0; i < HST; i++)
+                if (b[i] > 0)
+                {
+                    mv[n] = i;
+                    n++;
+                }
+        }
+        else
+        {
+            for (i = 7; i < CST; i++)
+                if (b[i] > 0)
+                {
+                    mv[n] = i;
+                    n++;
+                }
+        }
+    }
 
     if (p == 1)
         best = -30000;
@@ -899,34 +996,38 @@ int dep;
 
     if (p == 0)
     {
-        for (i = 0; i < HST; i++)
+        for (i = 0; i < n; i++)
         {
-            if (b[i] == 0)
-                continue;
             bcopy(nb, b);
-            res = bmov(nb, i, p);
+            res = bmov(nb, mv[i], p);
             if (res == 2)
-                val = mmx(nb, p, dep - 1);
+                val = abeta(nb, p, dep - 1, alp, bet, ord);
             else
-                val = mmx(nb, 1, dep - 1);
+                val = abeta(nb, 1, dep - 1, alp, bet, ord);
             if (val < best)
                 best = val;
+            if (best < bet)
+                bet = best;
+            if (alp >= bet)
+                return best;
         }
     }
     else
     {
-        for (i = 7; i < CST; i++)
+        for (i = 0; i < n; i++)
         {
-            if (b[i] == 0)
-                continue;
             bcopy(nb, b);
-            res = bmov(nb, i, p);
+            res = bmov(nb, mv[i], p);
             if (res == 2)
-                val = mmx(nb, p, dep - 1);
+                val = abeta(nb, p, dep - 1, alp, bet, ord);
             else
-                val = mmx(nb, 0, dep - 1);
+                val = abeta(nb, 0, dep - 1, alp, bet, ord);
             if (val > best)
                 best = val;
+            if (best > alp)
+                alp = best;
+            if (alp >= bet)
+                return best;
         }
     }
     return best;
@@ -992,6 +1093,56 @@ int n;
     return 0;
 }
 
+/* setlvl(n) - Change computer level during play. */
+int setlvl(n)
+int n;
+{
+    if (n > 2)
+        n = 2;
+    lvl = n;
+    stat();
+    if (lvl == 0)
+        note("COMPUTER LEVEL E: EASY");
+    else if (lvl == 1)
+        note("COMPUTER LEVEL M: MEDIUM");
+    else
+        note("COMPUTER LEVEL H: HARD");
+    return 0;
+}
+
+/* savu() - Save state before a player move. */
+int savu()
+{
+    int i;
+
+    for (i = 0; i < TOT; i++)
+        upit[i] = pit[i];
+    usel = sel;
+    uok = 1;
+    return 0;
+}
+
+/* restu() - Restore the saved player move. */
+int restu()
+{
+    int i;
+
+    if (!uok)
+    {
+        note("NOTHING TO UNDO");
+        return 0;
+    }
+    for (i = 0; i < TOT; i++)
+        pit[i] = upit[i];
+    sel = usel;
+    over = 0;
+    escst = 0;
+    uok = 0;
+    drpos();
+    note("LAST MOVE UNDONE");
+    return 0;
+}
+
 /* human() - Process the human turn. */
 int human()
 {
@@ -1007,6 +1158,31 @@ int human()
         if (c >= '1' && c <= '6')
         {
             setsel(c - '1');
+            continue;
+        }
+        if (c == 'E' || c == 'e')
+        {
+            setlvl(0);
+            continue;
+        }
+        if (c == 'M' || c == 'm')
+        {
+            setlvl(1);
+            continue;
+        }
+        if (c == 'H' || c == 'h')
+        {
+            setlvl(2);
+            continue;
+        }
+        if (c == '?' || c == 'T' || c == 't')
+        {
+            hshow();
+            continue;
+        }
+        if (c == 'U' || c == 'u')
+        {
+            restu();
             continue;
         }
         if (k == KNON)
@@ -1026,6 +1202,7 @@ int human()
                 note("THAT PIT IS EMPTY");
             else
             {
+                savu();
                 res = move(sel, 0);
                 if (res == 2 && !over)
                     note("YOU LANDED IN YOUR STORE: GO AGAIN");
@@ -1037,80 +1214,123 @@ int human()
     return 0;
 }
 
-/* eval(i) - Score a computer move. */
-int eval(i)
-int i;
-{
-    int cnt;
-    int pos;
-    int val;
-    int op;
-
-    if (pit[i] == 0)
-        return -1;
-    cnt = pit[i];
-    pos = i;
-    val = pit[i];
-    while (cnt > 0)
-    {
-        pos++;
-        if (pos >= TOT)
-            pos = 0;
-        if (pos != HST)
-            cnt--;
-    }
-    if (pos == CST)
-        val += 60;
-    if (owned(pos, 1) && pit[pos] == 0)
-    {
-        op = opp(pos);
-        if (pit[op] > 0)
-            val += pit[op] + 30;
-    }
-    if (i == 7 || i == 12)
-        val += 2;
-    return val;
-}
-
 /* cpick() - Pick the computer's pit. */
 int cpick()
+{
+    int i;
+    int j;
+    int n;
+    int best;
+    int bval;
+    int val;
+    int dep;
+    int ord;
+    int alp;
+    int res;
+    int mv[6];
+    int nb[TOT];
+    unsigned r;
+
+    r = x_rand();
+    if (lvl == 0 && (r % 4) == 0)
+        return rpick();
+
+    if (lvl == 0)
+        dep = 2;
+    else if (lvl == 1)
+        dep = 3;
+    else
+        dep = 5;
+    if (lvl >= 2)
+        ord = 1;
+    else
+        ord = 0;
+
+    best = 7;
+    bval = -30000;
+    alp = -30000;
+    if (ord)
+        n = ordmv(pit, 1, mv);
+    else
+    {
+        n = 0;
+        for (i = 7; i < CST; i++)
+        {
+            if (pit[i] > 0)
+            {
+                mv[n] = i;
+                n++;
+            }
+        }
+    }
+    for (j = 0; j < n; j++)
+    {
+        i = mv[j];
+        bcopy(nb, pit);
+        res = bmov(nb, i, 1);
+        if (res == 2)
+            val = abeta(nb, 1, dep - 1, alp, 30000, ord);
+        else
+            val = abeta(nb, 0, dep - 1, alp, 30000, ord);
+        val += bord(pit, i, 1) / 10;
+        if (val > bval)
+        {
+            bval = val;
+            best = i;
+        }
+        if (val > alp)
+            alp = val;
+    }
+    return best;
+}
+
+/* hpick() - Pick a hard hint for the human. */
+int hpick()
 {
     int i;
     int best;
     int bval;
     int val;
-    int dep;
     int res;
     int nb[TOT];
 
-    if (lvl == 0)
-        return rpick();
-
-    if (lvl == 1)
-        dep = 2;
-    else
-        dep = 4;
-
-    best = 7;
-    bval = -30000;
-    for (i = 7; i < CST; i++)
+    best = -1;
+    bval = 30000;
+    for (i = 0; i < HST; i++)
     {
         if (pit[i] == 0)
             continue;
         bcopy(nb, pit);
-        res = bmov(nb, i, 1);
+        res = bmov(nb, i, 0);
         if (res == 2)
-            val = mmx(nb, 1, dep - 1);
+            val = abeta(nb, 0, 4, -30000, bval, 1);
         else
-            val = mmx(nb, 0, dep - 1);
-        val += eval(i);
-        if (val > bval)
+            val = abeta(nb, 1, 4, -30000, bval, 1);
+        val -= bord(pit, i, 0) / 10;
+        if (val < bval)
         {
             bval = val;
             best = i;
         }
     }
     return best;
+}
+
+/* hshow() - Show a human hint. */
+int hshow()
+{
+    int i;
+
+    note("THINKING ABOUT A HINT...");
+    i = hpick();
+    if (i < 0)
+        note("NO HINT: YOU HAVE NO LEGAL MOVE");
+    else
+    {
+        setsel(i);
+        note("HINT: TRY THE HIGHLIGHTED PIT");
+    }
+    return 0;
 }
 
 /* pause() - Small thinking pause. */
@@ -1174,34 +1394,59 @@ int final()
     return 0;
 }
 
+/* again() - Ask whether to start another game. */
+int again()
+{
+    int c;
+
+    if (quit)
+        return 0;
+    clrnot(28);
+    x_setc(37);
+    x_curmv(28, 5);
+    pstr("NEW GAME?  Y/N");
+    x_rstc();
+    while (1)
+    {
+        c = x_keyrd();
+        if (c == 'Y' || c == 'y')
+            return 1;
+        if (c == 'N' || c == 'n' || c == KEYQ || c == KEYq ||
+            c == XK_ESC || x_iscc(c))
+            return 0;
+    }
+    return 0;
+}
+
 /* main() - Game entry point. */
 int main()
 {
+    int olvl;
+
     init();
-    picklv();
-    if (quit)
+    while (!quit)
     {
-        x_shwcr();
-        x_rstc();
-        pstr("\r\n");
-        return 0;
-    }
-    drall();
-
-    while (!quit && !over)
-    {
-        if (legal(0))
-            human();
-        if (!quit && !over && legal(1))
-            comp();
-        if (!legal(0) || !legal(1))
+        drall();
+        while (!quit && !over)
         {
-            colend();
-            drpos();
+            if (legal(0))
+                human();
+            if (!quit && !over && legal(1))
+                comp();
+            if (!legal(0) || !legal(1))
+            {
+                colend();
+                drpos();
+            }
         }
+        final();
+        if (!again())
+            break;
+        olvl = lvl;
+        init();
+        lvl = olvl;
     }
 
-    final();
     x_curmv(SCRH, 1);
     x_shwcr();
     x_rstc();

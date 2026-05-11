@@ -90,8 +90,8 @@ int pm0, pm1;
 /* time string buffer */
 char tbuf[24];
 
-/* DXENV value buffer: e_get writes up to 111 chars plus nul */
-char ebuf[112];
+/* DXENV value buffer: e_get writes up to 63 chars plus nul */
+char ebuf[64];
 
 /* current parsed display digits */
 int gh0, gh1;

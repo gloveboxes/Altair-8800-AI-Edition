@@ -40,7 +40,9 @@
 #define TERM_H      (VT100_ROWS * CELL_H)
 #define STATUS_H    20
 #define STATUS_Y    TERM_H
+#define TERM_Y      0
 #define PRESENT_ROWS_PER_BAND 10
+#define STATUS_ONLY_PRESENT_INTERVAL_US 100000
 
 /* ---- Embedded 5x7 bitmap font ----------------------------------------- *
  *                                                                           *
@@ -524,7 +526,7 @@ static void draw_cell(int col, int row, terminal_cell_t cell, bool inverse)
     bool is_ball = (cell.ch == 'O' && cell.fg == 15 && cell.bg == 0);
 
     int x = LEFT_MARGIN + col * CELL_W;
-    int y = row * CELL_H;
+    int y = TERM_Y + row * CELL_H;
 
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
     /* Fast path: one column-major pass directly into the framebuffer. */
@@ -650,16 +652,12 @@ static void present_dirty_text_bands(uint32_t dirty_rows)
         return;
     }
 
-    if (dirty_rows) {
-        dirty_rows = row_mask_range(0, VT100_ROWS);
-    }
-
     for (int row = 0; row < VT100_ROWS; row += PRESENT_ROWS_PER_BAND) {
         int rows_in_band = VT100_ROWS - row;
         if (rows_in_band > PRESENT_ROWS_PER_BAND) rows_in_band = PRESENT_ROWS_PER_BAND;
         uint32_t mask = row_mask_range(row, rows_in_band);
         if (dirty_rows & mask) {
-            panel_display_present_band(row * CELL_H, rows_in_band * CELL_H);
+            panel_display_present_band(TERM_Y + row * CELL_H, rows_in_band * CELL_H);
         }
     }
 }
@@ -783,6 +781,8 @@ void vt100_terminal_flush(void)
 {
     if (!s_initialized || !s_mutex) return;
 
+    static int64_t s_last_status_only_present_us = 0;
+
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
         printf("[vt100] flush: mutex take TIMEOUT (held by puchar/set_ip/update_status)\n");
         return;
@@ -803,6 +803,18 @@ void vt100_terminal_flush(void)
 
     if (!dirty_rows && !status_dirty) return;
 
+    if (!dirty_rows && status_dirty && !panel_display_status_region_supported()) {
+        int64_t now_us = esp_timer_get_time();
+        if (s_last_status_only_present_us != 0 &&
+            now_us - s_last_status_only_present_us < STATUS_ONLY_PRESENT_INTERVAL_US) {
+            xSemaphoreTake(s_mutex, portMAX_DELAY);
+            s_status_dirty = true;
+            xSemaphoreGive(s_mutex);
+            return;
+        }
+        s_last_status_only_present_us = now_us;
+    }
+
     extern volatile int g_panel_checkpoint;
     extern volatile uint32_t g_panel_checkpoint_count;
     g_panel_checkpoint = 5; g_panel_checkpoint_count++;  // start render
@@ -814,7 +826,7 @@ void vt100_terminal_flush(void)
 #if !CONFIG_ALTAIR_DISPLAY_AXS15231B
         /* On AXS the fast draw_cell path paints the cell bg itself, so this
          * full-width row clear would just write every pixel twice. */
-        panel_display_fill_rect(0, row * CELL_H, panel_display_width(), CELL_H,
+        panel_display_fill_rect(0, TERM_Y + row * CELL_H, panel_display_width(), CELL_H,
                                 HAS_STATUS_BAR ? PANEL_COLOR_BLACK : PANEL_COLOR_WHITE);
 #endif
         for (int col = 0; col < VT100_COLS; col++) {

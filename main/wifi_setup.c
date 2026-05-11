@@ -15,19 +15,15 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
-#include "esp_netif_sntp.h"
 #include "esp_timer.h"
 #include "driver/usb_serial_jtag.h"
 #include "sdkconfig.h"
 
 #include "config.h"
-#include "port_drivers/chat_io.h"
-#include "port_drivers/weather_io.h"
 #include "wifi.h"
 #include "captive_portal.h"
 #include "websocket_console.h"
@@ -45,12 +41,24 @@
 static bool g_wifi_connected = false;
 static char g_ip_address[16] = {0};
 static atomic_bool g_websocket_enabled = false;
-static bool s_sntp_initialized = false;
-static bool s_time_synced = false;
+static wifi_setup_network_status_callback_t s_network_status_callback = NULL;
 
 bool wifi_setup_websocket_enabled(void)
 {
     return atomic_load(&g_websocket_enabled);
+}
+
+void wifi_setup_set_network_status_callback(wifi_setup_network_status_callback_t callback)
+{
+    s_network_status_callback = callback;
+}
+
+static void wifi_setup_notify_network_status(void)
+{
+    if (s_network_status_callback)
+    {
+        s_network_status_callback(g_wifi_connected);
+    }
 }
 
 /**
@@ -394,64 +402,7 @@ static void start_websocket_terminal(void)
     }
 }
 
-static bool system_time_is_valid(void)
-{
-    time_t now = 0;
-    struct tm timeinfo;
-
-    time(&now);
-    if (now <= 0 || localtime_r(&now, &timeinfo) == NULL)
-    {
-        return false;
-    }
-
-    return (timeinfo.tm_year + 1900) >= 2024;
-}
-
-static void sntp_sync_callback(struct timeval *tv)
-{
-    (void)tv;
-    s_time_synced = true;
-    chat_io_set_network_available(g_wifi_connected);
-    weather_io_set_network_available(g_wifi_connected);
-}
-
-static void sync_network_time(void)
-{
-    if (s_time_synced || system_time_is_valid())
-    {
-        s_time_synced = true;
-        return;
-    }
-
-    if (!s_sntp_initialized)
-    {
-        esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-        config.sync_cb = sntp_sync_callback;
-        esp_err_t err = esp_netif_sntp_init(&config);
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
-        {
-            printf("SNTP init failed: %s\n", esp_err_to_name(err));
-            return;
-        }
-        s_sntp_initialized = true;
-    }
-
-    printf("Synchronizing time for TLS certificate validation...\n");
-    esp_err_t err = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(20000));
-    if (err == ESP_OK || system_time_is_valid())
-    {
-        time_t now = 0;
-        time(&now);
-        s_time_synced = true;
-        printf("Time synchronized: %s", ctime(&now));
-        return;
-    }
-
-    printf("SNTP sync timed out: %s\n", esp_err_to_name(err));
-}
-
-static void setup_wifi(bool allow_serial_setup)
+static void setup_wifi(bool allow_serial_setup, bool allow_captive_portal)
 {
     char serial_ssid[CONFIG_SSID_MAX_LEN + 1] = {0};
     char serial_password[CONFIG_PASSWORD_MAX_LEN + 1] = {0};
@@ -460,6 +411,8 @@ static void setup_wifi(bool allow_serial_setup)
     if (!wifi_init())
     {
         printf("WiFi initialization failed!\n");
+        g_wifi_connected = false;
+        wifi_setup_notify_network_status();
         return;
     }
 
@@ -483,24 +436,19 @@ static void setup_wifi(bool allow_serial_setup)
                 wifi_get_ip(g_ip_address, sizeof(g_ip_address));
                 printf("WiFi connected! IP: %s\n", g_ip_address);
 
-                sync_network_time();
-                chat_io_set_network_available(s_time_synced);
-                weather_io_set_network_available(s_time_synced && g_wifi_connected);
-                if (!s_time_synced)
-                {
-                    printf("OpenAI chat disabled until time sync succeeds.\n");
-                }
-
                 start_websocket_terminal();
+
+                wifi_setup_notify_network_status();
 
                 return; // Successfully connected
             }
 
-            if (!allow_serial_setup)
+            g_wifi_connected = false;
+            wifi_setup_notify_network_status();
+
+            if (!allow_captive_portal)
             {
-                printf("WiFi connection failed (result=%d); captive portal disabled during normal boot.\n", result);
-                chat_io_set_network_available(false);
-                weather_io_set_network_available(false);
+                printf("WiFi connection failed (result=%d); captive portal disabled.\n", result);
                 return;
             }
 
@@ -522,15 +470,10 @@ static void setup_wifi(bool allow_serial_setup)
                     wifi_get_ip(g_ip_address, sizeof(g_ip_address));
                     printf("WiFi connected! IP: %s\n", g_ip_address);
 
-                    sync_network_time();
-                    chat_io_set_network_available(s_time_synced);
-                    weather_io_set_network_available(s_time_synced && g_wifi_connected);
-                    if (!s_time_synced)
-                    {
-                        printf("OpenAI chat disabled until time sync succeeds.\n");
-                    }
-
                     start_websocket_terminal();
+
+                    wifi_setup_notify_network_status();
+
                     return;
                 }
 
@@ -543,17 +486,27 @@ static void setup_wifi(bool allow_serial_setup)
         }
         else
         {
-            if (!allow_serial_setup)
+            if (!allow_captive_portal)
             {
-                printf("No WiFi credentials configured; captive portal disabled during normal boot.\n");
-                chat_io_set_network_available(false);
-                weather_io_set_network_available(false);
+                g_wifi_connected = false;
+                wifi_setup_notify_network_status();
+                printf("No WiFi credentials configured; captive portal disabled.\n");
                 return;
             }
 
+            g_wifi_connected = false;
+            wifi_setup_notify_network_status();
             printf("No WiFi credentials configured - starting captive portal\n");
         }
     }
+
+    if (!allow_captive_portal)
+    {
+        return;
+    }
+
+    g_wifi_connected = false;
+    wifi_setup_notify_network_status();
 
     // Start captive portal for configuration
     if (captive_portal_start())
@@ -590,7 +543,7 @@ static void wifi_task(void *pvParameters)
 {
     (void)pvParameters;
     printf("WiFi setup task started on Core %d\n", xPortGetCoreID());
-    setup_wifi(false);
+    setup_wifi(false, true);
     printf("WiFi setup task complete\n");
     vTaskDelete(NULL);
 }

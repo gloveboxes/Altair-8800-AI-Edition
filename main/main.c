@@ -28,6 +28,7 @@
 // WiFi and configuration
 #include "config.h"
 #include "bt_keyboard.h"
+#include "network_time.h"
 #include "wifi_setup.h"
 #include "websocket_console.h"
 
@@ -88,6 +89,23 @@ volatile uint32_t g_panel_checkpoint_count = 0;
         g_panel_checkpoint = (n);   \
         g_panel_checkpoint_count++; \
     } while (0)
+
+static void network_status_callback(bool wifi_connected)
+{
+    bool time_synced = false;
+
+    if (wifi_connected)
+    {
+        time_synced = network_time_sync();
+    }
+
+    chat_io_set_network_available(time_synced);
+    weather_io_set_network_available(wifi_connected && time_synced);
+    if (wifi_connected && !time_synced)
+    {
+        printf("OpenAI chat disabled until time sync succeeds.\n");
+    }
+}
 
 // Process character through ANSI escape sequence state machine
 // Mirrors the Pico reference: shared ansi_input lib + monotonic_ms + terminal_postprocess.
@@ -541,6 +559,7 @@ void app_main(void)
 
     // Setup WiFi asynchronously; the VT100 status bar is updated by WiFi events
     // when an IP address or captive portal address becomes available.
+    wifi_setup_set_network_status_callback(network_status_callback);
     wifi_setup_start();
 
     // app_main() can return - FreeRTOS scheduler continues running other tasks

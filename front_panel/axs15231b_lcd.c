@@ -37,13 +37,13 @@ static const char *TAG = "AXS15231B";
  * NOTE: In QSPI mode the AXS15231B driver only emits CASET for color writes;
  * the panel auto-advances rows internally. Full-frame text refreshes use the
  * known-good stream order from y=0 with RAMWR followed by RAMWRC chunks.
- * Text/status partial updates are deliberately disabled until the local driver
- * owns the controller addressing rules completely.
+ * Partial updates remain disabled in QSPI mode. The controller/driver combo
+ * accepts the full-frame stream order reliably, but narrow color writes land at
+ * the wrong logical edge in landscape mode.
  */
 #define FRAMEBUFFER_PIXELS (AXS15231B_LCD_H_RES * AXS15231B_LCD_V_RES)
 #define STREAM_LCD_W AXS15231B_LCD_V_RES
 #define STREAM_LCD_H AXS15231B_LCD_H_RES
-#define STATUS_REGION_H 20
 /* Native rows per ping-pong DMA buffer. Two buffers × DMA_FLUSH_ROWS × 320px ×
  * 2 bytes are kept permanently in internal DRAM, so this directly trades
  * internal DRAM for QSPI transaction overhead. 32 rows = 20 KB per buffer
