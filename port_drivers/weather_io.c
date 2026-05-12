@@ -42,6 +42,7 @@
 
 #define WEATHER_REFRESH_INTERVAL_MS (15 * 60 * 1000)
 #define WEATHER_RETRY_INTERVAL_MS   (60 * 1000)
+#define WEATHER_NETWORK_SETTLE_MS   5000
 #define WEATHER_HTTP_TIMEOUT_MS     15000
 #define WEATHER_HTTP_HOST           "api.openweathermap.org"
 /* Keep response buffers small. /weather is ~500B, /forecast?cnt=1 is ~2KB. */
@@ -200,7 +201,7 @@ void weather_io_set_network_available(bool available)
     s_network_available = available;
     if (available && !was && s_task)
     {
-        /* Wake task to fetch immediately on transition to up. */
+        /* Wake task to start its network-up settle delay. */
         xTaskNotifyGive(s_task);
     }
 }
@@ -210,13 +211,25 @@ void weather_io_set_network_available(bool available)
 static void weather_task(void *arg)
 {
     (void)arg;
+    bool network_ready = false;
 
     for (;;)
     {
         /* Wait for network. Re-check every second so we don't burn CPU. */
         while (!s_network_available || !wifi_is_connected())
         {
+            network_ready = false;
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+        }
+
+        if (!network_ready)
+        {
+            vTaskDelay(pdMS_TO_TICKS(WEATHER_NETWORK_SETTLE_MS));
+            if (!s_network_available || !wifi_is_connected())
+            {
+                continue;
+            }
+            network_ready = true;
         }
 
         if (s_api_key[0] == '\0' || s_location[0] == '\0')

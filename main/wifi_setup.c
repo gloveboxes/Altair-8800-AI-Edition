@@ -24,6 +24,7 @@
 #include "sdkconfig.h"
 
 #include "config.h"
+#include "network_time.h"
 #include "wifi.h"
 #include "captive_portal.h"
 #include "websocket_console.h"
@@ -436,6 +437,8 @@ static void setup_wifi(bool allow_serial_setup, bool allow_captive_portal)
                 wifi_get_ip(g_ip_address, sizeof(g_ip_address));
                 printf("WiFi connected! IP: %s\n", g_ip_address);
 
+                network_time_sync();
+
                 start_websocket_terminal();
 
                 wifi_setup_notify_network_status();
@@ -469,6 +472,8 @@ static void setup_wifi(bool allow_serial_setup, bool allow_captive_portal)
                     g_wifi_connected = true;
                     wifi_get_ip(g_ip_address, sizeof(g_ip_address));
                     printf("WiFi connected! IP: %s\n", g_ip_address);
+
+                    network_time_sync();
 
                     start_websocket_terminal();
 
