@@ -9,6 +9,7 @@
  */
 
 #include "status_led.h"
+#include "board_config.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -18,8 +19,7 @@
 
 static const char* TAG = "StatusLED";
 
-// ESP32-S3 DevKitC onboard RGB LED - GPIO 42 per reference sketch
-#define STATUS_LED_GPIO         42
+#define STATUS_LED_GPIO         ALTAIR_STATUS_LED_GPIO
 
 // LED brightness (0-255)
 #define LED_BRIGHTNESS          20

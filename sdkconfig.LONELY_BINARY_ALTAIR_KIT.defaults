@@ -1,0 +1,17 @@
+CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT=y
+CONFIG_ALTAIR_DISPLAY_NONE=y
+
+# Lonely Binary Altair Kit: no display, 16 MB flash, 8 MB Octal PSRAM.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+# 40 MHz is more tolerant across ESP32-S3 modules while retaining the full 8 MB PSRAM.
+# CONFIG_SPIRAM_SPEED_80M is not set
+CONFIG_SPIRAM_SPEED_40M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# Store the four emulator disk images in the on-board flash FAT partition.
+CONFIG_ALTAIR_STORAGE_INTERNAL_FLASH=y
+
+# This headless kit uses USB serial/WebSocket input only; no BLE keyboard host.
+# CONFIG_BT_ENABLED is not set

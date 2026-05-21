@@ -53,6 +53,10 @@
 #include "altair_panel.h"
 #include "panel_display.h"
 
+#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#include "front_panel_kit.h"
+#endif
+
 // VT100 terminal (Waveshare AXS15231B only)
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
 #include "vt100_terminal.h"
@@ -71,6 +75,7 @@
 // CPU state and virtual monitor
 #include "cpu_state.h"
 #include "ansi_input.h"
+#include "virtual_monitor.h"
 
 // ASCII mask for 7-bit terminal
 #define ASCII_MASK_7BIT 0x7F
@@ -223,11 +228,16 @@ void altair_reset(void)
 #define PANEL_UPDATE_TASK_CORE 0
 #endif
 
+#define PANEL_UPDATE_INTERVAL_MS 50  // ~20Hz
+
+#define PANEL_UPDATE_TASK_INTERVAL_MS (CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT ? 20 : 50)
+
 //-----------------------------------------------------------------------------
 // Emulator Task (runs on Core 1)
 //-----------------------------------------------------------------------------
 
 // Panel update task
+#if !CONFIG_ALTAIR_DISPLAY_NONE || CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
 static void panel_update_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -243,17 +253,33 @@ static void panel_update_task(void *pvParameters)
         PANEL_CHECKPOINT(2); // before flush
         vt100_terminal_flush();
         PANEL_CHECKPOINT(3); // after flush
+#elif CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+    front_panel_kit_update(&cpu);
 #else
         altair_panel_update(&cpu);
 #endif
         // If we overran the period, reset to avoid "catch-up" bursts.
-        if ((xTaskGetTickCount() - last_wake) > pdMS_TO_TICKS(PANEL_UPDATE_INTERVAL_MS))
+        if ((xTaskGetTickCount() - last_wake) > pdMS_TO_TICKS(PANEL_UPDATE_TASK_INTERVAL_MS))
         {
             last_wake = xTaskGetTickCount();
         }
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(PANEL_UPDATE_INTERVAL_MS));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(PANEL_UPDATE_TASK_INTERVAL_MS));
     }
 }
+#endif
+
+#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+static void process_front_panel_kit_command(void)
+{
+    uint8_t command = front_panel_kit_take_command();
+    if (command == NOP) {
+        return;
+    }
+
+    cmd_switches = (ALTAIR_COMMAND)command;
+    process_control_panel_commands();
+}
+#endif
 
 static void emulator_task(void *pvParameters)
 {
@@ -411,10 +437,20 @@ static void emulator_task(void *pvParameters)
             {
                 i8080_cycle(&cpu);
             }
+#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+            process_front_panel_kit_command();
+#endif
             break;
 
         case CPU_STOPPED:
         {
+#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+            process_front_panel_kit_command();
+            if (cpu_state_get_mode() != CPU_STOPPED)
+            {
+                break;
+            }
+#endif
             // Reuse terminal_read() so the monitor sees the same WS→BT→USB
             // priority and ANSI/Ctrl-M handling as the running CPU.
             // terminal_postprocess() converts Ctrl-M (28) into a mode
@@ -458,7 +494,14 @@ void app_main(void)
     esp_chip_info(&chip_info);
     printf("Chip: ESP32-S3 with %d CPU core(s)\n", chip_info.cores);
     printf("Core 0: terminal I/O, WiFi\n");
-    printf("Core 1: Emulation, SD card I/O, VT100 display\n");
+    printf("Core 1: Emulation, SD card I/O");
+#if CONFIG_ALTAIR_DISPLAY_AXS15231B
+    printf(", VT100 display");
+#endif
+    printf("\n");
+    printf("Panel update interval: %d ms (%.1f Hz)\n",
+           PANEL_UPDATE_TASK_INTERVAL_MS,
+           1000.0f / (float)PANEL_UPDATE_TASK_INTERVAL_MS);
 
     uint32_t flash_size;
     if (esp_flash_get_size(NULL, &flash_size) == ESP_OK)
@@ -493,7 +536,15 @@ void app_main(void)
     }
 #endif
 
+#if !CONFIG_ALTAIR_DISPLAY_NONE || CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
     // Initialize front panel display hardware
+#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+    printf("Initializing Altair front panel kit hardware...\n");
+    if (!front_panel_kit_init())
+    {
+        printf("Altair front panel kit initialization failed; continuing headless.\n");
+    }
+#else
     printf("Initializing display hardware...\n");
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
     // AXS15231B display: initialise hardware then switch straight to VT100 mode.
@@ -510,6 +561,7 @@ void app_main(void)
     altair_panel_set_backlight(0);
 #endif
 #endif
+#endif
 
     // Start panel update task
     xTaskCreatePinnedToCore(
@@ -520,6 +572,9 @@ void app_main(void)
         PANEL_UPDATE_TASK_PRIORITY,
         NULL,
         PANEL_UPDATE_TASK_CORE);
+#else
+    printf("No physical display configured; skipping display initialization.\n");
+#endif
 
     bt_keyboard_init();
     config_run_boot_shell();

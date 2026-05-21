@@ -31,6 +31,7 @@ set(app_sources
     "../front_panel/ili9341.c"
     "../front_panel/axs15231b_lcd.c"
     "../front_panel/altair_panel.c"
+    "../front_panel/front_panel_kit.c"
     "../front_panel/virtual_monitor.c"
     "../front_panel/vt100_terminal.c"
     "../front_panel/altair_splash.c"
@@ -49,11 +50,13 @@ idf_component_register(SRCS ${app_sources}
                                     "../captive_portal"
                                     "../terminal"
                        REQUIRES fatfs 
+                                wear_levelling
                                 driver 
                                 esp_lcd 
                                 spi_flash 
                                 sdmmc
                                 esp_driver_sdmmc
+                                esp_driver_sdspi
                                 esp_driver_usb_serial_jtag
                                 esp_driver_ledc
                                 esp_driver_rmt
@@ -82,3 +85,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ESP_LCD_AXS15231B_VER_MINOR=1
     ESP_LCD_AXS15231B_VER_PATCH=0
 )
+
+if(CONFIG_ALTAIR_STORAGE_INTERNAL_FLASH)
+    fatfs_create_spiflash_image(storage ../flash_storage)
+endif()

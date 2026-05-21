@@ -4,12 +4,13 @@ Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.1 (
 
 ## Current Hardware Support
 
-The project currently supports two ESP32-S3 board configurations:
+The project currently supports three ESP32-S3 board configurations:
 
 | Board | Display | Config defaults |
 |---|---|---|
 | WAVESHARE-ESP32-S3-Touch-LCD-3.5B | AXS15231B QSPI LCD, 480x320 VT100/front-panel display | `sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults` |
 | Freenove ESP32-S3 LCD 2.8 | ILI9341 TFT, 320x240 front panel | `sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults` |
+| Lonely Binary Altair Kit | No physical display; Bluetooth disabled; 16 MB flash; 8 MB Octal PSRAM | `sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults` |
 
 ## Features
 
@@ -200,10 +201,11 @@ When switching boards, remove the generated `sdkconfig`, rebuild with the common
 
 ### VS Code Tasks
 
-This workspace includes two VS Code tasks for switching the active generated config:
+This workspace includes VS Code tasks for switching the active generated config:
 
 - `Altair: Switch config to Waveshare 3.5B AXS15231B`
 - `Altair: Switch config to Freenove ESP32-S3 LCD 2.8`
+- `Altair: Switch config to Lonely Binary Altair Kit`
 
 Run one from **Terminal > Run Task...** or the command palette with **Tasks: Run Task**. Each task sources ESP-IDF, removes the generated `sdkconfig`, and runs `idf.py reconfigure` with the common defaults plus the selected board defaults. After the task completes, use the normal ESP-IDF build and flash commands for that board.
 
@@ -222,6 +224,18 @@ rm -f sdkconfig
 idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults" build
 idf.py -p /dev/cu.usbmodem2101 flash monitor
 ```
+
+### Switch to Lonely Binary Altair Kit
+
+```bash
+rm -f sdkconfig
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults" build
+idf.py -p /dev/cu.usbmodem2101 flash monitor
+```
+
+The Lonely Binary Altair Kit profile has no physical display and disables Bluetooth keyboard support. The kit has 16 MB flash and 8 MB Octal PSRAM; PSRAM is configured at 40 MHz for reliable boot.
+
+Do not wire an external SD card to GPIO35, GPIO36, GPIO37, or GPIO38 on this profile. Those pins are FSPI flash/PSRAM signals on ESP32-S3 modules with Octal PSRAM, and loading them can make the boot-time PSRAM memory test fail before the application starts. The Lonely Binary SDSPI mapping uses MOSI/DI on GPIO4, MISO/DO on GPIO5, SCLK on GPIO6, and CS on GPIO7.
 
 If you want to use the checked-in full Freenove snapshot instead of regenerating from defaults:
 
@@ -281,6 +295,7 @@ idf.py build
 - `sdkconfig.defaults`: common defaults file used when regenerating `sdkconfig`.
 - `sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults`: Waveshare 3.5B defaults.
 - `sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults`: Freenove ESP32-S3 LCD 2.8 defaults.
+- `sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults`: Lonely Binary Altair Kit defaults.
 - `sdkconfig.freenove`: full generated Freenove sdkconfig snapshot.
 - `partitions.csv`: partition layout.
 

@@ -30,6 +30,36 @@
         "panel": "dedicated",
         "clear": true
       }
+    },
+    {
+      "label": "Altair: Switch config to Lonely Binary Altair Kit",
+      "type": "shell",
+      "command": "source \"$HOME/.espressif/v6.0.1/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults\" reconfigure",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Altair: Flash Altair disk images",
+      "type": "shell",
+      "command": "source \"$HOME/.espressif/v6.0.1/esp-idf/export.sh\" >/dev/null && idf.py storage-flash",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
     }
   ]
 }
