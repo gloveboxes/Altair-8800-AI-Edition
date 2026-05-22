@@ -79,6 +79,10 @@ typedef struct
 	uint8_t data_bus;
 	uint16_t address_bus;
 
+	uint8_t display_data_bus;
+	uint16_t display_address_bus;
+	uint8_t display_cpuStatus;
+
 	uint8_t current_op_code;
 
 	registers_t registers;

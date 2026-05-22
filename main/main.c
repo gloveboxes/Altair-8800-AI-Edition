@@ -250,7 +250,7 @@ static void panel_update_task(void *pvParameters)
     {
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
         PANEL_CHECKPOINT(1); // before update_status
-        vt100_terminal_update_status(cpu.address_bus, cpu.data_bus, cpu.cpuStatus);
+        vt100_terminal_update_status(cpu.display_address_bus, cpu.display_data_bus, cpu.display_cpuStatus);
         PANEL_CHECKPOINT(2); // before flush
         vt100_terminal_flush();
         PANEL_CHECKPOINT(3); // after flush

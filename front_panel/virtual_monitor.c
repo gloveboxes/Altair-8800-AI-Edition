@@ -261,8 +261,8 @@ void altair_panel_command_handler(void)
     {
         case SINGLE_STEP:
             i8080_cycle(&cpu);
-            publish_cpu_state("Single step", cpu.address_bus, cpu.data_bus);
-            bus_switches = cpu.address_bus;
+            publish_cpu_state("Single step", cpu.display_address_bus, cpu.display_data_bus);
+            bus_switches = cpu.display_address_bus;
             break;
         case EXAMINE:
             i8080_examine(&cpu, bus_switches);

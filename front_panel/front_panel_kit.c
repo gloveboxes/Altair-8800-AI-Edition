@@ -297,9 +297,9 @@ void front_panel_kit_update(const intel8080_t *cpu)
         return;
     }
 
-    uint8_t status = cpu->cpuStatus;
-    uint8_t data = cpu->data_bus;
-    uint16_t address = cpu->address_bus;
+    uint8_t status = cpu->display_cpuStatus;
+    uint8_t data = cpu->display_data_bus;
+    uint16_t address = cpu->display_address_bus;
     uint8_t cmd_bits = 0;
     uint16_t input_switches = 0;
     bool update_leds = status != s_last_status || data != s_last_data || address != s_last_address;

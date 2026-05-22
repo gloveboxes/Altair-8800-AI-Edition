@@ -292,6 +292,13 @@ static inline void i8080_mwrite16(intel8080_t *cpu, uint16_t addr, uint16_t val)
 	write8(addr + 1, cpu->data_bus);
 }
 
+static inline void i8080_update_display_bus(intel8080_t *cpu)
+{
+	cpu->display_address_bus = cpu->address_bus;
+	cpu->display_data_bus = cpu->data_bus;
+	cpu->display_cpuStatus = cpu->cpuStatus;
+}
+
 static inline void i8080_pairwrite(intel8080_t *cpu, uint8_t pair, uint16_t val)
 {
 	/* Register-pair writes are internal CPU operations and do not
@@ -365,19 +372,24 @@ void i8080_examine(intel8080_t *cpu, uint16_t address)
 	// also resumes the CPU if it was previously halted by HLT.
 	i8080_resume(cpu);
 	cpu->registers.pc = cpu->address_bus = address;
+	cpu->cpuStatus = STATUS_MEMORY_READ;
 	cpu->data_bus = read8(cpu->address_bus);
+	i8080_update_display_bus(cpu);
 }
 
 void i8080_examine_next(intel8080_t *cpu)
 {
 	cpu->address_bus++;
+	cpu->cpuStatus = STATUS_MEMORY_READ;
 	cpu->data_bus = read8(cpu->address_bus);
+	i8080_update_display_bus(cpu);
 }
 
 void i8080_deposit(intel8080_t *cpu, uint8_t data)
 {
 	cpu->data_bus = data;
 	i8080_mwrite(cpu);
+	i8080_update_display_bus(cpu);
 }
 
 void i8080_deposit_next(intel8080_t *cpu, uint8_t data)
@@ -385,6 +397,7 @@ void i8080_deposit_next(intel8080_t *cpu, uint8_t data)
 	i8080_examine_next(cpu);
 	cpu->data_bus = data;
 	i8080_mwrite(cpu);
+	i8080_update_display_bus(cpu);
 }
 
 /* Compute Z/S/P from a value already in hand. Callers that just produced a
@@ -1162,12 +1175,12 @@ void i8080_fetch_next_op(intel8080_t *cpu)
 
 static inline void i8080_show_next_fetch(intel8080_t *cpu)
 {
-	/* Front-panel displays sample the steady state between CPU cycles. After
-	   an instruction completes, show the next instruction fetch address/data
-	   instead of whichever operand byte happened to be the final memory access
-	   of the instruction just executed. */
+	/* Front-panel displays sample asynchronously from another task. Keep a
+	   stable display bus separate from the CPU's working bus so RUN mode cannot
+	   show transient operand-fetch addresses between cycles. */
 	cpu->address_bus = cpu->registers.pc;
 	cpu->data_bus = read8(cpu->registers.pc);
+	i8080_update_display_bus(cpu);
 }
 
 uint8_t i8080_daa(intel8080_t *cpu)
@@ -1231,6 +1244,7 @@ void i8080_cycle(intel8080_t *cpu)
 		/* Keep HLTA asserted while halted. The bus values stay at the
 		   instruction following HLT, matching real-8080 behavior. */
 		cpu->cpuStatus = STATUS_HALT;
+		cpu->display_cpuStatus = STATUS_HALT;
 		return;
 	}
 

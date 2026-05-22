@@ -423,7 +423,7 @@ void altair_panel_run_startup_test(uint32_t duration_ms)
 
 static uint16_t translate_cpu_status(const intel8080_t *cpu)
 {
-    uint8_t raw = cpu->cpuStatus;
+    uint8_t raw = cpu->display_cpuStatus;
     uint16_t out = 0;
 
     if (cpu->iff)                          out |= STATUS_INTE;
@@ -446,8 +446,8 @@ void altair_panel_update(const intel8080_t *cpu)
 
     // Translate raw emulator status bits into the panel's logical layout.
     uint16_t cur_status = translate_cpu_status(cpu);
-    uint16_t cur_address = cpu->address_bus;
-    uint8_t cur_data = cpu->data_bus;
+    uint16_t cur_address = cpu->display_address_bus;
+    uint8_t cur_data = cpu->display_data_bus;
     
     // Only update if something changed
     if (cur_status != last_status || cur_address != last_address || cur_data != last_data) {
