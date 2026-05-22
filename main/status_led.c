@@ -2,7 +2,8 @@
  * @file status_led.c
  * @brief RGB Status LED driver for ESP32-S3
  *
- * Uses the RMT peripheral to control the onboard WS2812 RGB LED.
+ * Uses the RMT peripheral to control onboard WS2812 RGB LEDs, or a plain GPIO
+ * for boards with a single active-low user LED.
  * The LED indicates WiFi connection status:
  * - Green flash every 30 seconds: WiFi connected
  * - Red flash every 10 seconds: WiFi disconnected or connection lost
@@ -15,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
 #include "driver/rmt_tx.h"
 
 static const char* TAG = "StatusLED";
@@ -41,10 +43,14 @@ static const char* TAG = "StatusLED";
 #define WS2812_RESET_US     280 // Reset time
 
 // State variables
+#if ALTAIR_STATUS_LED_IS_WS2812
 static rmt_channel_handle_t s_rmt_channel = NULL;
 static rmt_encoder_handle_t s_encoder = NULL;
+#endif
+static bool s_initialized = false;
 static volatile bool s_wifi_connected = false;
 
+#if ALTAIR_STATUS_LED_IS_WS2812
 // WS2812 encoder structure
 typedef struct {
     rmt_encoder_t base;
@@ -161,12 +167,14 @@ static esp_err_t ws2812_encoder_create(rmt_encoder_handle_t *ret_encoder)
     *ret_encoder = &ws2812_encoder->base;
     return ESP_OK;
 }
+#endif
 
 /**
- * @brief Set LED color (GRB order for WS2812)
+ * @brief Set LED color. Plain GPIO boards treat any non-zero color as on.
  */
 static void led_set_color(uint8_t red, uint8_t green, uint8_t blue)
 {
+#if ALTAIR_STATUS_LED_IS_WS2812
     if (!s_rmt_channel || !s_encoder) {
         return;
     }
@@ -180,6 +188,10 @@ static void led_set_color(uint8_t red, uint8_t green, uint8_t blue)
 
     rmt_transmit(s_rmt_channel, s_encoder, grb, sizeof(grb), &tx_config);
     rmt_tx_wait_all_done(s_rmt_channel, portMAX_DELAY);
+#else
+    bool on = red != 0 || green != 0 || blue != 0;
+    gpio_set_level(STATUS_LED_GPIO, ALTAIR_STATUS_LED_ACTIVE_LOW ? !on : on);
+#endif
 }
 
 /**
@@ -205,6 +217,7 @@ static void led_flash(uint8_t red, uint8_t green, uint8_t blue, uint32_t duratio
  */
 static void status_led_task(void* arg)
 {
+    (void)arg;
     ESP_LOGI(TAG, "Status LED task started");
     
     for (;;) {
@@ -215,20 +228,25 @@ static void status_led_task(void* arg)
         if (s_wifi_connected) {
             led_flash(0, LED_BRIGHTNESS, 0, LED_FLASH_ON_MS);
         } else {
+#if ALTAIR_STATUS_LED_IS_WS2812
             led_flash(LED_BRIGHTNESS, 0, 0, LED_FLASH_ON_MS);
+#else
+            led_off();
+#endif
         }
     }
 }
 
 bool status_led_init(void)
 {
-    if (s_rmt_channel != NULL) {
+    if (s_initialized) {
         ESP_LOGW(TAG, "Status LED already initialized");
         return true;
     }
     
     ESP_LOGI(TAG, "Initializing status LED on GPIO %d", STATUS_LED_GPIO);
-    
+
+#if ALTAIR_STATUS_LED_IS_WS2812
     // Configure RMT TX channel
     rmt_tx_channel_config_t tx_chan_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
@@ -263,8 +281,22 @@ bool status_led_init(void)
         s_rmt_channel = NULL;
         return false;
     }
+#else
+    gpio_config_t led_gpio_config = {
+        .pin_bit_mask = 1ULL << STATUS_LED_GPIO,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    esp_err_t ret = gpio_config(&led_gpio_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure GPIO LED: %s", esp_err_to_name(ret));
+        return false;
+    }
+#endif
     
-    // Flash blue briefly on startup to confirm LED is working
+    // Flash briefly on startup to confirm LED is working
     led_set_color(0, 0, LED_BRIGHTNESS);
     vTaskDelay(pdMS_TO_TICKS(200));
     led_off();
@@ -282,14 +314,19 @@ bool status_led_init(void)
     
     if (task_ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create status LED task");
+#if ALTAIR_STATUS_LED_IS_WS2812
         rmt_disable(s_rmt_channel);
         rmt_del_encoder(s_encoder);
         rmt_del_channel(s_rmt_channel);
         s_encoder = NULL;
         s_rmt_channel = NULL;
+#else
+        led_off();
+#endif
         return false;
     }
     
+    s_initialized = true;
     ESP_LOGI(TAG, "Status LED initialized");
     return true;
 }

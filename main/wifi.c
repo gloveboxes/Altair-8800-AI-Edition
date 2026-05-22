@@ -266,9 +266,8 @@ bool wifi_init(void)
     s_wifi_initialized = true;
     ESP_LOGI(TAG, "WiFi initialized");
 
-    // Initialize the status LED task. Boards without an on-board WS2812
-    // (e.g. WAVESHARE-ESP32-S3-Touch-LCD-3.5B) skip this entirely so we don't
-    // burn a GPIO + RMT channel + task stack driving a LED that isn't there.
+    // Initialize the status LED task. Boards without an on-board status LED
+    // skip this entirely so we don't burn a GPIO + task stack driving nothing.
 #if !CONFIG_ALTAIR_BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_3_5B
     if (!status_led_init()) {
         ESP_LOGW(TAG, "Status LED initialization failed (non-critical)");

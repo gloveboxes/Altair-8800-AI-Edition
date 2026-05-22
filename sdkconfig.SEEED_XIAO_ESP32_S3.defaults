@@ -1,0 +1,18 @@
+CONFIG_ALTAIR_BOARD_SEEED_XIAO_ESP32_S3=y
+CONFIG_ALTAIR_DISPLAY_NONE=y
+
+# Seeed Studio XIAO ESP32-S3: 8 MB flash, 8 MB Octal PSRAM.
+# CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_8mb.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_8mb.csv"
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# Store the emulator disk images in the on-board flash FAT partition.
+CONFIG_ALTAIR_STORAGE_INTERNAL_FLASH=y
+
+# The Altair front panel kit consumes most exposed GPIOs, so use USB serial/WebSocket input.
+# CONFIG_BT_ENABLED is not set

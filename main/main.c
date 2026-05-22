@@ -52,8 +52,9 @@
 // Front panel display
 #include "altair_panel.h"
 #include "panel_display.h"
+#include "board_config.h"
 
-#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if ALTAIR_HAS_FRONT_PANEL_KIT
 #include "front_panel_kit.h"
 #endif
 
@@ -230,14 +231,14 @@ void altair_reset(void)
 
 #define PANEL_UPDATE_INTERVAL_MS 50  // ~20Hz
 
-#define PANEL_UPDATE_TASK_INTERVAL_MS (CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT ? 20 : 50)
+#define PANEL_UPDATE_TASK_INTERVAL_MS (ALTAIR_HAS_FRONT_PANEL_KIT ? 20 : 50)
 
 //-----------------------------------------------------------------------------
 // Emulator Task (runs on Core 1)
 //-----------------------------------------------------------------------------
 
 // Panel update task
-#if !CONFIG_ALTAIR_DISPLAY_NONE || CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if !CONFIG_ALTAIR_DISPLAY_NONE || ALTAIR_HAS_FRONT_PANEL_KIT
 static void panel_update_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -253,7 +254,7 @@ static void panel_update_task(void *pvParameters)
         PANEL_CHECKPOINT(2); // before flush
         vt100_terminal_flush();
         PANEL_CHECKPOINT(3); // after flush
-#elif CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#elif ALTAIR_HAS_FRONT_PANEL_KIT
     front_panel_kit_update(&cpu);
 #else
         altair_panel_update(&cpu);
@@ -268,7 +269,7 @@ static void panel_update_task(void *pvParameters)
 }
 #endif
 
-#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if ALTAIR_HAS_FRONT_PANEL_KIT
 static void process_front_panel_kit_command(void)
 {
     uint8_t command = front_panel_kit_take_command();
@@ -437,14 +438,14 @@ static void emulator_task(void *pvParameters)
             {
                 i8080_cycle(&cpu);
             }
-#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if ALTAIR_HAS_FRONT_PANEL_KIT
             process_front_panel_kit_command();
 #endif
             break;
 
         case CPU_STOPPED:
         {
-#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if ALTAIR_HAS_FRONT_PANEL_KIT
             process_front_panel_kit_command();
             if (cpu_state_get_mode() != CPU_STOPPED)
             {
@@ -536,9 +537,9 @@ void app_main(void)
     }
 #endif
 
-#if !CONFIG_ALTAIR_DISPLAY_NONE || CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if !CONFIG_ALTAIR_DISPLAY_NONE || ALTAIR_HAS_FRONT_PANEL_KIT
     // Initialize front panel display hardware
-#if CONFIG_ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+#if ALTAIR_HAS_FRONT_PANEL_KIT
     printf("Initializing Altair front panel kit hardware...\n");
     if (!front_panel_kit_init())
     {

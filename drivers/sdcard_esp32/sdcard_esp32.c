@@ -25,8 +25,9 @@
 
 static const char* TAG = "SDCARD_ESP32";
 
-// SDMMC card handle
+#if !CONFIG_ALTAIR_STORAGE_INTERNAL_FLASH
 static sdmmc_card_t* s_card = NULL;
+#endif
 static bool s_mounted = false;
 #if CONFIG_ALTAIR_STORAGE_INTERNAL_FLASH
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;

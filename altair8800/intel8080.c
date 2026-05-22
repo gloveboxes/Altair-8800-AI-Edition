@@ -1160,6 +1160,16 @@ void i8080_fetch_next_op(intel8080_t *cpu)
 	cpu->cpuStatus |= STATUS_OP_CODE_FETCH;
 }
 
+static inline void i8080_show_next_fetch(intel8080_t *cpu)
+{
+	/* Front-panel displays sample the steady state between CPU cycles. After
+	   an instruction completes, show the next instruction fetch address/data
+	   instead of whichever operand byte happened to be the final memory access
+	   of the instruction just executed. */
+	cpu->address_bus = cpu->registers.pc;
+	cpu->data_bus = read8(cpu->registers.pc);
+}
+
 uint8_t i8080_daa(intel8080_t *cpu)
 {
 	/* DAA per 8080 programmer's manual. The step-2 condition must be
@@ -1236,4 +1246,6 @@ void i8080_cycle(intel8080_t *cpu)
 		// Handle undefined opcodes (NOP behavior)
 		cpu->registers.pc++;
 	}
+
+	i8080_show_next_fetch(cpu);
 }

@@ -4,13 +4,14 @@ Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.1 (
 
 ## Current Hardware Support
 
-The project currently supports three ESP32-S3 board configurations:
+The project currently supports four ESP32-S3 board configurations:
 
 | Board | Display | Config defaults |
 |---|---|---|
 | WAVESHARE-ESP32-S3-Touch-LCD-3.5B | AXS15231B QSPI LCD, 480x320 VT100/front-panel display | `sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults` |
 | Freenove ESP32-S3 LCD 2.8 | ILI9341 TFT, 320x240 front panel | `sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults` |
 | Lonely Binary Altair Kit | No physical display; Bluetooth disabled; 16 MB flash; 8 MB Octal PSRAM | `sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults` |
+| Seeed XIAO ESP32-S3 Altair Kit | Altair Front Panel Kit; Bluetooth disabled; internal flash storage; 8 MB flash; 8 MB Octal PSRAM | `sdkconfig.SEEED_XIAO_ESP32_S3.defaults` |
 
 ## Features
 
@@ -206,6 +207,7 @@ This workspace includes VS Code tasks for switching the active generated config:
 - `Altair: Switch config to Waveshare 3.5B AXS15231B`
 - `Altair: Switch config to Freenove ESP32-S3 LCD 2.8`
 - `Altair: Switch config to Lonely Binary Altair Kit`
+- `Altair: Switch config to Seeed XIAO ESP32-S3 Altair Kit`
 
 Run one from **Terminal > Run Task...** or the command palette with **Tasks: Run Task**. Each task sources ESP-IDF, removes the generated `sdkconfig`, and runs `idf.py reconfigure` with the common defaults plus the selected board defaults. After the task completes, use the normal ESP-IDF build and flash commands for that board.
 
@@ -236,6 +238,35 @@ idf.py -p /dev/cu.usbmodem2101 flash monitor
 The Lonely Binary Altair Kit profile has no physical display and disables Bluetooth keyboard support. The kit has 16 MB flash and 8 MB Octal PSRAM; PSRAM is configured at 40 MHz for reliable boot.
 
 Do not wire an external SD card to GPIO35, GPIO36, GPIO37, or GPIO38 on this profile. Those pins are FSPI flash/PSRAM signals on ESP32-S3 modules with Octal PSRAM, and loading them can make the boot-time PSRAM memory test fail before the application starts. The Lonely Binary SDSPI mapping uses MOSI/DI on GPIO4, MISO/DO on GPIO5, SCLK on GPIO6, and CS on GPIO7.
+
+### Switch to Seeed XIAO ESP32-S3 Altair Kit
+
+```bash
+rm -f sdkconfig
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.SEEED_XIAO_ESP32_S3.defaults" build
+idf.py -p /dev/cu.usbmodem2101 flash
+idf.py -p /dev/cu.usbmodem2101 storage-flash
+idf.py -p /dev/cu.usbmodem2101 monitor
+```
+
+The Seeed XIAO ESP32-S3 profile targets the 8 MB flash / 8 MB Octal PSRAM XIAO board and uses the internal flash FAT partition for the emulator disk images. It drives the Altair Front Panel Kit directly from the XIAO header pins and leaves the board headless for terminal output through USB serial and the WebSocket terminal. Because the XIAO has 8 MB flash, this profile uses `partitions_8mb.csv` with a 4 MB app slot and a 3 MB FAT storage partition.
+
+Wire the Altair Front Panel Kit to the XIAO ESP32-S3 as follows:
+
+| Altair header pin | Front panel kit signal | XIAO pin | ESP32-S3 GPIO |
+|---:|---|---|---:|
+| 1 | `LOAD` / switch load | `D0` | `GPIO1` |
+| 2 | `SWITCH_CS` | `D1` | `GPIO2` |
+| 4 | `MISO` | `D9` / MISO | `GPIO8` |
+| 5 | `MOSI` | `D10` / MOSI | `GPIO9` |
+| 6 | `RESET` / MR | `D3` | `GPIO4` |
+| 7 | `CLK` / SCK | `D8` / SCK | `GPIO7` |
+| 8 | `LED_STORE` | `D4` / SDA | `GPIO5` |
+| 9 | `LED_OE` | `D5` / SCL | `GPIO6` |
+| 10 | `3V3` | `3V3` | power |
+| 11 | `GND` | `GND` | ground |
+
+Leave `D2` / `GPIO3` unused for this wiring; Seeed documents it as a JTAG strapping-related pin at reset. The profile does not use an external SD card, so do not wire SD storage to the SPI pins above.
 
 If you want to use the checked-in full Freenove snapshot instead of regenerating from defaults:
 
@@ -296,6 +327,7 @@ idf.py build
 - `sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults`: Waveshare 3.5B defaults.
 - `sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults`: Freenove ESP32-S3 LCD 2.8 defaults.
 - `sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults`: Lonely Binary Altair Kit defaults.
+- `sdkconfig.SEEED_XIAO_ESP32_S3.defaults`: Seeed XIAO ESP32-S3 Altair Front Panel Kit defaults.
 - `sdkconfig.freenove`: full generated Freenove sdkconfig snapshot.
 - `partitions.csv`: partition layout.
 

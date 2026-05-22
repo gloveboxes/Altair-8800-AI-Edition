@@ -15,6 +15,9 @@ choice ALTAIR_BOARD
 
     config ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
         bool "Lonely Binary Altair Kit"
+
+    config ALTAIR_BOARD_SEEED_XIAO_ESP32_S3
+        bool "Seeed XIAO ESP32-S3 with Altair Front Panel Kit"
 endchoice
 
 choice ALTAIR_DISPLAY_DRIVER
@@ -22,6 +25,7 @@ choice ALTAIR_DISPLAY_DRIVER
     default ALTAIR_DISPLAY_ILI9341 if ALTAIR_BOARD_FREENOVE
     default ALTAIR_DISPLAY_AXS15231B if ALTAIR_BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_3_5B
     default ALTAIR_DISPLAY_NONE if ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+    default ALTAIR_DISPLAY_NONE if ALTAIR_BOARD_SEEED_XIAO_ESP32_S3
     help
         Select the physical front-panel display backend for the target board.
 
@@ -35,7 +39,7 @@ choice ALTAIR_DISPLAY_DRIVER
 
     config ALTAIR_DISPLAY_NONE
         bool "No physical display"
-        depends on ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT
+        depends on ALTAIR_BOARD_LONELY_BINARY_ALTAIR_KIT || ALTAIR_BOARD_SEEED_XIAO_ESP32_S3
 endchoice
 
 choice ALTAIR_STORAGE_BACKEND
