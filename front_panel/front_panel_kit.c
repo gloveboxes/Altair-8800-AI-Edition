@@ -153,7 +153,7 @@ static bool kit_transfer_panel(uint8_t status, uint8_t data, uint16_t address,
     esp_rom_delay_us(KIT_STROBE_DELAY_US);
     gpio_set_level(KIT_PIN_SWITCH_LOAD, 1);
 
-    esp_err_t err = spi_device_transmit(s_spi, &transaction);
+    esp_err_t err = spi_device_polling_transmit(s_spi, &transaction);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "SPI panel transfer failed: %s", esp_err_to_name(err));
     }

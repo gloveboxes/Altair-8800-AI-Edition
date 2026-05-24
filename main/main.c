@@ -284,7 +284,7 @@ void altair_reset(void)
 
 #define PANEL_UPDATE_INTERVAL_MS 50  // ~20Hz
 
-#define PANEL_UPDATE_TASK_INTERVAL_MS (ALTAIR_HAS_FRONT_PANEL_KIT ? 20 : 50)
+#define PANEL_UPDATE_TASK_INTERVAL_MS (ALTAIR_HAS_FRONT_PANEL_KIT ? 10 : 50)
 
 //-----------------------------------------------------------------------------
 // Emulator Task (runs on Core 1)
