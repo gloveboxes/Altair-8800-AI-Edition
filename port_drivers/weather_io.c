@@ -59,6 +59,7 @@
 #define WEATHER_KEY_MAX             40
 #define WEATHER_ERR_MAX             96
 #define WEATHER_NUM_MAX             12
+#define WEATHER_REPLY_SCRATCH_MAX   24
 #define WEATHER_WHEN_MAX            20
 
 typedef struct
@@ -860,7 +861,7 @@ size_t weather_output(int port, uint8_t data, char *buffer, size_t buffer_length
 
     if (port == WEATHER_PORT_FIELD)
     {
-        char scratch[WEATHER_NUM_MAX];
+        char scratch[WEATHER_REPLY_SCRATCH_MAX];
         s_reply[0] = '\0';
         s_reply_len = 0;
         s_reply_pos = 0;

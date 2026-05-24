@@ -366,7 +366,7 @@ int row;
     mns = ltoi(lmn);
     scs = ltoi(lsc);
 
-    col = SCRW - 2 - ULEN;
+    col = SCRW - 5 - ULEN;
     curmv(row, col);
     printf("\033[2;37mUptime %02d:%02d:%02d\033[0m",
            hrs, mns, scs);

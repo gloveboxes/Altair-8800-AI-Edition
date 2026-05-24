@@ -1072,8 +1072,9 @@ static size_t environment_execute_cli(char *buffer, size_t buffer_length)
     s_status = ENV_STATUS_OK;
     error[0] = '\0';
 
-    strncpy(work, s_env->request, ENV_REQUEST_SIZE - 1);
-    work[ENV_REQUEST_SIZE - 1] = '\0';
+    size_t request_len = strnlen(s_env->request, ENV_REQUEST_SIZE - 1);
+    memcpy(work, s_env->request, request_len);
+    work[request_len] = '\0';
     rest = environment_next_token(work, arg1, ENV_VALUE_SIZE);
 
     if (arg1[0] == '\0')
@@ -1181,8 +1182,9 @@ static size_t environment_execute_cli(char *buffer, size_t buffer_length)
         }
         if (rc > 0)
         {
-            strncpy(value, evaled, ENV_VALUE_SIZE - 1);
-            value[ENV_VALUE_SIZE - 1] = '\0';
+            size_t evaled_len = strnlen(evaled, ENV_VALUE_SIZE - 1);
+            memcpy(value, evaled, evaled_len);
+            value[evaled_len] = '\0';
         }
 
         rc = environment_set_value(key, value);

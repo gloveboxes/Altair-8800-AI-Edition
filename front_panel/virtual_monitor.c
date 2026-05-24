@@ -244,8 +244,7 @@ void publish_cpu_state(char* command, uint16_t address_bus, uint8_t data_bus)
 
     size_t msg_length =
         (size_t)snprintf(panel_info, sizeof(panel_info),
-                         "\r\n%14s: Addr bus: %s%s (0x%04x), Data bus %s (0x%02x), %-12s  %dB\n\rCPU "
-                         "MONITOR> ",
+                         "\r\n%-6s: A=%s.%s(0x%04X) D=%s(0x%02X) %-12s %dB\r\nCPU MONITOR> ",
                          command, address_bus_high_byte, address_bus_low_byte, address_bus, data_bus_binary, data_bus,
                          get_i8080_instruction_name(data_bus, &instruction_length), instruction_length);
 
@@ -261,26 +260,26 @@ void altair_panel_command_handler(void)
     {
         case SINGLE_STEP:
             i8080_cycle(&cpu);
-            publish_cpu_state("Single step", cpu.display_address_bus, cpu.display_data_bus);
+            publish_cpu_state("Step", cpu.display_address_bus, cpu.display_data_bus);
             bus_switches = cpu.display_address_bus;
             break;
         case EXAMINE:
             i8080_examine(&cpu, bus_switches);
-            publish_cpu_state("Examine", cpu.address_bus, cpu.data_bus);
+            publish_cpu_state("Exam", cpu.address_bus, cpu.data_bus);
             bus_switches = cpu.address_bus;
             break;
         case EXAMINE_NEXT:
             i8080_examine_next(&cpu);
-            publish_cpu_state("Examine next", cpu.address_bus, cpu.data_bus);
+            publish_cpu_state("ExamN", cpu.address_bus, cpu.data_bus);
             bus_switches = cpu.address_bus;
             break;
         case DEPOSIT:
             i8080_deposit(&cpu, (uint8_t)(bus_switches & 0xff));
-            publish_cpu_state("Deposit", cpu.address_bus, cpu.data_bus);
+            publish_cpu_state("Dep", cpu.address_bus, cpu.data_bus);
             break;
         case DEPOSIT_NEXT:
             i8080_deposit_next(&cpu, (uint8_t)(bus_switches & 0xff));
-            publish_cpu_state("Deposit next", cpu.address_bus, cpu.data_bus);
+            publish_cpu_state("DepN", cpu.address_bus, cpu.data_bus);
             bus_switches = cpu.address_bus;
             break;
         case DISASSEMBLE:

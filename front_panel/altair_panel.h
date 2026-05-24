@@ -14,17 +14,17 @@
 #include <stdbool.h>
 #include "intel8080.h"
 
-// Status bit definitions (directly usable for LED display)
-#define STATUS_INTE  (1 << 0)   // Interrupts enabled
-#define STATUS_PROT  (1 << 1)   // Memory protect (unused)
-#define STATUS_MEMR  (1 << 2)   // Memory read
-#define STATUS_INP   (1 << 3)   // Input
-#define STATUS_M1    (1 << 4)   // Machine cycle 1 (instruction fetch)
-#define STATUS_OUT   (1 << 5)   // Output
-#define STATUS_HLTA  (1 << 6)   // Halt acknowledge
-#define STATUS_STCK  (1 << 7)   // Stack access
-#define STATUS_WO    (1 << 8)   // Write out (active low on real Altair)
-#define STATUS_INT   (1 << 9)   // Interrupt request
+// Status bit definitions as laid out on the panel, with bit 9 drawn at left.
+#define STATUS_INT   (1 << 0)   // Interrupt request
+#define STATUS_WO    (1 << 1)   // Write out (active low on real Altair)
+#define STATUS_STCK  (1 << 2)   // Stack access
+#define STATUS_HLTA  (1 << 3)   // Halt acknowledge
+#define STATUS_OUT   (1 << 4)   // Output
+#define STATUS_M1    (1 << 5)   // Machine cycle 1 (instruction fetch)
+#define STATUS_INP   (1 << 6)   // Input
+#define STATUS_MEMR  (1 << 7)   // Memory read
+#define STATUS_PROT  (1 << 8)   // Memory protect (unused)
+#define STATUS_INTE  (1 << 9)   // Interrupts enabled
 
 //-----------------------------------------------------------------------------
 // Panel API

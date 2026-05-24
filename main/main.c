@@ -80,7 +80,9 @@
 
 // ASCII mask for 7-bit terminal
 #define ASCII_MASK_7BIT 0x7F
-#define CTRL_KEY(ch) ((ch) & 0x1F)
+// Byte that toggles CPU monitor mode. The web terminal sends 0x1C (ASCII FS)
+// for Ctrl+M so it is distinguishable from Enter (CR).
+#define CPU_MONITOR_TOGGLE_CHAR 0x1C
 
 // Static disk controller reference for reset
 static disk_controller_t *g_disk_controller = NULL;
@@ -123,7 +125,7 @@ static uint32_t monotonic_ms(void)
 static uint8_t terminal_postprocess(uint8_t ch)
 {
     ch &= ASCII_MASK_7BIT;
-    if (ch == 28)
+    if (ch == CPU_MONITOR_TOGGLE_CHAR)
     {
         cpu_state_toggle_mode();
         return 0x00;
@@ -135,31 +137,82 @@ static uint8_t terminal_postprocess(uint8_t ch)
     return ch;
 }
 
-// Terminal read function - non-blocking
-static uint8_t terminal_read(void)
+static bool terminal_read_raw(uint8_t *ch)
 {
     // Input priority is WebSocket client, then BLE keyboard, then USB serial.
-    uint8_t ws_ch = 0;
-    if (wifi_setup_websocket_enabled() && websocket_console_try_dequeue_input(&ws_ch))
+    if (wifi_setup_websocket_enabled() && websocket_console_try_dequeue_input(ch))
     {
-        uint8_t ch = ansi_input_process((uint8_t)(ws_ch & ASCII_MASK_7BIT), monotonic_ms());
-        return terminal_postprocess(ch);
+        return true;
     }
 
-    uint8_t bt_ch = 0;
-    if (bt_keyboard_try_dequeue_input(&bt_ch))
+    if (bt_keyboard_try_dequeue_input(ch))
     {
-        uint8_t ch = ansi_input_process((uint8_t)(bt_ch & ASCII_MASK_7BIT), monotonic_ms());
-        return terminal_postprocess(ch);
+        return true;
     }
 
     // Fall back to USB serial if neither higher-priority source has input.
-    uint8_t c;
-    int len = usb_serial_jtag_read_bytes(&c, 1, 0);
-    if (len > 0)
+    return usb_serial_jtag_read_bytes(ch, 1, 0) > 0;
+}
+
+// One-byte slot used by terminal_poll_input() to hand a character to the
+// emulated CPU's next terminal_read(). Sized at one byte deliberately: any
+// well-behaved 8080 program (CP/M, BASIC, ...) polls 2SIO status thousands
+// of times per second, so the slot drains in microseconds. A pathological
+// tight loop (e.g. hand-entered JMP $) never drains it, but in that case
+// the only character we care about is CPU_MONITOR_TOGGLE_CHAR, which is
+// consumed by terminal_postprocess() *before* it ever reaches the slot.
+static uint8_t s_pending_byte = 0;
+static bool s_pending_valid = false;
+
+// Background drain of input sources so CPU_MONITOR_TOGGLE_CHAR is honoured
+// even when the emulated CPU never executes an IN on the 2SIO ports.
+// Called from the emulator loop after each batch of 8080 cycles.
+static void terminal_poll_input(void)
+{
+    // Bound the work so we never starve the 8080.
+    for (int i = 0; i < 64; ++i)
     {
-        uint8_t ch = ansi_input_process((uint8_t)(c & ASCII_MASK_7BIT), monotonic_ms());
-        return terminal_postprocess(ch);
+        uint8_t raw;
+        if (!terminal_read_raw(&raw))
+        {
+            return;
+        }
+
+        uint8_t ch = terminal_postprocess(
+            ansi_input_process((uint8_t)(raw & ASCII_MASK_7BIT), monotonic_ms()));
+
+        if (ch == 0x00)
+        {
+            // Either CPU_MONITOR_TOGGLE_CHAR (already toggled the mode) or
+            // we're mid-ANSI sequence. Keep draining.
+            continue;
+        }
+
+        if (!s_pending_valid)
+        {
+            s_pending_byte = ch;
+            s_pending_valid = true;
+        }
+        // If the slot is already full the emulated CPU is not reading the
+        // terminal, so further input is dropped on the floor. The toggle
+        // byte is unaffected because it never reaches this branch.
+        return;
+    }
+}
+
+// Terminal read function - non-blocking
+static uint8_t terminal_read(void)
+{
+    if (s_pending_valid)
+    {
+        s_pending_valid = false;
+        return s_pending_byte;
+    }
+
+    uint8_t raw;
+    if (terminal_read_raw(&raw))
+    {
+        return terminal_postprocess(ansi_input_process((uint8_t)(raw & ASCII_MASK_7BIT), monotonic_ms()));
     }
 
     // Idle pump: drives the lone-ESC grace timer in ansi_input.
@@ -438,6 +491,9 @@ static void emulator_task(void *pvParameters)
             {
                 i8080_cycle(&cpu);
             }
+            // Drain input sources so Ctrl+M is honoured even if the running
+            // 8080 program never executes IN on the 2SIO ports.
+            terminal_poll_input();
 #if ALTAIR_HAS_FRONT_PANEL_KIT
             process_front_panel_kit_command();
 #endif
@@ -452,10 +508,10 @@ static void emulator_task(void *pvParameters)
                 break;
             }
 #endif
-            // Reuse terminal_read() so the monitor sees the same WS→BT→USB
-            // priority and ANSI/Ctrl-M handling as the running CPU.
-            // terminal_postprocess() converts Ctrl-M (28) into a mode
-            // toggle and returns 0, so any non-zero byte is monitor input.
+            // Reuse terminal_read() so the monitor sees the same WS->BT->USB
+            // priority and ANSI/monitor-toggle handling as the running CPU.
+            // terminal_postprocess() converts the monitor control byte into a
+            // mode toggle and returns 0, so any non-zero byte is monitor input.
             uint8_t ch = terminal_read();
             if (ch != 0x00)
             {

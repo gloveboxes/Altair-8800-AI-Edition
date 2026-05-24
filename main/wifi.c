@@ -33,14 +33,15 @@ static const char* TAG = "WiFi";
 #define WIFI_CONNECTED_BIT  BIT0
 #define WIFI_FAIL_BIT       BIT1
 
-// Default connection timeout (WPA3-SAE can require multiple retries, DHCP needs time)
-#define DEFAULT_WIFI_TIMEOUT_MS  20000
-
 // Maximum connection retry attempts
 #define WIFI_MAX_RETRY  15
 
 // Delay before any connect attempt (ms)
 #define WIFI_CONNECT_DELAY_MS  800
+
+// WPA/WPA3 auth failures can take several seconds before ESP-IDF reports a
+// disconnect. Keep the outer wait long enough for the configured retry budget.
+#define WIFI_CONNECT_TIMEOUT_MS  70000
 
 // WiFi static buffer sizes are tuned via sdkconfig.defaults
 // (CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM, _STATIC_TX_BUFFER_NUM,
@@ -54,6 +55,9 @@ static bool s_wifi_connected = false;
 static bool s_wifi_ap_mode = false;
 static char s_ip_address[16] = {0};
 static int s_retry_count = 0;
+static int s_connect_attempts = 0;
+static int s_disconnect_count = 0;
+static uint8_t s_last_disconnect_reason = 0;
 
 // FreeRTOS event group for connection synchronization
 static EventGroupHandle_t s_wifi_event_group = NULL;
@@ -78,7 +82,31 @@ static void wifi_connect_timer_cb(void* arg)
     if (!s_wifi_initialized || s_wifi_connected) {
         return;
     }
-    esp_wifi_connect();
+    s_connect_attempts++;
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(err));
+    }
+}
+
+static const char* wifi_disconnect_reason_name(uint8_t reason)
+{
+    switch (reason) {
+        case WIFI_REASON_AUTH_EXPIRE: return "AUTH_EXPIRE";
+        case WIFI_REASON_AUTH_LEAVE: return "AUTH_LEAVE";
+        case 4: return "ASSOC_EXPIRE";
+        case WIFI_REASON_ASSOC_TOOMANY: return "ASSOC_TOOMANY";
+        case WIFI_REASON_ASSOC_LEAVE: return "ASSOC_LEAVE";
+        case WIFI_REASON_ASSOC_NOT_AUTHED: return "ASSOC_NOT_AUTHED";
+        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4WAY_HANDSHAKE_TIMEOUT";
+        case WIFI_REASON_HANDSHAKE_TIMEOUT: return "HANDSHAKE_TIMEOUT";
+        case WIFI_REASON_NO_AP_FOUND: return "NO_AP_FOUND";
+        case WIFI_REASON_AUTH_FAIL: return "AUTH_FAIL";
+        case WIFI_REASON_ASSOC_FAIL: return "ASSOC_FAIL";
+        case WIFI_REASON_BEACON_TIMEOUT: return "BEACON_TIMEOUT";
+        case WIFI_REASON_CONNECTION_FAIL: return "CONNECTION_FAIL";
+        default: return "UNKNOWN";
+    }
 }
 
 static void wifi_schedule_connect(uint32_t delay_ms)
@@ -106,7 +134,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
             case WIFI_EVENT_STA_DISCONNECTED: {
                 wifi_event_sta_disconnected_t* event = 
                     (wifi_event_sta_disconnected_t*)event_data;
-                ESP_LOGW(TAG, "Disconnected from AP, reason: %d", event->reason);
+                s_disconnect_count++;
+                s_last_disconnect_reason = event->reason;
+                ESP_LOGE(TAG, "Disconnected from AP, reason: %u (%s)",
+                         event->reason, wifi_disconnect_reason_name(event->reason));
                 
                 s_wifi_connected = false;
                 s_ip_address[0] = '\0';
@@ -246,6 +277,11 @@ bool wifi_init(void)
         return false;
     }
 
+    wifi_err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (wifi_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_ps(WIFI_PS_NONE) failed: %s", esp_err_to_name(wifi_err));
+    }
+
     if (!s_connect_timer) {
         const esp_timer_create_args_t timer_args = {
             .callback = &wifi_connect_timer_cb,
@@ -297,6 +333,9 @@ wifi_result_t wifi_connect(void)
 
     // Reset state
     s_retry_count = 0;
+    s_connect_attempts = 0;
+    s_disconnect_count = 0;
+    s_last_disconnect_reason = 0;
     s_wifi_connected = false;
     wifi_stop_connect_timer();
     xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
@@ -331,9 +370,10 @@ wifi_result_t wifi_connect(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     // Wait for connection or failure
-    uint32_t timeout_ms = DEFAULT_WIFI_TIMEOUT_MS;
+    uint32_t timeout_ms = WIFI_CONNECT_TIMEOUT_MS;
 
     ESP_LOGI(TAG, "Waiting for connection (timeout: %lu ms, max retries: %d)...", 
              (unsigned long)timeout_ms, WIFI_MAX_RETRY);
@@ -352,12 +392,16 @@ wifi_result_t wifi_connect(void)
         esp_log_level_set("wifi", ESP_LOG_WARN);
         return WIFI_RESULT_OK;
     } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGE(TAG, "Failed to connect to %s", ssid);
+        ESP_LOGE(TAG, "Failed to connect to %s after %d attempts; disconnects=%d, last_reason=%u (%s)",
+                 ssid, s_connect_attempts, s_disconnect_count,
+                 s_last_disconnect_reason, wifi_disconnect_reason_name(s_last_disconnect_reason));
         wifi_stop_connect_timer();
         esp_wifi_stop();
         return WIFI_RESULT_CONNECT_FAILED;
     } else {
-        ESP_LOGE(TAG, "Connection timeout");
+        ESP_LOGE(TAG, "Connection timeout after %d attempts; disconnects=%d, last_reason=%u (%s)",
+                 s_connect_attempts, s_disconnect_count,
+                 s_last_disconnect_reason, wifi_disconnect_reason_name(s_last_disconnect_reason));
         wifi_stop_connect_timer();
         esp_wifi_stop();
         return WIFI_RESULT_TIMEOUT;
