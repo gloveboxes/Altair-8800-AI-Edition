@@ -122,7 +122,15 @@ static esp_err_t ws_handler(httpd_req_t* req)
     // First call with max_len=0 to get frame info
     esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "httpd_ws_recv_frame failed: %d", ret);
+        // ESP_ERR_INVALID_STATE / ESP_FAIL / ESP_ERR_TIMEOUT just mean the peer
+        // went away (browser tab closed, AP roam, TCP reset, idle timeout).
+        // Log quietly and let httpd tear down the session.
+        if (ret == ESP_ERR_INVALID_STATE || ret == ESP_FAIL || ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGI(TAG, "WS client gone (%s), closing session", esp_err_to_name(ret));
+        } else {
+            ESP_LOGE(TAG, "httpd_ws_recv_frame failed: %d (%s)", ret, esp_err_to_name(ret));
+        }
+        mark_client_disconnected(httpd_req_to_sockfd(req), "recv_frame failed");
         return ret;
     }
 
@@ -151,7 +159,12 @@ static esp_err_t ws_handler(httpd_req_t* req)
     ws_pkt.payload = buf;
     ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "httpd_ws_recv_frame payload failed: %d", ret);
+        if (ret == ESP_ERR_INVALID_STATE || ret == ESP_FAIL || ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGI(TAG, "WS client gone during payload read (%s)", esp_err_to_name(ret));
+        } else {
+            ESP_LOGE(TAG, "httpd_ws_recv_frame payload failed: %d (%s)", ret, esp_err_to_name(ret));
+        }
+        mark_client_disconnected(httpd_req_to_sockfd(req), "payload recv failed");
         free(buf);
         return ret;
     }
