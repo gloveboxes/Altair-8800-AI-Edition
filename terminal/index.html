@@ -78,9 +78,12 @@
       max-width: calc(100vw - 40px);
       border: 2px solid #ffffff;
       box-sizing: border-box;
-      padding: 0;
+      /* Reserve a strip on the right so the xterm scrollbar lives
+         outside the 80-column canvas area instead of overlapping it. */
+      padding: 0 12px 0 0;
       margin: 0 auto;
       overflow: auto;
+      background-color: #000;
     }
 
     /* Inlined xterm.css 5.3.0 to ensure the terminal renders when the page
@@ -138,10 +141,31 @@
       overflow-y: scroll;
       cursor: default;
       position: absolute;
-      right: 0;
+      /* Push the scrollbar into the right-side padding of #terminal so it
+         doesn't overlap column 80 of the canvas. */
+      right: -12px;
       left: 0;
       top: 0;
       bottom: 0;
+      scrollbar-width: thin;
+      scrollbar-color: #555 #000;
+    }
+
+    .xterm .xterm-viewport::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .xterm .xterm-viewport::-webkit-scrollbar-track {
+      background: #000;
+    }
+
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+      background: #555;
+      border-radius: 4px;
+    }
+
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+      background: #777;
     }
 
     .xterm .xterm-screen {

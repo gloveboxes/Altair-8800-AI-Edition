@@ -21,6 +21,7 @@
 #define E_KEYSZ  17
 #define E_VALSZ  256
 #define LBUFSZ   144
+#define PGSIZE   15
 
 int e_init();
 int e_exec();
@@ -34,6 +35,7 @@ int putchar();
 char keys[MAXVARS][E_KEYSZ];
 char vals[MAXVARS][E_VALSZ];
 int nvars;
+int curpage;
 
 /* e_list callback. Copies key/value into our arrays. */
 int collect(k, v)
@@ -72,18 +74,60 @@ int loadall()
     return nvars;
 }
 
-/* Print the numbered list of variables. */
+/* Total number of pages (at least 1, even when empty). */
+int numpgs()
+{
+    int n;
+
+    n = (nvars + PGSIZE - 1) / PGSIZE;
+    if (n < 1) {
+        n = 1;
+    }
+    return n;
+}
+
+/* Clamp curpage into the valid range. */
+int fixpage()
+{
+    int last;
+
+    last = numpgs() - 1;
+    if (curpage < 0) {
+        curpage = 0;
+    }
+    if (curpage > last) {
+        curpage = last;
+    }
+    return curpage;
+}
+
+/* Print one page of variables. */
 int showvar()
 {
     int i;
     int j;
+    int start;
+    int stop;
+    int pages;
 
     printf("\r\n");
     if (nvars == 0) {
         printf("(no environment variables set)\r\n");
         return 0;
     }
-    for (i = 0; i < nvars; i++) {
+
+    fixpage();
+    pages = numpgs();
+    start = curpage * PGSIZE;
+    stop = start + PGSIZE;
+    if (stop > nvars) {
+        stop = nvars;
+    }
+
+    printf("-- Page %d/%d  (entries %d-%d of %d) --\r\n",
+           curpage + 1, pages, start + 1, stop, nvars);
+
+    for (i = start; i < stop; i++) {
         printf("%3d. %s", i + 1, keys[i]);
         j = 0;
         while (keys[i][j]) {
@@ -270,10 +314,11 @@ int imode()
     printf("====================\r\n");
 
     loadall();
+    curpage = 0;
 
     for (;;) {
         showvar();
-        printf("\r\n[number]=edit  A=add  D <n>=delete  R=reload  Q=quit\r\n> ");
+        printf("\r\n[number]=edit  A=add  D <n>=delete  N=next  P=prev  R=reload  Q=quit\r\n> ");
 
         n = readln(line, LBUFSZ);
         if (n < 0) {
@@ -295,6 +340,23 @@ int imode()
         }
         if (cmd == 'R') {
             loadall();
+            fixpage();
+            continue;
+        }
+        if (cmd == 'N') {
+            if (curpage + 1 < numpgs()) {
+                curpage++;
+            } else {
+                printf("(already on last page)\r\n");
+            }
+            continue;
+        }
+        if (cmd == 'P') {
+            if (curpage > 0) {
+                curpage--;
+            } else {
+                printf("(already on first page)\r\n");
+            }
             continue;
         }
         if (cmd == 'A') {

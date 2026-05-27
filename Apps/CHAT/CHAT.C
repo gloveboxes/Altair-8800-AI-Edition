@@ -23,6 +23,10 @@
 #define CMLEN 64
 #define EVLEN 128
 
+/* Word-wrap layer */
+#define LWIDTH 80
+#define WBUFSZ 80
+
 /* OpenAI status codes */
 #define OEOF 0
 #define OWAIT 1
@@ -53,6 +57,12 @@ char g_resp[AST_LEN];
    message is shifted out or history is cleared. */
 char *g_mptr[MAX_MSG];
 
+/* Word-wrap state - shared between streaming echo and history replay.
+   Not re-entrant; reset via ch_wrst() before each use. */
+int  g_col;
+int  g_wpos;
+char g_wbuf[WBUFSZ];
+
 /* Function declarations */
 int ch_init();
 int ch_load();
@@ -70,6 +80,9 @@ int ch_stmp();
 int ch_smdl();
 int ch_hlp();
 int ch_cmds();
+int ch_wrst();
+int ch_wrtf();
+int ch_wrtc();
 
 /* String functions */
 int strlen();
@@ -637,6 +650,10 @@ int echo;
     /* Clear buffer first */
     buffer[0] = 0;
 
+    /* Reset the word-wrap layer so the streamed reply starts at col 0. */
+    if (echo)
+        ch_wrst();
+
     /* Read streaming response content chunks */
     while (pos < bufsize - 1)
     {
@@ -653,15 +670,7 @@ int echo;
 
                 if (echo)
                 {
-                    if (ch == '\n')
-                    {
-                        x_cout('\r');
-                        x_cout('\n');
-                    }
-                    else
-                    {
-                        x_cout(ch);
-                    }
+                    ch_wrtc(ch);
                 }
 
                 /* Check if more data available in current chunk */
@@ -684,6 +693,10 @@ int echo;
             x_delay(0, 10); /* Small delay */
         }
     }
+
+    /* Flush any partial word still in the wrap buffer. */
+    if (echo)
+        ch_wrtf();
 
     buffer[pos] = 0; /* Null terminate */
     return pos;
@@ -747,17 +760,102 @@ int max;
 /* Allocate user slot */
 /* (slot helpers removed) */
 
-/* Print string without truncation */
+/* Print string without truncation, with word-wrap. */
 int ch_prn(text)
 char *text;
 {
     char ch;
 
+    ch_wrst();
     while ((ch = *text++) != 0)
     {
-        if (ch == '\n')
-            x_cout('\r');
-        x_cout(ch);
+        ch_wrtc(ch);
     }
+    ch_wrtf();
+    return 0;
+}
+
+/* ---- Word-wrap layer ----
+   Streams characters to the console, breaking BEFORE a word that would
+   cross column LWIDTH so words aren't split mid-character by the
+   terminal's own hard wrap. Punctuation stays glued to the preceding
+   word (it's collected in the same word buffer). A word longer than
+   LWIDTH is emitted as-is - the terminal will still wrap, but only
+   on words that genuinely don't fit on any line. */
+
+int ch_wrst()
+{
+    g_col = 0;
+    g_wpos = 0;
+    return 0;
+}
+
+/* Flush the pending word buffer, wrapping if it would overflow. */
+int ch_wrtf()
+{
+    int i;
+
+    if (g_wpos == 0)
+        return 0;
+
+    if (g_col > 0 && g_wpos <= LWIDTH && g_col + g_wpos > LWIDTH)
+    {
+        x_cout('\r');
+        x_cout('\n');
+        g_col = 0;
+    }
+
+    for (i = 0; i < g_wpos; i++)
+    {
+        x_cout(g_wbuf[i]);
+        g_col++;
+        if (g_col >= LWIDTH)
+            g_col = 0;     /* terminal wrapped on its own */
+    }
+    g_wpos = 0;
+    return 0;
+}
+
+/* Emit one stream character with word-wrap. */
+int ch_wrtc(ch)
+int ch;
+{
+    ch = ch & 0x7F;
+
+    if (ch == '\n')
+    {
+        ch_wrtf();
+        x_cout('\r');
+        x_cout('\n');
+        g_col = 0;
+        return 0;
+    }
+    if (ch == '\r')
+    {
+        /* Drop bare CR; we emit our own CR before LF. */
+        return 0;
+    }
+    if (ch == ' ' || ch == '\t')
+    {
+        ch_wrtf();
+        if (g_col == 0)
+            return 0;       /* swallow leading space on a new line */
+        if (g_col >= LWIDTH)
+        {
+            x_cout('\r');
+            x_cout('\n');
+            g_col = 0;
+            return 0;
+        }
+        x_cout(ch);
+        g_col++;
+        return 0;
+    }
+
+    /* Printable: append to word buffer. If the word is longer than the
+       buffer, flush what we have and keep collecting. */
+    if (g_wpos >= WBUFSZ - 1)
+        ch_wrtf();
+    g_wbuf[g_wpos++] = ch;
     return 0;
 }
