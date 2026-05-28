@@ -14,13 +14,18 @@
 #include <string.h>
 #if defined(_WIN32)
 #include <windows.h>
+#include <direct.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #define strdup _strdup
+#define MKDIR(path) _mkdir(path)
 #else
 #include <strings.h>
+#include <sys/stat.h>
 #include <sys/time.h>
+#define MKDIR(path) mkdir((path), 0777)
 #endif
+#include <errno.h>
 #include <time.h>
 
 #define INPUT_CAP 16384
@@ -28,7 +33,7 @@
 #define BOOT_CYCLES 20000000
 #define DEFAULT_CALL_CYCLES 12000000
 #define BUILD_STEP_CYCLES 800000000
-#define BUILD_MAX_STEPS 80
+#define BUILD_MAX_STEPS 250
 #define BUILD_TIMEOUT_SECONDS 5
 #define SUBMIT_MAX_STEPS 300
 #define SUBMIT_TIMEOUT_SECONDS 10
@@ -70,7 +75,7 @@ static const char *tools_list_result =
     "},"
     "\"max_steps\":{"
     "\"type\":\"integer\","
-    "\"description\":\"Maximum SuperSUB prompt steps to advance before giving up. Defaults to 80.\""
+    "\"description\":\"Maximum SuperSUB prompt steps to advance before giving up. Defaults to 250.\""
     "},"
     "\"timeout_seconds\":{"
     "\"type\":\"integer\","
@@ -294,6 +299,55 @@ static bool emulator_boot(const char *drive_a, const char *drive_b, const char *
     return true;
 }
 
+static bool ensure_parent_dir(const char *path)
+{
+    const char *slash;
+    const char *p;
+    char *dir;
+    size_t len;
+    bool ok = true;
+
+    /* Find the last path separator (handle both / and \ on Windows). */
+    slash = NULL;
+    for (p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            slash = p;
+        }
+    }
+    if (!slash || slash == path) {
+        return true;
+    }
+
+    len = (size_t)(slash - path);
+    dir = (char *)malloc(len + 1);
+    if (!dir) {
+        return false;
+    }
+    memcpy(dir, path, len);
+    dir[len] = '\0';
+
+    /* Walk the path and mkdir each component. */
+    for (p = dir + 1; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            char save = *(char *)p;
+            *(char *)p = '\0';
+            if (MKDIR(dir) != 0 && errno != EEXIST) {
+                ok = false;
+            }
+            *(char *)p = save;
+            if (!ok) {
+                break;
+            }
+        }
+    }
+    if (ok && MKDIR(dir) != 0 && errno != EEXIST) {
+        ok = false;
+    }
+
+    free(dir);
+    return ok;
+}
+
 static bool copy_file(const char *src_path, const char *dst_path)
 {
     FILE *src;
@@ -306,6 +360,8 @@ static bool copy_file(const char *src_path, const char *dst_path)
     if (!src) {
         return false;
     }
+
+    ensure_parent_dir(dst_path);
 
     dst = fopen(dst_path, "wb");
     if (!dst) {
