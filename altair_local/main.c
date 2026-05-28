@@ -152,6 +152,11 @@ int main(int argc, char **argv)
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
+    host_files_init(apps_root_path);
+    environment_io_init(env_file_path);
+    chat_io_init();
+    weather_io_init();
+
     if (!host_terminal_configure())
     {
         return 1;
@@ -167,10 +172,6 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    host_files_init(apps_root_path);
-    environment_io_init(env_file_path);
-    chat_io_init();
-    weather_io_init();
     controller = host_disk_controller();
 
     memset(memory, 0x00, 64 * 1024);
