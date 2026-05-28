@@ -557,7 +557,7 @@ static void *weather_thread_fn(void *arg)
 
     int64_t start_us = weather_now_us();
 
-    for (;;)
+    while (s_thread_started)
     {
         bool ok = weather_fetch_once();
 
@@ -601,14 +601,15 @@ void weather_io_init(void)
         curl_global_init(CURL_GLOBAL_DEFAULT);
         s_curl_global_inited = true;
     }
+    s_thread_started = true;
     if (pthread_create(&s_thread, NULL, weather_thread_fn, NULL) == 0)
     {
         pthread_detach(s_thread);
-        s_thread_started = true;
         fprintf(stderr, "[weather] driver started (units=%s)\n", s_units_str);
     }
     else
     {
+        s_thread_started = false;
         weather_set_error("pthread_create failed: %s", strerror(errno));
     }
 #else

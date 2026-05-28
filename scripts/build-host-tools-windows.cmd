@@ -28,7 +28,8 @@ if /I "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
     set "MCP_BUILDDIR=altair_mcp_server\build-msvc"
 )
 
-set "CMAKE_EXTRA_ARGS="
+set "CMAKE_EXTRA_ARGS_LOCAL="
+set "CMAKE_EXTRA_ARGS_MCP="
 if not defined VCPKG_ROOT (
     if exist "%USERPROFILE%\vcpkg\scripts\buildsystems\vcpkg.cmake" (
         set "VCPKG_ROOT=%USERPROFILE%\vcpkg"
@@ -49,12 +50,15 @@ if not defined VCPKG_ROOT (
 
 if defined VCPKG_ROOT (
     if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
-        set "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET%"
+        set "CMAKE_EXTRA_ARGS_LOCAL=-DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET%"
+        if not exist "%LOCAL_BUILDDIR%\CMakeCache.txt" (
+            set "CMAKE_EXTRA_ARGS_LOCAL=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake %CMAKE_EXTRA_ARGS_LOCAL%"
+        )
         echo Using vcpkg from "%VCPKG_ROOT%" with triplet %VCPKG_TRIPLET%.
     )
 )
 
-if not defined CMAKE_EXTRA_ARGS (
+if not defined CMAKE_EXTRA_ARGS_LOCAL (
     echo vcpkg was not found. Building without libcurl support.
     echo To enable chat and weather on Windows from PowerShell, run:
     echo   git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
@@ -117,7 +121,7 @@ if errorlevel 1 (
     exit /b %errorlevel%
 )
 
-cmake -S altair_local -B "%LOCAL_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM% %CMAKE_EXTRA_ARGS%
+cmake -S altair_local -B "%LOCAL_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM% %CMAKE_EXTRA_ARGS_LOCAL%
 if errorlevel 1 (
     popd
     exit /b %errorlevel%
@@ -129,7 +133,7 @@ if errorlevel 1 (
     exit /b %errorlevel%
 )
 
-cmake -S altair_mcp_server -B "%MCP_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM% %CMAKE_EXTRA_ARGS%
+cmake -S altair_mcp_server -B "%MCP_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM% %CMAKE_EXTRA_ARGS_MCP%
 if errorlevel 1 (
     popd
     exit /b %errorlevel%
