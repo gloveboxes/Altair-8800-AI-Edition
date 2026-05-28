@@ -2,6 +2,27 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Altair: Start Local Altair - Windows",
+      "type": "process",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "${workspaceFolder}/scripts/start-local-altair-windows.cmd"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
       "label": "Altair: Switch config to Waveshare 3.5B AXS15231B",
       "type": "shell",
       "command": "source \"$HOME/.espressif/v6.0.1/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults\" reconfigure",
@@ -77,7 +98,7 @@
       }
     },
     {
-      "label": "Altair: Start Local Altair",
+      "label": "Altair: Start Local Altair - macOS/Linux",
       "type": "shell",
       "command": "cmake -S altair_local -B altair_local/build && cmake --build altair_local/build && ./altair_local/build/altair-local",
       "options": {
