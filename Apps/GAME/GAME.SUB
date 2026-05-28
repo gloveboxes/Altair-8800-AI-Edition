@@ -17,3 +17,4 @@ cc game
 clink game dxtimer dxterm dxsys
 
 era dx*.*
+mcpdone game
