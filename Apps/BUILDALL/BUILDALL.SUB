@@ -22,21 +22,25 @@ era long.c
 b:ft -g breakout/breakout.c
 b:cc breakout
 b:clink breakout dxterm dxtimer dxsys
+era a:breakout.*
 a:pip a:breakout.com=breakout.com
 era breakout.*
 b:ft -g game/game.c
 b:cc game
 b:clink game dxtimer dxterm dxsys
+era a:game.*
 a:pip a:game.com=game.com
 era game.*
 b:ft -g snake/snake.c
 b:cc snake
 b:clink snake dxterm dxsys
+era a:snake.*
 a:pip a:snake.com=snake.com
 era snake.*
 b:ft -g mancala/mancala.c
 b:cc mancala
 b:clink mancala dxterm dxsys
+era a:mancala.*
 a:pip a:mancala.com=mancala.com
 era mancala.*
 b:ft -g chat/chat.c
@@ -48,6 +52,7 @@ b:cc dxenv
 b:cc chatjson
 b:cc chat
 b:clink chat chatjson dxterm dxtimer dxenv
+era a:chat.*
 a:pip a:chat.com=chat.com
 a:pip a:chat.sys=chat.sys
 era chat.*
@@ -56,21 +61,25 @@ era dxenv.*
 b:ft -g onboard/onboard.c
 b:cc onboard
 b:clink onboard dxtimer long
+era a:onboard.*
 a:pip a:onboard.com=onboard.com
 era onboard.*
 b:ft -g tetris/tetris.c
 b:cc tetris
 b:clink tetris
+era a:tetris.*
 a:pip a:tetris.com=tetris.com
 era tetris.*
 b:ft -g tictac/tictac.c
 b:cc tictac
 b:clink tictac dxterm dxtimer dxsys
+era a:tictac.*
 a:pip a:tictac.com=tictac.com
 era tictac.*
 b:ft -g edit/edit.c
 b:cc edit
 b:clink edit
+era a:edit.*
 a:pip a:edit.com=edit.com
 era edit.*
 b:ft -g sdk/long.c
@@ -83,17 +92,20 @@ era dxenv.c
 b:ft -g env/env.c
 b:cc env
 b:clink env dxenv
+era a:env.*
 a:pip a:env.com=env.com
 era env.*
 b:ft -g clock/clock.c
 b:cc clock
 b:clink clock dxenv long
+era a:clock.*
 a:pip a:clock.com=clock.com
 era clock.*
 era dxenv.*
 b:ft -g esp32/esp32.c
 b:cc esp32
 b:clink esp32 long
+era a:esp32.*
 a:pip a:esp32.com=esp32.com
 era esp32.*
 era long.*

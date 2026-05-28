@@ -3,8 +3,8 @@
 #include "host_files_io.h"
 #include "universal_88dcdd.h"
 
-#include "../Altair8800/intel8080.h"
-#include "../Altair8800/memory.h"
+#include "intel8080.h"
+#include "memory.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -137,9 +137,11 @@ static intel8080_t g_cpu;
 static const char *g_drive_a;
 static const char *g_drive_b;
 static const char *g_drive_c;
+static const char *g_drive_d;
 static const char *g_pristine_a;
 static const char *g_pristine_b;
 static const char *g_pristine_c;
+static const char *g_pristine_d;
 static const char *g_apps_root;
 static bool g_booted = false;
 static uint8_t g_input[INPUT_CAP];
@@ -259,7 +261,7 @@ static bool run_until_prompt(size_t max_cycles, char boot_only)
     return input_empty() && output_has_prompt(boot_only);
 }
 
-static bool emulator_boot(const char *drive_a, const char *drive_b, const char *drive_c)
+static bool emulator_boot(const char *drive_a, const char *drive_b, const char *drive_c, const char *drive_d)
 {
     disk_controller_t controller;
 
@@ -269,7 +271,7 @@ static bool emulator_boot(const char *drive_a, const char *drive_b, const char *
     g_output_len = 0;
     g_output[0] = '\0';
 
-    if (!host_disk_init(drive_a, drive_b, drive_c)) {
+    if (!host_disk_init(drive_a, drive_b, drive_c, drive_d)) {
         fprintf(stderr, "failed to open MCP disk images\n");
         return false;
     }
@@ -343,8 +345,11 @@ static bool reset_emulator(void)
     if (!copy_file(g_pristine_c, g_drive_c)) {
         return false;
     }
+    if (!copy_file(g_pristine_d, g_drive_d)) {
+        return false;
+    }
 
-    return emulator_boot(g_drive_a, g_drive_b, g_drive_c);
+    return emulator_boot(g_drive_a, g_drive_b, g_drive_c, g_drive_d);
 }
 
 static bool ensure_booted(void)
@@ -353,7 +358,9 @@ static bool ensure_booted(void)
         return true;
     }
 
-    return emulator_boot(g_drive_a, g_drive_b, g_drive_c);
+    /* First boot of this process: copy pristine images over the working
+     * disks so we never start on stale state from a previous session. */
+    return reset_emulator();
 }
 
 static char *json_escape_dup(const char *text)
@@ -1388,10 +1395,12 @@ int main(int argc, char **argv)
     g_drive_a = (argc > 1) ? argv[1] : "disks/cpm63k.dsk";
     g_drive_b = (argc > 2) ? argv[2] : "disks/bdsc-v1.60.dsk";
     g_drive_c = (argc > 3) ? argv[3] : "disks/blank.dsk";
-    g_pristine_a = (argc > 4) ? argv[4] : "../Disks/cpm63k.dsk";
-    g_pristine_b = (argc > 5) ? argv[5] : "../Disks/bdsc-v1.60.dsk";
-    g_pristine_c = (argc > 6) ? argv[6] : "../Disks/blank.dsk";
-    g_apps_root = (argc > 7) ? argv[7] : "../Apps";
+    g_drive_d = (argc > 4) ? argv[4] : "disks/blank_d.dsk";
+    g_pristine_a = (argc > 5) ? argv[5] : "../disk_archive/cpm63k.dsk";
+    g_pristine_b = (argc > 6) ? argv[6] : "../disk_archive/bdsc-v1.60.dsk";
+    g_pristine_c = (argc > 7) ? argv[7] : "../disk_archive/blank.dsk";
+    g_pristine_d = (argc > 8) ? argv[8] : "../disk_archive/blank.dsk";
+    g_apps_root = (argc > 9) ? argv[9] : "../Apps";
 
     setvbuf(stdout, NULL, _IONBF, 0);
     fprintf(stderr, "[MCP] altair-cpm-build started\n");

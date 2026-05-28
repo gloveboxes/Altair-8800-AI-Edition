@@ -17,4 +17,4 @@ a:pip a:sheets.com=sheets.com
 era sheets.*
 era string.*
 era long.*
-ft -g sheets/sheets.sub
+mcpdone sheets

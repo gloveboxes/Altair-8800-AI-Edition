@@ -1,9 +1,24 @@
 {
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "workspaceFolder",
+      "description": "Absolute path to this workspace",
+      "default": "${workspaceFolder}"
+    }
+  ],
   "servers": {
     "iPhone-Camera-Server": {
       "type": "stdio",
       "command": "/Users/dave/GitHub/continuity-camera-mcp-server/.venv/bin/python",
       "args": ["/Users/dave/GitHub/continuity-camera-mcp-server/camera_server.py"]
+    },
+    "altair-cpm-build": {
+      "type": "stdio",
+      "command": "/bin/sh",
+      "args": [
+        "${input:workspaceFolder}/altair_mcp_server/run-altair-cpm-mcp.sh"
+      ]
     }
   }
 }

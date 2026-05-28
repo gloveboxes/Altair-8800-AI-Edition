@@ -48,7 +48,9 @@ python3 .codex/skills/bds-c/scripts/check_bds_c.py path/to/file.c
 
 For multiple changed files, pass them all in one command.
 
-7. If host-compiling for syntax, treat modern compiler K&R warnings as expected, but fix real syntax errors. Host compilers do not enforce all BDS C rules.
+7. After the linter passes, build the app end-to-end in the real BDS C 1.6 toolchain by calling the `altair-cpm-build` MCP server's `build_app` tool with `app: "<app>"` (or `run_submit` for non-`<APP>/<APP>.SUB` workflows). Treat `MCP-TOOL-COMPLETED <APP>` as the only success signal. Only flash the ESP32 firmware after this host-side build passes. See the "Build And Test In CP/M Via The MCP Server" section below.
+
+8. If host-compiling for syntax, treat modern compiler K&R warnings as expected, but fix real syntax errors. Host compilers do not enforce all BDS C rules.
 
 Optional host syntax check:
 
@@ -90,6 +92,146 @@ Rule (BDS C v1.6 manual, page 26 caveat 3 and page 84):
 Classic symptom: `fopen("somefile", "r")` returns NULL even though the file exists and CP/M `TYPE somefile` works (TYPE goes straight to BDOS and never touches `alloc`). The bug appears identically on host emulators and ESP32 because the broken `.com` binary is the same on every platform.
 
 When creating or editing any BDS C `.c` file, ensure line 1 (after the comment header) is `#include "stdio.h"`.
+
+## Build And Test In CP/M Via The MCP Server
+
+This repo ships an MCP server at `altair_mcp_server/` that boots the Altair 8800 emulator into CP/M 2.2 on the host and exposes four tools to MCP clients:
+
+- `build_app` — one-shot end-to-end build. Resets fresh disks, switches to `B:`, fetches `Apps/<app>/<app>.sub` over FT, runs `submit <app>`, and stops on `MCP-TOOL-COMPLETED <APP>`. Use this for the normal edit/build loop on apps with an `Apps/<APP>/<APP>.SUB` driver.
+- `run_submit` — same as `build_app` but for arbitrary submit files such as `BUILDALL.SUB`. Supports a custom `fetch` path and `marker`.
+- `run_cpm` — sends terminal text to the live CP/M session and returns output. Session state (disks, memory) persists between calls until `reset`. Newlines become carriage returns. Empty input advances SuperSUB one step.
+- `reset` — restores pristine disks and reboots to `A>`.
+
+Drives mounted by the server:
+
+- `A:` `altair_mcp_server/disks/cpm63k.dsk` (CP/M boot)
+- `B:` `altair_mcp_server/disks/bdsc-v1.60.dsk` (BDS-C, CLINK, FT, MCPDONE, SuperSUB)
+- `C:` `altair_mcp_server/disks/blank.dsk`
+- `D:` `altair_mcp_server/disks/blank_d.dsk`
+
+Pristine sources for `reset` live in `altair_mcp_server/pristine/`. FT (`ft -g ...`) serves files from this repo's `Apps/` directory.
+
+Build the server once after pulling:
+
+```bash
+cmake -S altair_mcp_server -B altair_mcp_server/build
+cmake --build altair_mcp_server/build
+```
+
+The server is registered in `.vscode/mcp.json` as `altair-cpm-build`. Inside VS Code, prefer the MCP tools over hand-driving the emulator:
+
+- New or changed app `<app>` with an `Apps/<APP>/<APP>.SUB` file: call `build_app` with `app: "<app>"`. Typical builds complete in well under a second; pass `verbose: false` for a compact summary.
+- Multi-app or custom workflow: call `run_submit` with the submit base name (and optional `fetch` / `marker`).
+- Interactive debugging at the CP/M prompt: call `run_cpm` with text input. Build pattern from a fresh `A>`:
+
+  1. `run_cpm` input `b:\nft -g <app>/<app>.sub`
+  2. `run_cpm` input `submit <app>`
+  3. `run_cpm` with empty input repeatedly until `MCP-TOOL-COMPLETED <APP>` appears.
+
+End every submit file with `mcpdone <app>` so `MCPDONE.COM` emits the stable `MCP-TOOL-COMPLETED <APP>` completion marker. Build/submit results also include elapsed time in milliseconds, for example `BUILD RESULT: PASS (530 ms) - MCP-TOOL-COMPLETED BREAKOUT`.
+
+Guidance for using the tools while iterating on BDS C code:
+
+- Run `check_bds_c.py` first, then `build_app`. The MCP server compiles with the real BDS C 1.6 toolchain, so it catches anything the static checker cannot.
+- Treat any line containing `?` at the CP/M prompt (`SUBMIT?`, `CC?`, `CLINK?`, `FT?`, `MCPDONE?`) as failure and read the transcript above it.
+- Do not call `reset` between dependent `run_cpm` steps; it discards any files created on the working disks.
+- The MCP server is independent of the ESP-IDF build. It is the fastest correctness check for BDS C app changes; flash the firmware only after the host-side CP/M build passes.
+
+## FT, SUBMIT, And SuperSUB Reference
+
+These three CP/M utilities drive every `Apps/<APP>/<APP>.SUB` build. Knowing how they interact is essential when writing or fixing a submit file.
+
+### FT — file transfer from the host
+
+`FT.COM` lives on `B:` and talks to the MCP server's file-transfer endpoint. It pulls files from this repo's `Apps/` tree onto the current CP/M drive.
+
+```
+B>ft -g <relative/path>           ; fetch a file, save under its basename
+```
+
+- Path is resolved against `Apps/` in the repo. `ft -g sheets/sheets.c` fetches `Apps/SHEETS/SHEETS.C`.
+- A `file://` prefix is allowed and ignored. `ft -g file://sdk/long.c` works the same as `ft -g sdk/long.c`.
+- FT writes to the **current** drive. Always `b:` before fetching build sources so the BDS C toolchain finds them.
+- FT overwrites existing files silently. If a previous run left a stale copy on `B:`, the fresh fetch replaces it.
+- FT prints `Done (<bytes> bytes)` on success. A `FT?` line at the prompt means the binary is missing or the path is wrong.
+- FT cannot create directories. Plan filenames to fit CP/M's 8.3 limit (BDS C `.C`/`.H`/`.CRL` already do).
+
+### SUBMIT and SuperSUB — driving a build script
+
+`SUBMIT.COM` reads a `.SUB` file and queues each line as the next console input. The repo uses **SuperSUB V1.1** (a hardened variant on `B:`) which prints `SuperSUB V1.1` at startup and advances one command per CP/M prompt.
+
+```
+B>submit <name>                   ; runs <name>.SUB from the current drive
+```
+
+- Always `b:` first, then `ft -g <app>/<app>.sub` to pull the latest submit file from the repo, then `submit <app>`. The MCP `build_app` tool follows exactly this sequence.
+- Each non-blank, non-comment line is fed at the next prompt. Blank lines are skipped. Lines starting with `;` are comments.
+- Drive prefixes work: `a:pip a:foo.com=foo.com` runs `PIP` from `A:` against the current drive's `FOO.COM`.
+- A `SUB?` or any `?` at the prompt is fatal: the queue stops and the MCP tool reports `BUILD RESULT: FAIL`.
+- SuperSUB does not handle interactive prompts. Every command in the script must complete without waiting for keystrokes.
+- The MCP server advances SuperSUB by calling `run_cpm` with empty input. `build_app` and `run_submit` do this automatically.
+
+### Required completion marker
+
+Every submit file driven by the MCP server **must** end with:
+
+```
+mcpdone <name>
+```
+
+`MCPDONE.COM` (on `B:`) prints `MCP-TOOL-COMPLETED <NAME>` in uppercase. `build_app` and `run_submit` poll for that exact string and stop the moment it appears. Without it, the build always times out even when the binary built correctly. Do not put extra commands after `mcpdone`.
+
+### Submit file template
+
+```
+; Apps/FOO/FOO.SUB — driver for the FOO app
+ft -g file://foo/foo.c            ; source
+ft -g file://sdk/long.c           ; any SDK helpers
+
+cc long                           ; compile dependencies first
+era long.c
+
+cc foo                            ; compile the app
+clink foo long                    ; link
+era a:foo.*                       ; clear stale copy on A: before PIP
+a:pip a:foo.com=foo.com           ; install on A:
+era foo.*                         ; tidy the build drive
+era long.*
+mcpdone foo                       ; REQUIRED completion marker
+```
+
+### PIP-to-A pitfall
+
+`PIP` does not overwrite existing files cleanly when `A:` is tight on directory entries or free space — it leaves a `$$$` temp file and fails with `DISK WRITE ERROR`. Always erase first:
+
+```
+era a:foo.*
+a:pip a:foo.com=foo.com
+```
+
+Apply this rule for every `a:pip a:<app>.<ext>=...` step in `BUILDALL.SUB` and any per-app submit. This was the cause of the 2026-05 buildall failure at the `BREAKOUT` step.
+
+### Submit-file authoring checklist
+
+- File lives at `Apps/<APP>/<APP>.SUB`, all uppercase.
+- Filenames inside the script are lowercase or uppercase — CP/M is case-insensitive — but stay consistent with the rest of the repo.
+- First action after `submit` is usually `ft -g file://<app>/<app>.c` to pull the latest source.
+- Compile dependencies before the main translation unit; erase each `.C` after `CC` to free B: space.
+- Erase `STRING.H`, `LONG.H`, etc. on `B:` after they are no longer needed by later `CC` steps.
+- Before any `a:pip a:<app>.<ext>=...`, insert `era a:<app>.*`.
+- After PIP, `era <app>.*` (and any imported sources) on the build drive so the next run starts clean even without `reset`.
+- Final line is `mcpdone <app>`. Nothing else.
+
+### Common transcript symptoms
+
+| Symptom in transcript                          | Likely cause                                                                 |
+|------------------------------------------------|------------------------------------------------------------------------------|
+| `Write error` during `CC <name>`               | `B:` is full. Erase intermediates earlier, or slim the pristine B: image.    |
+| `No main function in 0/B:<NAME>.CRL`            | Previous `CC` failed (often due to `Write error`); `.CRL` is the 0-byte stub. |
+| `DISK WRITE ERROR: =<NAME>.COM`                 | Missing `era a:<name>.*` before `a:pip`.                                     |
+| `SUB?` / `CC?` / `CLINK?` / `FT?` / `MCPDONE?` | Command not found on the current drive, or argument is wrong.                |
+| Build times out, no `MCP-TOOL-COMPLETED <APP>`  | Submit file is missing `mcpdone <app>` at the end.                           |
+| `build_app` reports stale behavior             | A submit baked into pristine `B:` is overriding the repo copy. Either remove it from the pristine `bdsc-v1.60.dsk` or call `run_submit` with `fetch: "<app>/<app>.sub"` to force a fresh pull. |
 
 ## Validation
 
