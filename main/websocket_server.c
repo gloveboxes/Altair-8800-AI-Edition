@@ -14,9 +14,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <errno.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <netinet/tcp.h>
 
 #include "lwip/sockets.h"
@@ -82,33 +80,42 @@ static esp_err_t root_handler(httpd_req_t* req)
 }
 
 /**
- * @brief WebSocket handler for terminal I/O
+ * @brief Post-handshake callback for the WebSocket URI.
+ *
+ * In esp_http_server the WebSocket handshake (the HTTP GET upgrade) is consumed
+ * internally and the URI handler is NEVER invoked for it - the handler only
+ * runs for subsequent data frames. Connection detection must therefore happen
+ * here, immediately after the handshake completes, while we still have the
+ * request (and thus the socket fd) for the freshly-connected client.
+ */
+static esp_err_t ws_post_handshake_cb(httpd_req_t* req)
+{
+    int new_fd = httpd_req_to_sockfd(req);
+    int old_fd = s_client_fd;
+
+    // Kick existing client if any (new connection takes over).
+    if (old_fd >= 0 && old_fd != new_fd) {
+        s_client_fd = -1;  // Clear before triggering close
+        httpd_sess_trigger_close(s_server, old_fd);
+    }
+
+    // Accept new client.
+    s_client_fd = new_fd;
+    ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", new_fd);
+    websocket_console_on_connect();
+
+    // Set TCP_NODELAY for low latency.
+    int nodelay = 1;
+    setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    return ESP_OK;
+}
+
+/**
+ * @brief WebSocket handler for terminal I/O (data frames only).
  */
 static esp_err_t ws_handler(httpd_req_t* req)
 {
-    // Handle WebSocket handshake
-    if (req->method == HTTP_GET) {
-        int new_fd = httpd_req_to_sockfd(req);
-        int old_fd = s_client_fd;
-
-        // Kick existing client if any (new connection takes over)
-        if (old_fd >= 0 && old_fd != new_fd) {
-            s_client_fd = -1;  // Clear before triggering close
-            httpd_sess_trigger_close(s_server, old_fd);
-        }
-
-        // Accept new client
-        s_client_fd = new_fd;
-        ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", new_fd);
-        websocket_console_on_connect();
-
-        // Set TCP_NODELAY for low latency
-        int nodelay = 1;
-        setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-
-        return ESP_OK;
-    }
-
     int frame_fd = httpd_req_to_sockfd(req);
     if (frame_fd >= 0 && frame_fd != s_client_fd) {
         ESP_LOGW(TAG, "Refreshing WebSocket client fd: %d -> %d", s_client_fd, frame_fd);
@@ -269,7 +276,8 @@ bool websocket_server_start(void)
         .method = HTTP_GET,
         .handler = ws_handler,
         .is_websocket = true,
-        .handle_ws_control_frames = true
+        .handle_ws_control_frames = true,
+        .ws_post_handshake_cb = ws_post_handshake_cb
     };
     httpd_register_uri_handler(s_server, &ws_uri);
 
@@ -285,11 +293,6 @@ void websocket_server_stop(void)
         s_client_fd = -1;
         ESP_LOGI(TAG, "Server stopped");
     }
-}
-
-bool websocket_server_is_running(void)
-{
-    return s_server != NULL;
 }
 
 uint32_t websocket_server_get_client_count(void)
@@ -352,8 +355,17 @@ bool websocket_server_broadcast(const uint8_t* data, size_t len)
     return true;
 }
 
-void websocket_server_send_ping(void)
+/**
+ * @brief Send a keepalive ping. Runs in the httpd task (queued via
+ *        httpd_queue_work) so it is serialized with data frames - two tasks
+ *        must never write to the same socket concurrently, or the frame header
+ *        and payload of different frames could interleave and corrupt the
+ *        WebSocket stream.
+ */
+static void websocket_ping_work(void *arg)
 {
+    (void)arg;
+
     int fd = s_client_fd;
     if (!s_server || fd < 0) {
         return;
@@ -379,4 +391,15 @@ void websocket_server_send_ping(void)
     } else {
         s_ping_failures = 0;  // Reset on success
     }
+}
+
+void websocket_server_send_ping(void)
+{
+    if (!s_server || s_client_fd < 0) {
+        return;
+    }
+
+    // Defer the actual send to the httpd task so it is serialized with data
+    // frames (see websocket_ping_work).
+    httpd_queue_work(s_server, websocket_ping_work, NULL);
 }
