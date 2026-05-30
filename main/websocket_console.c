@@ -296,6 +296,21 @@ bool websocket_console_start_server(void)
     return true;
 }
 
+void websocket_console_stop_server(void)
+{
+    // Stop the TX batching timer
+    if (s_tx_timer) {
+        esp_timer_stop(s_tx_timer);
+    }
+
+    // Stop the ping timer
+    if (s_ping_timer) {
+        esp_timer_stop(s_ping_timer);
+    }
+
+    websocket_server_stop();
+}
+
 bool websocket_console_has_clients(void)
 {
     return websocket_server_get_client_count() > 0;
@@ -370,12 +385,6 @@ void websocket_console_on_connect(void)
 {
     // Clear any stale data when client connects
     clear_tx_queue();
-
-    // Wake the TX task immediately so a freshly connected client starts
-    // draining queued output without waiting for the next timer tick.
-    if (s_tx_sem) {
-        xSemaphoreGive(s_tx_sem);
-    }
 }
 
 /**
