@@ -14,7 +14,7 @@
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_heap_caps.h"
@@ -23,11 +23,17 @@
 
 static const char* TAG = "WS_Console";
 
-// Queue depth - sized for burst terminal output (e.g., screen clears, listings)
-#define WS_TX_QUEUE_DEPTH   4096   // Output to WebSocket client - large for fast output
+// Buffer capacity - absorbs burst terminal output (e.g., screen clears,
+// listings) between TX-task drains. The reader empties the whole buffer on
+// each wake, so this only needs to cover a single burst, not sustained
+// throughput. Measured peak occupancy under heavy load is ~300 bytes, so 1024
+// leaves roughly 3x headroom. Allocated from internal RAM, so kept modest.
+#define WS_TX_QUEUE_DEPTH   1024   // Output to WebSocket client
 
-// Maximum bytes to batch in a single WebSocket send
-#define WS_TX_BATCH_SIZE    1024
+// Maximum bytes copied per WebSocket send. Only sizes a stack buffer and the
+// per-send chunk; the TX task loops until the stream is empty, so a small
+// value does NOT cap throughput.
+#define WS_TX_BATCH_SIZE    256
 
 // Timer interval for batched output (microseconds)
 // 10ms for high throughput while still batching efficiently
@@ -41,10 +47,12 @@ static const char* TAG = "WS_Console";
 #define WS_TX_TASK_PRIORITY 11     // Keep below esp_timer (22)
 #define WS_TX_TASK_CORE     0      // Pin to Core 0 to avoid emulator core
 
-// FreeRTOS queue for emulator -> WebSocket output (input is routed through the
-// shared terminal_input queue so BLE keyboard and WebSocket clients share a
-// single consumer in the emulator loop).
-static QueueHandle_t s_tx_queue = NULL;  // Emulator -> WebSocket
+// Byte stream for emulator -> WebSocket output. A StreamBuffer (single writer:
+// the emulator task on Core 1; single reader: the TX task on Core 0) lets the
+// reader drain a whole batch in one call instead of one xQueueReceive per byte.
+// Input is routed through the shared terminal_input queue so BLE keyboard and
+// WebSocket clients share a single consumer in the emulator loop.
+static StreamBufferHandle_t s_tx_stream = NULL;  // Emulator -> WebSocket
 
 // Semaphore to wake TX task
 static SemaphoreHandle_t s_tx_sem = NULL;
@@ -64,15 +72,25 @@ static bool s_initialized = false;
 // Flag to signal TX task to send a ping (set by timer, cleared by TX task)
 static volatile bool s_ping_pending = false;
 
+// Flag to ask the TX task to flush stale output. Set by connect/disconnect
+// callbacks (which run on the httpd task); the StreamBuffer is drained only by
+// the reader (TX task), so flushing here keeps the single-reader contract and
+// avoids a cross-task reset racing with the emulator's writes.
+static volatile bool s_flush_pending = false;
+
 /**
- * @brief Clear the TX queue
+ * @brief Drain and discard any buffered TX output.
+ *
+ * MUST be called only from the TX task (the StreamBuffer's single reader). A
+ * reader drain is always safe against a concurrent writer; a foreign-task
+ * reset would not be.
  */
-static void clear_tx_queue(void)
+static void flush_tx_stream(void)
 {
-    if (s_tx_queue) {
-        uint8_t discard;
-        while (xQueueReceive(s_tx_queue, &discard, 0) == pdTRUE) {
-            // Drain queue
+    if (s_tx_stream) {
+        uint8_t scratch[64];
+        while (xStreamBufferReceive(s_tx_stream, scratch, sizeof(scratch), 0) > 0) {
+            // discard stale bytes
         }
     }
 }
@@ -87,18 +105,25 @@ static void tx_task(void* arg)
 {
     (void)arg;
     uint8_t buffer[WS_TX_BATCH_SIZE];
-    
+
     while (1) {
         // Wait for timer signal or timeout (for periodic check)
         xSemaphoreTake(s_tx_sem, pdMS_TO_TICKS(20));
-        
-        if (!s_initialized || !s_tx_queue) {
+
+        if (!s_initialized || !s_tx_stream) {
             continue;
+        }
+
+        // Handle a deferred flush request from connect/disconnect. Done here
+        // (the single reader) so it never races with the emulator's writes.
+        if (s_flush_pending) {
+            s_flush_pending = false;
+            flush_tx_stream();
         }
 
         // Don't bother if no client
         if (!websocket_console_has_clients()) {
-            clear_tx_queue();
+            flush_tx_stream();
             s_ping_pending = false;
             continue;
         }
@@ -110,19 +135,13 @@ static void tx_task(void* arg)
             websocket_server_send_ping();
         }
 
-        // Batch output for efficiency
-        size_t count = 0;
-        while (count < WS_TX_BATCH_SIZE) {
-            if (xQueueReceive(s_tx_queue, &buffer[count], 0) == pdTRUE) {
-                count++;
-            } else {
-                break;
-            }
-        }
-
-        if (count > 0) {
+        // Drain everything currently buffered, sending in batch-sized chunks.
+        // Looping here decouples throughput from WS_TX_BATCH_SIZE so the batch
+        // (and its stack buffer) can stay small.
+        size_t count;
+        while ((count = xStreamBufferReceive(s_tx_stream, buffer, WS_TX_BATCH_SIZE, 0)) > 0) {
             websocket_server_broadcast(buffer, count);
-            // Yield to let other tasks run if we sent a full batch
+            // Yield between full chunks so other tasks are not starved.
             if (count == WS_TX_BATCH_SIZE) {
                 taskYIELD();
             }
@@ -170,11 +189,13 @@ void websocket_console_init(void)
         return;
     }
 
-    // Create TX queue
-    s_tx_queue = xQueueCreate(WS_TX_QUEUE_DEPTH, sizeof(uint8_t));
+    // Create TX stream buffer. Trigger level 1: the reader uses non-blocking
+    // receives, so the trigger level (which only affects blocked readers) is
+    // immaterial; 1 is the conventional default.
+    s_tx_stream = xStreamBufferCreate(WS_TX_QUEUE_DEPTH, 1);
 
-    if (!s_tx_queue) {
-        ESP_LOGE(TAG, "Failed to create TX queue");
+    if (!s_tx_stream) {
+        ESP_LOGE(TAG, "Failed to create TX stream buffer");
         return;
     }
 
@@ -182,8 +203,8 @@ void websocket_console_init(void)
     s_tx_sem = xSemaphoreCreateBinary();
     if (!s_tx_sem) {
         ESP_LOGE(TAG, "Failed to create TX semaphore");
-        vQueueDelete(s_tx_queue);
-        s_tx_queue = NULL;
+        vStreamBufferDelete(s_tx_stream);
+        s_tx_stream = NULL;
         return;
     }
 
@@ -206,9 +227,9 @@ void websocket_console_init(void)
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         vSemaphoreDelete(s_tx_sem);
-        vQueueDelete(s_tx_queue);
+        vStreamBufferDelete(s_tx_stream);
         s_tx_sem = NULL;
-        s_tx_queue = NULL;
+        s_tx_stream = NULL;
         return;
     }
 
@@ -225,10 +246,10 @@ void websocket_console_init(void)
         ESP_LOGE(TAG, "Failed to create TX timer: %s", esp_err_to_name(err));
         vTaskDelete(s_tx_task);
         vSemaphoreDelete(s_tx_sem);
-        vQueueDelete(s_tx_queue);
+        vStreamBufferDelete(s_tx_stream);
         s_tx_task = NULL;
         s_tx_sem = NULL;
-        s_tx_queue = NULL;
+        s_tx_stream = NULL;
         return;
     }
 
@@ -246,11 +267,11 @@ void websocket_console_init(void)
         esp_timer_delete(s_tx_timer);
         vTaskDelete(s_tx_task);
         vSemaphoreDelete(s_tx_sem);
-        vQueueDelete(s_tx_queue);
+        vStreamBufferDelete(s_tx_stream);
         s_tx_timer = NULL;
         s_tx_task = NULL;
         s_tx_sem = NULL;
-        s_tx_queue = NULL;
+        s_tx_stream = NULL;
         return;
     }
 
@@ -303,36 +324,35 @@ bool websocket_console_has_clients(void)
 
 void websocket_console_enqueue_output(uint8_t value)
 {
-    bool queued;
-
-    if (!s_initialized || !s_tx_queue) {
+    if (!s_initialized || !s_tx_stream) {
         return;
     }
 
     // No browser terminal is connected. This is a normal idle state; stale
-    // queued output is cleared by connection callbacks and the TX task.
+    // buffered output is flushed by the TX task on connect/disconnect.
     if (!websocket_console_has_clients()) {
         return;
     }
 
-    // Non-blocking enqueue - drop if queue full (real-time data)
-    queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
-    if (!queued) {
-        // Queue full - drop oldest and try again
-        uint8_t discard;
-        xQueueReceive(s_tx_queue, &discard, 0);
-        queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
-    }
-
-    (void)queued;
+    // Non-blocking write. If the buffer is full the byte is dropped (real-time
+    // terminal data). The StreamBuffer is single-writer/single-reader, so we
+    // must not read here to "drop oldest" - that would race the TX task reader;
+    // dropping the newest byte under a full buffer is the accepted tradeoff.
+    (void)xStreamBufferSend(s_tx_stream, &value, 1, 0);
 }
 
 void websocket_console_clear_queues(void)
 {
-    // Only the TX queue is owned by this module; input is queued into the
+    // Only the TX stream is owned by this module; input is queued into the
     // shared terminal_input queue and must not be flushed here (doing so
     // would drop bytes typed on the BLE keyboard).
-    clear_tx_queue();
+    //
+    // The stream is drained only by its single reader (the TX task), so request
+    // a deferred flush instead of touching the buffer from this (foreign) task.
+    s_flush_pending = true;
+    if (s_tx_sem) {
+        xSemaphoreGive(s_tx_sem);
+    }
 }
 
 /**
@@ -368,11 +388,10 @@ void websocket_console_handle_rx(const uint8_t* data, size_t len)
  */
 void websocket_console_on_connect(void)
 {
-    // Clear any stale data when client connects
-    clear_tx_queue();
-
-    // Wake the TX task immediately so a freshly connected client starts
-    // draining queued output without waiting for the next timer tick.
+    // Ask the TX task to discard any stale data before this client starts, and
+    // wake it immediately so a freshly connected client begins draining without
+    // waiting for the next timer tick.
+    s_flush_pending = true;
     if (s_tx_sem) {
         xSemaphoreGive(s_tx_sem);
     }
