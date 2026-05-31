@@ -431,6 +431,15 @@ static void emulator_task(void *pvParameters)
     printf("Starting Altair 8800 emulation on Core 1...\n");
     printf("========================================\n\n");
 
+#if !CONFIG_ALTAIR_DISPLAY_AXS15231B
+    // On every build except the 3.5" VT100 terminal, defer the 8080 loop until
+    // a WebSocket terminal is attached so no boot output is lost. Disks are
+    // loaded and the CPU is initialised at this point; we only gate the loop.
+    printf("Waiting for first WebSocket client before starting emulation...\n");
+    websocket_console_wait_for_first_client();
+    printf("WebSocket client connected; starting emulation.\n");
+#endif
+
     // Main emulation loop
     for (;;)
     {
@@ -536,6 +545,10 @@ void app_main(void)
     // Shared terminal input queue. Must exist before any producer (BLE
     // keyboard, WebSocket server) is started.
     terminal_input_init();
+
+    // Create the first-WebSocket-client signal before the emulator task and the
+    // WebSocket server are started, so the connect event is never missed.
+    websocket_console_first_client_signal_init();
 
 #ifdef SD_CARD_SUPPORT
     // Mount SD card BEFORE the LCD framebuffer is allocated. The SDMMC

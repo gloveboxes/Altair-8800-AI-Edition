@@ -27,20 +27,27 @@ static const char* TAG = "WS_Console";
 #define WS_TX_QUEUE_DEPTH   4096   // Output to WebSocket client - large for fast output
 
 // Maximum bytes to batch in a single WebSocket send
-// Diagnostic showed avg batch ~375B / 0 full at 50ms window, so 1024 is ample;
-// the timer window (not batch size) is the throughput lever for this workload.
-#define WS_TX_BATCH_SIZE    1024
+// Under heavy output (WSPERF) the avg batch pinned at 1024 with 0 drops, so the
+// batch size is the throughput lever here; raised to 2048 to fit more per send.
+#define WS_TX_BATCH_SIZE    2048
 
 // Timer interval for batched output (microseconds)
-// 50ms lets more characters accumulate per frame so each WebSocket send
+// 100ms lets more characters accumulate per frame so each WebSocket send
 // carries more payload relative to its fixed header/round-trip overhead.
-#define WS_TX_TIMER_INTERVAL_US  (50 * 1000)  // 50ms
+#define WS_TX_TIMER_INTERVAL_US  (100 * 1000)  // 100ms
+
+// How long the emulator's terminal_write may block when the TX queue is full
+// before falling back to dropping the oldest byte. This applies backpressure
+// to the 8080 loop during heavy output bursts instead of silently dropping
+// characters. Kept close to the batch timer (WS_TX_TIMER_INTERVAL_US) so a
+// blocked writer wakes up roughly when the TX task next drains the queue.
+#define WS_TX_ENQUEUE_TIMEOUT_MS  100
 
 // Ping interval to keep WebSocket connections alive (microseconds)
 #define WS_PING_INTERVAL_US  (30 * 1000 * 1000)  // 30 seconds
 
 // TX task stack size and priority (higher than other app tasks, still below esp_timer)
-#define WS_TX_TASK_STACK    4096
+#define WS_TX_TASK_STACK    6144   // holds the WS_TX_BATCH_SIZE stack buffer plus headroom
 #define WS_TX_TASK_PRIORITY 11     // Keep below esp_timer (22)
 #define WS_TX_TASK_CORE     0      // Pin to Core 0 to avoid emulator core
 
@@ -54,6 +61,12 @@ static SemaphoreHandle_t s_tx_sem = NULL;
 
 // TX task handle
 static TaskHandle_t s_tx_task = NULL;
+
+// Signalled the first time a WebSocket client connects. Used by the emulator
+// task (on non-VT100 builds) to defer starting the 8080 loop until a browser
+// terminal is attached, so no boot output is lost. Binary semaphore: repeated
+// gives are harmless and a give before the wait is latched.
+static SemaphoreHandle_t s_first_client_sem = NULL;
 
 // Timer for batched output (just signals the TX task)
 static esp_timer_handle_t s_tx_timer = NULL;
@@ -319,10 +332,14 @@ void websocket_console_enqueue_output(uint8_t value)
         return;
     }
 
-    // Non-blocking enqueue - drop if queue full (real-time data)
-    queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
+    // Block for up to WS_TX_ENQUEUE_TIMEOUT_MS so a burst of emulator output
+    // (e.g. WSPERF flooding the terminal) applies backpressure to the 8080
+    // loop instead of silently dropping characters. Only after the timeout
+    // do we give up and drop the oldest byte to make room for the newest.
+    queued = xQueueSend(s_tx_queue, &value,
+                        pdMS_TO_TICKS(WS_TX_ENQUEUE_TIMEOUT_MS)) == pdTRUE;
     if (!queued) {
-        // Queue full - drop oldest and try again
+        // Still full after waiting - drop oldest and try again immediately.
         uint8_t discard;
         xQueueReceive(s_tx_queue, &discard, 0);
         queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
@@ -367,6 +384,25 @@ void websocket_console_handle_rx(const uint8_t* data, size_t len)
     }
 }
 
+void websocket_console_first_client_signal_init(void)
+{
+    if (s_first_client_sem == NULL) {
+        s_first_client_sem = xSemaphoreCreateBinary();
+        if (s_first_client_sem == NULL) {
+            ESP_LOGE(TAG, "Failed to create first-client semaphore");
+        }
+    }
+}
+
+void websocket_console_wait_for_first_client(void)
+{
+    if (s_first_client_sem == NULL) {
+        // No signal created (e.g. headless build); don't block.
+        return;
+    }
+    xSemaphoreTake(s_first_client_sem, portMAX_DELAY);
+}
+
 /**
  * @brief Handle client connect event
  */
@@ -374,6 +410,11 @@ void websocket_console_on_connect(void)
 {
     // Clear any stale data when client connects
     clear_tx_queue();
+
+    // Unblock the emulator task if it is waiting for the first client.
+    if (s_first_client_sem != NULL) {
+        xSemaphoreGive(s_first_client_sem);
+    }
 }
 
 /**

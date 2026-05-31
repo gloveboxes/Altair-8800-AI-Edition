@@ -34,8 +34,10 @@
 static const char* TAG = "WS_Server";
 
 // Maximum payload of a single WebSocket data frame. Must be >= the TX task's
-// drain batch (WS_TX_BATCH_SIZE in websocket_console.c, currently 1024).
-#define WS_SEND_BUF_SIZE 1024
+// drain batch (WS_TX_BATCH_SIZE in websocket_console.c, currently 2048).
+// If this is smaller than the batch, broadcast() silently truncates each
+// frame and the terminal sees corrupted/missing output.
+#define WS_SEND_BUF_SIZE 2048
 
 typedef struct {
     int fd;

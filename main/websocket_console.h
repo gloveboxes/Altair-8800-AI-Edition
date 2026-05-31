@@ -44,6 +44,24 @@ bool websocket_console_start_server(void);
 bool websocket_console_has_clients(void);
 
 /**
+ * @brief Create the "first WebSocket client" synchronization signal
+ *
+ * Must be called early (before the emulator task and the WebSocket server are
+ * started) so the signal exists before any client can connect. Safe to call
+ * more than once; subsequent calls are no-ops.
+ */
+void websocket_console_first_client_signal_init(void);
+
+/**
+ * @brief Block until the first WebSocket client connects
+ *
+ * Waits indefinitely for the first client connection. If the signal was never
+ * created (websocket_console_first_client_signal_init() not called) this
+ * returns immediately so headless builds are not deadlocked.
+ */
+void websocket_console_wait_for_first_client(void);
+
+/**
  * @brief Enqueue a byte for transmission to WebSocket client
  *
  * Called from the emulator (Core 1) to send terminal output.
