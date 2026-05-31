@@ -1,0 +1,4 @@
+interface:
+  display_name: "MAC Assembler"
+  short_description: "Write and review Digital Research MAC macro assembler for 8080 CP/M."
+  default_prompt: "Use the MAC assembler skill to write or review CP/M Altair 8080 macro assembly."
