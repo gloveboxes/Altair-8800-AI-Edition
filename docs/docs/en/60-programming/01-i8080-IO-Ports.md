@@ -72,6 +72,7 @@ The wall clock requires Wi-Fi and a successful SNTP sync. Before sync these port
 
 | Port | Dir | Port data | Loads (read with port 200) |
 |------|-----|-----------|----------------------------|
+| 31 | OUT | 0 | Local date/time, DATE-style (`Sun 05/31/2026 17:13:00`) |
 | 41 | OUT | 0 | Seconds since boot, e.g. `12345` |
 | 42 | OUT | 0 | UTC date/time, ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
 | 43 | OUT | 0 | Local date/time using configured timezone, ISO 8601 |

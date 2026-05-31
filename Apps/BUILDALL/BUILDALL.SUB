@@ -25,12 +25,6 @@ b:clink breakout dxterm dxtimer dxsys
 era a:breakout.*
 a:pip a:breakout.com=breakout.com
 era breakout.*
-b:ft -g game/game.c
-b:cc game
-b:clink game dxtimer dxterm dxsys
-era a:game.*
-a:pip a:game.com=game.com
-era game.*
 b:ft -g snake/snake.c
 b:cc snake
 b:clink snake dxterm dxsys
@@ -58,12 +52,6 @@ a:pip a:chat.sys=chat.sys
 era chat.*
 era chatjson.*
 era dxenv.*
-b:ft -g onboard/onboard.c
-b:cc onboard
-b:clink onboard dxtimer long
-era a:onboard.*
-a:pip a:onboard.com=onboard.com
-era onboard.*
 b:ft -g tetris/tetris.c
 b:cc tetris
 b:clink tetris
@@ -109,6 +97,12 @@ era a:esp32.*
 a:pip a:esp32.com=esp32.com
 era esp32.*
 era long.*
+b:ft -g date/date.asm
+b:asm date
+b:load date
+era a:date.*
+a:pip a:date.com=date.com
+era date.*
 era c.ccc
 era cc2.com
 era deff.crl

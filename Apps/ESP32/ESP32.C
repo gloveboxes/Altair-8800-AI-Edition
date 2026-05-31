@@ -1,34 +1,23 @@
 /*
- * esp32.c - ESP32 Stats Display Tool
+ * esp32.c - ESP32 Stats CLI Tool
  *
- * Displays system, lwIP network and Remote FS statistics
- * from the emulator's onboard sensors using I/O ports.
+ * Prints system and network statistics from the emulator's
+ * onboard sensors using I/O ports. Plain CLI output - no
+ * screen layout, colors or cursor control.
  *
  * To compile with BDS C:
  * cc esp32
  * clink esp32
-
- * ESP32 Stats support for Altair 8800
+ *
  * BDS C 1.6 on CP/M
  *
- * Rewritten for BDS C constraints:
+ * BDS C constraints:
  *  - All symbols unique within first 7 characters
  *  - K&R style definitions only
  *  - No support for casts
- *  - No support for goto labels named 'end'
  */
 
 #include <stdio.h>
-
-/* VT100/ANSI control */
-#define ESC 27
-
-/* Screen layout */
-#define TOP 2
-#define LEFT 3
-#define WID 76
-#define HGT 27
-#define TX 7
 
 /* Global buffer */
 char buffer[256];
@@ -36,20 +25,6 @@ char buffer[256];
 /* Function prototypes */
 int main();
 int rdstr();
-int cputs();
-int chput();
-int pnum();
-int cur();
-int cls();
-int hide();
-int show();
-int rst();
-int setfg();
-int setbg();
-int cbg();
-int box();
-int title();
-int sect();
 int fld();
 int bios(), bdos(), inp(), outp();
 int atol(), itol(), ldiv(), lmod(), ltoa();
@@ -62,38 +37,36 @@ char bufnum[16];
 
 int main()
 {
-    cls();
-    hide();
-    box();
-    title();
+    printf("ESP32 Stats - Altair 8800\n");
+    printf("Onboard system and network status\n\n");
 
-    sect(7, "System");
+    printf("System\n");
 
     /* Get Hostname - Port 48, data 0 */
     outp(48, 0);
     rdstr(buffer, 255);
-    fld(8, "Hostname", buffer);
+    fld("Hostname", buffer);
 
     /* Get WiFi IP Address - Port 48, data 1 */
     outp(48, 1);
     rdstr(buffer, 255);
-    fld(9, "WiFi IP", buffer);
+    fld("WiFi IP", buffer);
 
     /* Get Device ID - Port 48, data 2 */
     outp(48, 2);
     rdstr(buffer, 255);
-    fld(10, "Device ID", buffer);
+    fld("Device ID", buffer);
 
     /* Get Emulator Version - Port 70 */
     outp(70, 0);
     rdstr(buffer, 255);
-    fld(11, "Emulator", buffer);
+    fld("Emulator", buffer);
 
     /* Get Uptime - Port 41 (returns seconds string) */
     outp(41, 1);
     rdstr(buffer, 255);
-    sect(13, "Uptime");
-    fld(14, "Seconds", buffer);
+    printf("\nUptime\n");
+    fld("Seconds", buffer);
 
     /* Parse uptime to long for calculation */
     atol(luptime, buffer);
@@ -109,27 +82,16 @@ int main()
     /* Calculate Minutes: remainder / 60 */
     ldiv(lmins, lrem, l60);
 
-    cur(15, TX);
-    setfg(36);
-    cputs("Hours:mins");
-    rst();
-    cur(15, TX + 17);
-    setfg(37);
     ltoa(bufnum, lhours);
-    cputs(bufnum);
-    chput(':');
+    printf("  Hours:mins      %s:", bufnum);
 
     /* Format minutes with leading zero if needed */
     ltoa(bufnum, lmins);
     if (bufnum[1] == 0) /* Single digit? */
     {
-        chput('0');
+        printf("0");
     }
-    cputs(bufnum);
-    rst();
-
-    cur(30, 1);
-    show();
+    printf("%s\n", bufnum);
 
     return 0;
 }
@@ -157,214 +119,11 @@ int max;
     return i;
 }
 
-/*
- * Output a string to console
- */
-int cputs(s)
-char* s;
-{
-    while (*s)
-    {
-        chput(*s);
-        s++;
-    }
-    return 0;
-}
-
-/*
- * Output a character to console using BIOS
- */
-int chput(c)
-char c;
-{
-    return bios(4, c);
-}
-
-/* Print a non-negative decimal number. */
-int pnum(n)
-int n;
-{
-    char b[6];
-    int i;
-
-    if (n == 0)
-    {
-        chput('0');
-        return 0;
-    }
-
-    i = 0;
-    while (n > 0 && i < 6)
-    {
-        b[i] = (n % 10) + '0';
-        i++;
-        n = n / 10;
-    }
-
-    while (i > 0)
-    {
-        i--;
-        chput(b[i]);
-    }
-    return 0;
-}
-
-/* Move cursor to one-based row and column. */
-int cur(r, c)
-int r;
-int c;
-{
-    chput(ESC);
-    cputs("[");
-    pnum(r);
-    cputs(";");
-    pnum(c);
-    cputs("H");
-    return 0;
-}
-
-/* Clear screen and reset attributes. */
-int cls()
-{
-    chput(ESC);
-    cputs("[0m");
-    chput(ESC);
-    cputs("[2J");
-    cur(1, 1);
-    return 0;
-}
-
-/* Hide terminal cursor. */
-int hide()
-{
-    chput(ESC);
-    cputs("[?25l");
-    return 0;
-}
-
-/* Show terminal cursor. */
-int show()
-{
-    chput(ESC);
-    cputs("[?25h");
-    return 0;
-}
-
-/* Reset terminal attributes. */
-int rst()
-{
-    chput(ESC);
-    cputs("[0m");
-    return 0;
-}
-
-/* Set ANSI foreground color. */
-int setfg(c)
-int c;
-{
-    chput(ESC);
-    cputs("[");
-    pnum(c);
-    cputs("m");
-    return 0;
-}
-
-/* Set ANSI background color. */
-int setbg(c)
-int c;
-{
-    chput(ESC);
-    cputs("[");
-    pnum(c);
-    cputs("m");
-    return 0;
-}
-
-/* Checker color for the cabinet border. */
-int cbg(r, c)
-int r;
-int c;
-{
-    if (((r / 2) + (c / 2)) & 1)
-        return 100;
-    return 107;
-}
-
-/* Draw a white and gray checked dashboard frame. */
-int box()
-{
-    int r;
-    int c;
-
-    for (r = 0; r < HGT; r++)
-    {
-        cur(TOP + r, LEFT);
-        for (c = 0; c < WID; c++)
-        {
-            if (r < 2 || r >= HGT - 2 || c < 2 || c >= WID - 2)
-            {
-                setbg(cbg(r, c));
-                chput(' ');
-            }
-            else
-            {
-                rst();
-                chput(' ');
-            }
-        }
-    }
-    rst();
-    return 0;
-}
-
-/* Draw the screen title. */
-int title()
-{
-    cur(4, TX);
-    setfg(36);
-    cputs("ESP32");
-    rst();
-    cputs(" Stats");
-    setfg(33);
-    cputs("  Altair 8800");
-    rst();
-
-    cur(5, TX);
-    setfg(37);
-    cputs("Onboard system, network and Remote FS status");
-    rst();
-    return 0;
-}
-
-/* Draw a section heading. */
-int sect(row, txt)
-int row;
-char *txt;
-{
-    cur(row, TX);
-    setfg(33);
-    cputs(txt);
-    rst();
-    cur(row, TX + 13);
-    setfg(37);
-    cputs("-------------------------------------------------------");
-    rst();
-    return 0;
-}
-
-/* Draw a labelled field. */
-int fld(row, lab, val)
-int row;
+/* Print a labelled field. */
+int fld(lab, val)
 char *lab;
 char *val;
 {
-    cur(row, TX);
-    setfg(36);
-    cputs(lab);
-    rst();
-    cur(row, TX + 17);
-    setfg(37);
-    cputs(val);
-    rst();
+    printf("  %-14s  %s\n", lab, val);
     return 0;
 }

@@ -1,0 +1,12 @@
+ft -g file://date/date.asm
+ft -g file://date/date.asm
+ft -g file://date/date.asm
+ft -g file://date/date.asm
+
+b:asm date
+b:load date
+a:pip a:date.com=date.com
+
+era date.asm
+
+mcpdone date
