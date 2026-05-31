@@ -103,6 +103,12 @@ b:load date
 era a:date.*
 a:pip a:date.com=date.com
 era date.*
+b:ft -g autorun/autorun.asm
+b:asm autorun
+b:load autorun
+era a:autorun.*
+a:pip a:autorun.com=autorun.com
+era autorun.*
 era c.ccc
 era cc2.com
 era deff.crl

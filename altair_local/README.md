@@ -152,9 +152,40 @@ significant step up from CP/M 2.2 (1979):
   (see above). CP/M 2.2 is a fixed, pre-assembled system image.
 - **Richer tools.** Ships utilities like `HELP`, `SET`/`SHOW`, `INITDIR`,
   `GENCPM`, `DATE`, and an improved `PIP` and `SUBMIT`.
+- **Automatic startup file (`PROFILE.SUB`).** At cold boot CP/M 3 looks for a
+  `PROFILE.SUB` on the system drive (A:) and, if found, runs the CCP commands in
+  it automatically — the CP/M 3 equivalent of `AUTOEXEC.BAT`. It is an ordinary
+  SUBMIT file (so `SUBMIT.COM` must be present) and is handy for `SETDEF`,
+  `SET`, `DATE`, or launching an app on startup. CP/M 2.2 has **no** built-in
+  equivalent; an auto-run file requires a patched CCP such as CCP+ or ZCPR, or a
+  utility like `AUTORUN` (see below).
 - **Compatibility.** CP/M 3 keeps the same FCB/BDOS function numbers for the
   core file calls, so most well-behaved CP/M 2.2 `.COM` programs run unchanged —
   which is why the BDS C toolchain and the apps in `Apps/` work under both.
+
+### Auto-run on CP/M 2.2 (`AUTORUN`)
+
+CP/M 2.2 has no `PROFILE.SUB`, but the bundled `AUTORUN` app (Mike Douglas,
+in `Apps/AUTORUN/`) adds an `AUTOEXEC.BAT`-style auto-run command line by
+patching the CP/M 2.2 boot tracks directly: it writes the command into the CCP
+on track 0 and an enable flag into the BIOS on track 1. You can have the
+command fire on **cold boot only, warm boot only, both, or disable** it.
+
+Because it writes to fixed track/sector offsets in the Altair (Burcon) CP/M 2.2
+boot tracks, it only works on a matching 2.2 system image (the bundled
+`cpm63k.dsk`), and the change persists in the disk image since disks are opened
+read/write.
+
+Build and install it from inside CP/M (assemble with `ASM` on B:, then `LOAD`):
+
+```text
+B:
+FT -G AUTORUN/AUTORUN.SUB
+SUBMIT AUTORUN
+```
+
+Then run `AUTORUN` and follow the prompts to set the command line and when it
+should trigger. The setting takes effect on the next (cold or warm) boot.
 
 File transfer uses the repo `Apps/` folder by default, so inside CP/M you can
 do (for example):

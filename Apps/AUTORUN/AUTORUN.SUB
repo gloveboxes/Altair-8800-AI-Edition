@@ -1,0 +1,10 @@
+ft -g file://autorun/autorun.asm
+ft -g file://autorun/autorun.asm
+ft -g file://autorun/autorun.asm
+ft -g file://autorun/autorun.asm
+
+b:asm autorun
+b:load autorun
+a:pip a:autorun.com=autorun.com
+
+era autorun.asm
