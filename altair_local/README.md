@@ -36,6 +36,86 @@ Disk images are opened read/write, so CP/M writes update the files in place.
 Point at alternate images with `--drive-a`, `--drive-b`, `--drive-c`,
 `--drive-d`.
 
+## CP/M 2.2 vs CP/M 3
+
+By default the emulator boots **CP/M 2.2** (`disks/cpm63k.dsk`). To boot
+**CP/M 3** (CP/M Plus, non-banked) instead, pass `--cpm3`:
+
+```sh
+./altair_local/build/altair-local --cpm3
+```
+
+`--cpm3` selects the DeRamp / Mike Douglas Altair CP/M 3 builds:
+
+```text
+A: disks_cpm_3/cpm3_56k_disk1.dsk   (bootable 56K system: CPM3.SYS, CCP, BDOS3, BIOS3)
+B: disks_cpm_3/cpm3_56k_disk2.dsk   (utilities / HELP)
+```
+
+The cpm3 system disks live in `disks_cpm_3/` rather than `disks/` so they are
+not bundled into the ESP32 storage-flash image (which packages everything in
+`disks/`). The `--cpm3` profile also maps C: and D: from `disks_cpm_3/`
+(`bdsc-v1.60.dsk` and `cpm63k.dsk`). Explicit `--drive-a` / `--drive-b`
+override the `--cpm3` defaults. Both CP/M versions use the same Altair 88-DCDD 8" floppy controller and disk
+boot ROM — no emulator changes are needed; CP/M 3 just ships its own cold-boot
+loader, `CPMLDR`, and `CPM3.SYS` on the system disk. Source for the BIOS3 and
+loaders
+lives in `reference/cpm3_deramp/`.
+
+The CP/M 3 disk images were downloaded from the DeRamp / Mike Douglas archive at
+<https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/CPM%203.0/>
+(`cpm3_v1.0_56K_disk1.dsk` and `cpm3_v1.0_56k_disk2.dsk`, renamed to
+`cpm3_56k_disk1.dsk` / `cpm3_56k_disk2.dsk`); a pristine mirror is kept in
+`reference/cpm3_deramp/`.
+
+### Setting the CP/M 3 memory footprint (GENCPM + COPYSYS)
+
+CP/M 3 is generated with `GENCPM`, which decides how much of the 64K address
+space the system (BIOS3 + BDOS3) occupies and therefore how big the TPA is.
+The stock DeRamp build tops out around **41K TPA**. Because this emulator has a
+flat 64K RAM and only uses the boot loader region (`FF00`) during cold boot, you
+can reclaim it and push the non-banked TPA to about **49K** — the non-banked
+ceiling, since the system code permanently occupies high memory.
+
+`GENCPM` lives on the build disk, not the runtime A:/B: disks. Boot the build
+disk as A::
+
+```sh
+./altair_local/build/altair-local --cpm3 \
+  --drive-a reference/cpm3_deramp/cpm3_v1.0_56k_build.dsk
+```
+
+Then regenerate the system:
+
+```text
+A>SUBMIT GENCPM FF
+```
+
+`FF` sets the top page of memory to `0xFF00` (reclaiming the boot-loader area).
+Or run `A>GENCPM` interactively and answer:
+
+- Top page of memory: **FF**
+- Bank switched system: **N**
+- Double allocation vectors: **N**
+- accept the remaining defaults
+
+After this you should see the map `BIOS3 SPR E600`, `BDOS3 SPR C700`, giving
+~49K TPA. `GENCPM` only writes the new `CPM3.SYS` to A:; it does not make the
+disk bootable on its own. Copy the cold-boot loader and system file onto the
+boot disk with `COPYSYS`, then **cold reboot** for the new footprint to take
+effect:
+
+```text
+A>COPYSYS
+```
+
+On the next boot the banner reports the new BIOS3/BDOS3 addresses and `49K TPA`.
+
+> Note: 64K is not reachable under CP/M 3 — BDOS/BIOS must live somewhere in the
+> address space. For a full ~63K TPA use CP/M 2.2 (`cpm63k.dsk`); a banked CP/M 3
+> could reach ~55-60K but requires emulator bank-switching support that is not
+> implemented here.
+
 File transfer uses the repo `Apps/` folder by default, so inside CP/M you can
 do (for example):
 

@@ -45,6 +45,24 @@ static const char *drive_d_path = LOCAL_RUNNER_REPO_ROOT "/disks/blank.dsk";
 static const char *apps_root_path = LOCAL_RUNNER_REPO_ROOT "/Apps";
 static const char *env_file_path = LOCAL_RUNNER_REPO_ROOT "/altair_local/altair_env.txt";
 
+/* CP/M 3 (CP/M Plus) profile disks. Selected with --cpm3 unless the matching
+   drive was set explicitly on the command line. A: bootable 56K system disk,
+   B: companion utilities/HELP disk. Both are DeRamp Mike Douglas Altair builds,
+   downloaded from:
+     https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/CPM 3.0/
+     (cpm3_v1.0_56K_disk1.dsk -> cpm3_56k_disk1.dsk,
+      cpm3_v1.0_56k_disk2.dsk -> cpm3_56k_disk2.dsk)
+   A pristine mirror is also kept in reference/cpm3_deramp/.
+   All four cpm3 disks live in disk_archive/ (not disks/) so they are NOT
+   bundled into the ESP32 storage-flash image, which packages everything in
+   disks/. C: BDS C v1.60 compiler disk (standard Altair 8" data disk, read
+   under CP/M 3). D: CP/M 2.2 system disk (cpm63k.dsk) with apps built under
+   CP/M 2.2. */
+static const char *cpm3_drive_a_path = LOCAL_RUNNER_REPO_ROOT "/disks_cpm_3/cpm3_56k_disk1.dsk";
+static const char *cpm3_drive_b_path = LOCAL_RUNNER_REPO_ROOT "/disks_cpm_3/cpm3_56k_disk2.dsk";
+static const char *cpm3_drive_c_path = LOCAL_RUNNER_REPO_ROOT "/disks_cpm_3/bdsc-v1.60.dsk";
+static const char *cpm3_drive_d_path = LOCAL_RUNNER_REPO_ROOT "/disks_cpm_3/apps.dsk";
+
 static void handle_signal(int signum)
 {
     (void)signum;
@@ -114,7 +132,11 @@ static uint8_t sense_switches(void)
 static void print_usage(const char *program)
 {
     fprintf(stderr,
-            "Usage: %s [--drive-a PATH] [--drive-b PATH] [--drive-c PATH] [--drive-d PATH] [--apps-root PATH] [--env-file PATH]\n"
+            "Usage: %s [--cpm3] [--drive-a PATH] [--drive-b PATH] [--drive-c PATH] [--drive-d PATH] [--apps-root PATH] [--env-file PATH]\n"
+            "\n"
+            "  --cpm3   Boot CP/M 3 (CP/M Plus): A=cpm3_56k_disk1.dsk, B=cpm3_56k_disk2.dsk,\n"
+            "           C=bdsc-v1.60.dsk, D=cpm63k.dsk (unless --drive-a/-b/-c/-d given).\n"
+            "           Default boots CP/M 2.2.\n"
             "\n"
             "Defaults reference the repository disks and Apps folders:\n"
             "  A: %s\n"
@@ -129,24 +151,37 @@ static void print_usage(const char *program)
 static bool parse_args(int argc, char **argv)
 {
     int i;
+    bool use_cpm3 = false;
+    bool drive_a_explicit = false;
+    bool drive_b_explicit = false;
+    bool drive_c_explicit = false;
+    bool drive_d_explicit = false;
 
     for (i = 1; i < argc; i++)
     {
-        if (strcmp(argv[i], "--drive-a") == 0 && i + 1 < argc)
+        if (strcmp(argv[i], "--cpm3") == 0)
+        {
+            use_cpm3 = true;
+        }
+        else if (strcmp(argv[i], "--drive-a") == 0 && i + 1 < argc)
         {
             drive_a_path = argv[++i];
+            drive_a_explicit = true;
         }
         else if (strcmp(argv[i], "--drive-b") == 0 && i + 1 < argc)
         {
             drive_b_path = argv[++i];
+            drive_b_explicit = true;
         }
         else if (strcmp(argv[i], "--drive-c") == 0 && i + 1 < argc)
         {
             drive_c_path = argv[++i];
+            drive_c_explicit = true;
         }
         else if (strcmp(argv[i], "--drive-d") == 0 && i + 1 < argc)
         {
             drive_d_path = argv[++i];
+            drive_d_explicit = true;
         }
         else if (strcmp(argv[i], "--apps-root") == 0 && i + 1 < argc)
         {
@@ -165,6 +200,26 @@ static bool parse_args(int argc, char **argv)
         {
             print_usage(argv[0]);
             return false;
+        }
+    }
+
+    if (use_cpm3)
+    {
+        if (!drive_a_explicit)
+        {
+            drive_a_path = cpm3_drive_a_path;
+        }
+        if (!drive_b_explicit)
+        {
+            drive_b_path = cpm3_drive_b_path;
+        }
+        if (!drive_c_explicit)
+        {
+            drive_c_path = cpm3_drive_c_path;
+        }
+        if (!drive_d_explicit)
+        {
+            drive_d_path = cpm3_drive_d_path;
         }
     }
 

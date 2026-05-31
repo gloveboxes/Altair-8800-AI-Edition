@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Altair: Start Local Altair - Windows",
+      "label": "Altair: Start Local Altair CP/M 2.2 - Windows",
       "type": "process",
       "command": "cmd.exe",
       "args": [
@@ -98,9 +98,27 @@
       }
     },
     {
-      "label": "Altair: Start Local Altair - macOS/Linux",
+      "label": "Altair: Start Local Altair CP/M 2.2 - macOS/Linux",
       "type": "shell",
       "command": "cmake -S altair_local -B altair_local/build && cmake --build altair_local/build && ./altair_local/build/altair-local",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Altair: Start Local Altair CP/M 3 - macOS/Linux",
+      "type": "shell",
+      "command": "cmake -S altair_local -B altair_local/build && cmake --build altair_local/build && ./altair_local/build/altair-local --cpm3",
       "options": {
         "cwd": "${workspaceFolder}"
       },

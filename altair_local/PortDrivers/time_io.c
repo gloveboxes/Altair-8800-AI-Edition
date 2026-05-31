@@ -61,6 +61,35 @@ static inline uint64_t get_elapsed_ms(void)
     return now_ms - emulator_start_ms;
 }
 
+/* Build a printable date/time string from the host local clock in the same
+ * field order as the CP/M 3 DATE command, e.g. "Sun 05/31/2026 17:13:00".
+ * Unlike the vintage DATE.COM, this uses a full four-digit year so dates from
+ * the year 2000 onward display correctly. The result is NUL terminated so the
+ * 8080 side can stream it out of the request buffer until it reads a zero. */
+static size_t format_now_string(char* buffer, size_t buffer_length)
+{
+    if (buffer == NULL || buffer_length == 0)
+    {
+        return 0;
+    }
+
+    time_t now = time(NULL);
+    struct tm* t = localtime(&now);
+    if (t == NULL)
+    {
+        return 0;
+    }
+
+    size_t len = strftime(buffer, buffer_length, "%a %m/%d/%Y %H:%M:%S", t);
+    /* Include the terminating NUL in the streamed length so IN reads a 0. */
+    if (len + 1 <= buffer_length)
+    {
+        buffer[len] = '\0';
+        len += 1;
+    }
+    return len;
+}
+
 void time_reset(void)
 {
     for (int i = 0; i < NUM_MS_TIMERS; i++)
@@ -194,6 +223,9 @@ size_t time_output(int port, uint8_t data, char* buffer, size_t buffer_length)
             break;
         case 30:
             seconds_timer_target = get_elapsed_ms() / 1000ULL + data;
+            break;
+        case 31:
+            len = format_now_string(buffer, buffer_length);
             break;
         case 37:
         case 38:
