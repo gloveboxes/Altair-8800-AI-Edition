@@ -4,8 +4,13 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    stdin_open: true
-    tty: true
+    # Always serves the browser terminal; run detached and open
+    # http://localhost:8080/ (no TTY needed).
+    restart: unless-stopped
+    environment:
+      ALTAIR_WEB_PORT: ${ALTAIR_WEB_PORT:-8080}
+    ports:
+      - "${ALTAIR_WEB_PORT:-8080}:${ALTAIR_WEB_PORT:-8080}"
     volumes:
       - type: bind
         source: ${ALTAIR_ENV_FILE:-./altair_env.txt}

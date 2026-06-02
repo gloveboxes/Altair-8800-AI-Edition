@@ -11,12 +11,38 @@ find_package(Threads REQUIRED)
 set(ALTAIR_DIR ${CMAKE_CURRENT_LIST_DIR}/../altair8800)
 set(MAIN_DIR ${CMAKE_CURRENT_LIST_DIR}/../main)
 set(FRONT_PANEL_DIR ${CMAKE_CURRENT_LIST_DIR}/../front_panel)
+set(WSSERVER_DIR ${CMAKE_CURRENT_LIST_DIR}/external/wsServer)
+
+# wsServer (Theldus) provides the WebSocket protocol implementation for the
+# browser terminal. Build its sources directly into a small static library
+# instead of add_subdirectory() so we don't also build its examples/tests.
+# Only built on POSIX; the web terminal proxy in web_terminal.c is POSIX-only.
+if(NOT WIN32 AND EXISTS "${WSSERVER_DIR}/src/ws.c")
+    add_library(wsserver STATIC
+        ${WSSERVER_DIR}/src/ws.c
+        ${WSSERVER_DIR}/src/base64.c
+        ${WSSERVER_DIR}/src/sha1.c
+        ${WSSERVER_DIR}/src/handshake.c
+        ${WSSERVER_DIR}/src/utf8.c
+    )
+    target_include_directories(wsserver PUBLIC ${WSSERVER_DIR}/include)
+    target_compile_definitions(wsserver PRIVATE VALIDATE_UTF8)
+    target_link_libraries(wsserver PUBLIC Threads::Threads)
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        # wsServer is third-party; don't fail our -Werror-free build on its warnings.
+        target_compile_options(wsserver PRIVATE -w)
+    endif()
+    set(ALTAIR_LOCAL_HAVE_WEB_TERMINAL ON)
+else()
+    set(ALTAIR_LOCAL_HAVE_WEB_TERMINAL OFF)
+endif()
 
 add_executable(altair-local
     main.c
     host_platform.c
     ansi_input.c
     websocket_console.c
+    web_terminal.c
     PortDrivers/io_ports.c
     PortDrivers/host_chat_io.c
     PortDrivers/environment_io.c
@@ -50,6 +76,15 @@ target_compile_definitions(altair-local PRIVATE
 )
 
 target_link_libraries(altair-local PRIVATE Threads::Threads)
+
+if(ALTAIR_LOCAL_HAVE_WEB_TERMINAL)
+    target_compile_definitions(altair-local PRIVATE ALTAIR_LOCAL_HAVE_WEB_TERMINAL=1)
+    target_link_libraries(altair-local PRIVATE wsserver)
+    message(STATUS "altair-local: web terminal (wsServer) enabled")
+else()
+    message(STATUS "altair-local: web terminal disabled (Windows or wsServer submodule missing)")
+endif()
+
 
 if(CURL_FOUND)
     target_compile_definitions(altair-local PRIVATE HAVE_LIBCURL=1)

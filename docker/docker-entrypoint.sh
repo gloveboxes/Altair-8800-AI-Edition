@@ -15,6 +15,10 @@ drive_b_path=${ALTAIR_DRIVE_B_PATH:-$ALTAIR_DISKS_DIR/$ALTAIR_DRIVE_B}
 drive_c_path=${ALTAIR_DRIVE_C_PATH:-$ALTAIR_DISKS_DIR/$ALTAIR_DRIVE_C}
 drive_d_path=${ALTAIR_DRIVE_D_PATH:-$ALTAIR_DISKS_DIR/$ALTAIR_DRIVE_D}
 
+# The container always serves the browser terminal (intended to run detached
+# with `docker run -d` / `docker compose up -d`). Connect from a browser at
+# http://<host>:${ALTAIR_WEB_PORT}/. ALTAIR_WEB_PORT selects the port (default
+# 8080) and must match the published `-p` mapping.
 exec altair-local \
     --apps-root "$ALTAIR_APPS_ROOT" \
     --env-file "$ALTAIR_ENV_FILE" \
@@ -22,4 +26,5 @@ exec altair-local \
     --drive-b "$drive_b_path" \
     --drive-c "$drive_c_path" \
     --drive-d "$drive_d_path" \
+    --web "${ALTAIR_WEB_PORT:-8080}" \
     "$@"

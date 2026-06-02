@@ -3,9 +3,10 @@
 `altair-local` is a host build of the Altair 8800 emulator for quick CP/M app
 testing in a local terminal. It uses the universal 88-DCDD disk controller and
 the same `intel8080.c` / `memory.c` core as the ESP32 firmware. Terminal I/O
-runs through stdio and the file transfer / time / utility / chat ports use
-host-side port drivers. Boots from the disk images in the project `disks/`
-folder by default.
+runs through stdio by default (or, with `--web`, through the same browser
+terminal the ESP32 firmware serves) and the file transfer / time / utility /
+chat ports use host-side port drivers. Boots from the disk images in the
+project `disks/` folder by default.
 
 ## Build
 
@@ -13,6 +14,18 @@ folder by default.
 cmake -S altair_local -B altair_local/build
 cmake --build altair_local/build
 ```
+
+The browser terminal (`--web`, below) is backed by the
+[wsServer](https://github.com/Theldus/wsServer) git submodule under
+`altair_local/external/wsServer`. If you cloned without `--recurse-submodules`,
+fetch it once with:
+
+```sh
+git submodule update --init altair_local/external/wsServer
+```
+
+When the submodule is absent (or on Windows) the build still succeeds; `--web`
+is simply unavailable and the runner uses the stdio terminal.
 
 ## Run
 
@@ -35,6 +48,29 @@ D: disks/blank.dsk
 Disk images are opened read/write, so CP/M writes update the files in place.
 Point at alternate images with `--drive-a`, `--drive-b`, `--drive-c`,
 `--drive-d`.
+
+## Browser terminal (`--web`)
+
+Instead of the stdio terminal, the runner can serve the project's web terminal
+(`terminal/index.html`, the same UI the ESP32 firmware uses) over HTTP and
+bridge it to the emulator over WebSocket:
+
+```sh
+./altair_local/build/altair-local --web        # default port 8080
+./altair_local/build/altair-local --web 9000    # custom port
+```
+
+Then open `http://localhost:8080/` in a browser. The emulator waits to boot
+until the first browser connects, so the CP/M banner is delivered to the page
+(matching the ESP32 behaviour). `Ctrl+]` in the browser exits the emulator;
+`Ctrl+C` in the launching shell stops the server.
+
+How it works: a small built-in HTTP server on the chosen port serves the
+terminal HTML and reverse-proxies WebSocket upgrade requests (the page connects
+to `ws://<host>:<port>/ws`) to a loopback [wsServer](https://github.com/Theldus/wsServer)
+instance on port + 1. Keeping both behind one public port means `index.html`
+needs no changes — it derives the WebSocket URL from the page's own host/port.
+`--web` is POSIX-only; on Windows the runner falls back to the stdio terminal.
 
 ## CP/M 2.2 vs CP/M 3
 

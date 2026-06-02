@@ -1,0 +1,3 @@
+[submodule "altair_local/external/wsServer"]
+	path = altair_local/external/wsServer
+	url = https://github.com/Theldus/wsServer

@@ -11,6 +11,7 @@
 #include "host_platform.h"
 #include "io_ports.h"
 #include "virtual_monitor.h"
+#include "web_terminal.h"
 
 #include <signal.h>
 #include <stdbool.h>
@@ -18,6 +19,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
+static void wait_ms(unsigned ms)
+{
+#ifdef _WIN32
+    Sleep(ms);
+#else
+    struct timespec ts = {(time_t)(ms / 1000u), (long)(ms % 1000u) * 1000000L};
+    nanosleep(&ts, NULL);
+#endif
+}
 
 #define ASCII_MASK_7BIT 0x7f
 
@@ -31,9 +47,13 @@
 #define LOCAL_RUNNER_REPO_ROOT ".."
 #endif
 
+#define DEFAULT_WEB_PORT 8080
+
 static disk_controller_t g_disk_controller;
 static bool g_disk_controller_ready = false;
 static volatile sig_atomic_t keep_running = 1;
+static bool g_web_mode = false;
+static uint16_t g_web_port = DEFAULT_WEB_PORT;
 
 static void terminal_write(uint8_t c);
 static uint8_t sense_switches(void);
@@ -69,12 +89,22 @@ static void handle_signal(int signum)
     keep_running = 0;
 }
 
+static int read_raw_terminal_byte(void)
+{
+    if (g_web_mode)
+    {
+        uint8_t b;
+        return web_terminal_rx_byte(&b) ? (int)b : -1;
+    }
+    return host_terminal_read_byte();
+}
+
 static uint8_t terminal_read(void)
 {
     int raw_ch;
     uint8_t ch;
 
-    raw_ch = host_terminal_read_byte();
+    raw_ch = read_raw_terminal_byte();
     if (raw_ch < 0)
     {
         return ansi_input_process(0x00, host_monotonic_ms());
@@ -118,6 +148,12 @@ static void terminal_write(uint8_t c)
 {
     unsigned char ch = (unsigned char)(c & ASCII_MASK_7BIT);
 
+    if (g_web_mode)
+    {
+        web_terminal_tx_byte(ch);
+        return;
+    }
+
     if (!host_terminal_write_byte(ch))
     {
         keep_running = 0;
@@ -132,11 +168,15 @@ static uint8_t sense_switches(void)
 static void print_usage(const char *program)
 {
     fprintf(stderr,
-            "Usage: %s [--cpm3] [--drive-a PATH] [--drive-b PATH] [--drive-c PATH] [--drive-d PATH] [--apps-root PATH] [--env-file PATH]\n"
+            "Usage: %s [--cpm3] [--web [PORT]] [--drive-a PATH] [--drive-b PATH] [--drive-c PATH] [--drive-d PATH] [--apps-root PATH] [--env-file PATH]\n"
             "\n"
             "  --cpm3   Boot CP/M 3 (CP/M Plus): A=cpm3_56k_disk1.dsk, B=cpm3_56k_disk2.dsk,\n"
             "           C=bdsc-v1.60.dsk, D=cpm63k.dsk (unless --drive-a/-b/-c/-d given).\n"
             "           Default boots CP/M 2.2.\n"
+            "  --web [PORT]\n"
+            "           Serve the browser terminal (terminal/index.html) and a WebSocket\n"
+            "           bridge on PORT (default 8080) instead of using the stdio terminal.\n"
+            "           Open http://localhost:PORT/ in a browser to connect.\n"
             "\n"
             "Defaults reference the repository disks and Apps folders:\n"
             "  A: %s\n"
@@ -162,6 +202,26 @@ static bool parse_args(int argc, char **argv)
         if (strcmp(argv[i], "--cpm3") == 0)
         {
             use_cpm3 = true;
+        }
+        else if (strcmp(argv[i], "--web") == 0)
+        {
+            g_web_mode = true;
+            /* Optional port argument: only consume it when it looks numeric. */
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+            {
+                char *end = NULL;
+                long p = strtol(argv[i + 1], &end, 10);
+                if (end != NULL && *end == '\0' && p > 0 && p <= 65535)
+                {
+                    g_web_port = (uint16_t)p;
+                    i++;
+                }
+                else
+                {
+                    fprintf(stderr, "altair-local: invalid --web port '%s'\n", argv[i + 1]);
+                    return false;
+                }
+            }
         }
         else if (strcmp(argv[i], "--drive-a") == 0 && i + 1 < argc)
         {
@@ -241,18 +301,41 @@ int main(int argc, char **argv)
     chat_io_init();
     weather_io_init();
 
-    fprintf(stderr, "[altair-local] Ctrl+\\ toggles the CPU monitor, Ctrl+] exits.\n");
-
-    if (!host_terminal_configure())
+    if (g_web_mode)
     {
-        return 1;
+        if (!web_terminal_start(LOCAL_RUNNER_REPO_ROOT, g_web_port))
+        {
+            fprintf(stderr, "altair-local: failed to start web terminal on port %u\n", g_web_port);
+            return 1;
+        }
+        fprintf(stderr,
+                "[altair-local] Web terminal ready: http://localhost:%u/\n"
+                "[altair-local] Ctrl+] (in the browser) exits; Ctrl+C here stops the server.\n"
+                "[altair-local] Waiting for a browser to connect...\n",
+                g_web_port);
     }
-    atexit(host_terminal_restore);
+    else
+    {
+        fprintf(stderr, "[altair-local] Ctrl+\\ toggles the CPU monitor, Ctrl+] exits.\n");
+
+        if (!host_terminal_configure())
+        {
+            return 1;
+        }
+        atexit(host_terminal_restore);
+    }
     host_prefer_efficiency_core();
 
     if (!host_disk_init(drive_a_path, drive_b_path, drive_c_path, drive_d_path))
     {
-        host_terminal_restore();
+        if (g_web_mode)
+        {
+            web_terminal_stop();
+        }
+        else
+        {
+            host_terminal_restore();
+        }
         fprintf(stderr, "altair-local: failed to open disk images\n");
         fprintf(stderr, "  A: %s\n  B: %s\n  C: %s\n  D: %s\n", drive_a_path, drive_b_path, drive_c_path, drive_d_path);
         return 1;
@@ -268,6 +351,21 @@ int main(int argc, char **argv)
                 &g_disk_controller, io_port_in, io_port_out);
     i8080_examine(&cpu, 0xff00);
     bus_switches = cpu.address_bus;
+
+    /* In web mode, don't run the CPU until a browser is attached so the boot
+       banner is delivered to the first client (mirrors the ESP32 firmware). */
+    if (g_web_mode)
+    {
+        while (keep_running && !web_terminal_has_clients())
+        {
+            wait_ms(50);
+        }
+        if (keep_running)
+        {
+            fprintf(stderr, "[altair-local] Browser connected.\n");
+        }
+    }
+
     cpu_state_set_mode(CPU_RUNNING);
 
     while (keep_running)
@@ -292,6 +390,13 @@ int main(int argc, char **argv)
     }
 
     host_disk_close();
-    host_terminal_restore();
+    if (g_web_mode)
+    {
+        web_terminal_stop();
+    }
+    else
+    {
+        host_terminal_restore();
+    }
     return 0;
 }

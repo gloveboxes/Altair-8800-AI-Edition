@@ -5,6 +5,15 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
+# The browser terminal needs the wsServer submodule in the build context.
+# Without it the build still succeeds but `--web` is stubbed out, producing an
+# image that does nothing useful when run detached. Fail early instead.
+if [ ! -f "$REPO_ROOT/altair_local/external/wsServer/src/ws.c" ]; then
+    echo "wsServer submodule missing; run:" >&2
+    echo "  git submodule update --init altair_local/external/wsServer" >&2
+    exit 1
+fi
+
 PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64}
 BUILD_CONTEXT=${BUILD_CONTEXT:-$REPO_ROOT}
 DOCKERFILE=${DOCKERFILE:-$SCRIPT_DIR/Dockerfile}

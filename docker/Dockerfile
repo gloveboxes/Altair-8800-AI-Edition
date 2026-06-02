@@ -20,6 +20,9 @@ COPY main/ main/
 COPY front_panel/ front_panel/
 COPY disks/ disks/
 COPY Apps/ Apps/
+# Browser terminal UI served by altair-local --web (loaded at runtime via
+# ALTAIR_WEB_ROOT in the runtime stage below).
+COPY terminal/ terminal/
 
 RUN cmake -S altair_local -B /tmp/altair-local-build -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /tmp/altair-local-build --parallel \
@@ -37,6 +40,9 @@ WORKDIR /opt/altair
 COPY --from=build /tmp/altair-local-build/altair-local /usr/local/bin/altair-local
 COPY --from=build /src/Apps ./Apps
 COPY --from=build /src/disks ./disks
+# Bundle the browser terminal UI so `--web` works without the source tree.
+# ALTAIR_WEB_ROOT points the runner at <root>/terminal/index.html.
+COPY --from=build /src/terminal ./terminal
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY docker/altair_env.txt ./runtime/altair_env.txt
 
@@ -55,6 +61,12 @@ ENV ALTAIR_APPS_ROOT=/opt/altair/Apps \
     ALTAIR_DRIVE_A=cpm63k.dsk \
     ALTAIR_DRIVE_B=bdsc-v1.60.dsk \
     ALTAIR_DRIVE_C=escape-posix.dsk \
-    ALTAIR_DRIVE_D=blank.dsk
+    ALTAIR_DRIVE_D=blank.dsk \
+    ALTAIR_WEB_ROOT=/opt/altair \
+    ALTAIR_WEB_PORT=8080
+
+# The container always serves the browser terminal; intended to run detached
+# (`docker run -d` / `docker compose up -d`). Publish this port with `-p`.
+EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
