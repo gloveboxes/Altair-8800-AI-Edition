@@ -35,6 +35,19 @@ static void wait_ms(unsigned ms)
 #endif
 }
 
+static void wait_ns(long ns)
+{
+#ifdef _WIN32
+    /* Windows Sleep() has millisecond granularity; yield the timeslice
+       instead so we relinquish the core without oversleeping. */
+    (void)ns;
+    Sleep(0);
+#else
+    struct timespec ts = {(time_t)(ns / 1000000000L), (long)(ns % 1000000000L)};
+    nanosleep(&ts, NULL);
+#endif
+}
+
 #define ASCII_MASK_7BIT 0x7f
 
 /* Same byte the web terminal sends for Ctrl+M on the ESP firmware
@@ -48,6 +61,11 @@ static void wait_ms(unsigned ms)
 #endif
 
 #define DEFAULT_WEB_PORT 8080
+
+/* While serving the web terminal with no browser connected, sleep this long
+   between CPU cycles so an idle container/process doesn't spin a core at 100%.
+   Once a browser connects the loop runs at full speed again. */
+#define IDLE_THROTTLE_NS 1000L
 
 static disk_controller_t g_disk_controller;
 static bool g_disk_controller_ready = false;
@@ -372,6 +390,18 @@ int main(int argc, char **argv)
     {
         if (cpu_state_get_mode() == CPU_RUNNING)
         {
+            /* When serving the web terminal with no browser attached, throttle
+               the CPU so an idle container doesn't peg a core. CP/M just spins
+               at the prompt while nobody is connected; one cycle per short
+               sleep keeps it alive cheaply. The stdio terminal never throttles
+               (a local user is always "connected"). */
+            if (g_web_mode && !web_terminal_has_clients())
+            {
+                i8080_cycle(&cpu);
+                wait_ns(IDLE_THROTTLE_NS);
+                continue;
+            }
+
             for (int i = 0; i < 4000 && keep_running; ++i)
             {
                 i8080_cycle(&cpu);
