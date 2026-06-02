@@ -10,8 +10,13 @@
  * Cells:   sparse - char* per slot, NULL means empty
  * Values:  16-bit signed integers; text cells stored literally
  * Formula: leading '='; supports + - * / unary minus, parens,
- *          cell refs (A1..Z99), and the range functions
- *          SUM AVG MIN MAX COUNT - e.g. =SUM(A1:B5)
+ *          cell refs (A1..Z99), Excel-style absolute refs
+ *          ($A$1, $A1, A$1), and the range functions
+ *          SUM AVG MIN MAX COUNT - e.g. =SUM(A1:B5).
+ *          RAND() / RAND(n) draws a hardware random number; unlike
+ *          Excel RAND() it is frozen to a fixed value when entered.
+ *          Relative refs shift on copy/paste and row/col
+ *          insert; a ref pushed off the grid renders as #REF!.
  *
  * Keys:
  *   Arrow keys    Move cursor
@@ -19,98 +24,23 @@
  *   Any printable Start fresh edit with that character
  *   ESC           (in edit) cancel ; (in nav) quit
  *   Ctrl-K        Clear current cell
+ *   Ctrl-C        Copy current cell
+ *   Ctrl-P        Paste into current cell (formula refs shift)
  *   Ctrl-O        Write file
- *   Ctrl-L        Reload file
  *   Ctrl-W        Help
  *   Ctrl-G        Go to cell (e.g. "C12")
  *   Ctrl-Q        Quit
  *
- * Build (CP/M):
+ * Build (CP/M): compiled as two units (SHEETS.C + SHEETC.C) so
+ * each fits the BDS C 1.6 parser; shared state lives in SHEETS.H.
  *      cc sheets
- *      clink sheets
+ *      cc sheetc
+ *      clink sheets sheetc string long
  */
 
 #include "stdio.h"
 #include "string.h"
-
-#define MAXCOL 26
-#define MAXROW 99
-#define CWID   10
-#define VCOLS  7
-#define VROWS  26
-#define GUTW   4
-
-#define TITR   1
-#define HDRR   2
-#define DATR   3
-#define EDR    29
-#define STR    29
-#define HLPR   30
-#define SCRW   80
-
-#define ESC    27
-#define CR     13
-#define LF     10
-#define BKSP   8
-#define CTLH   8
-#define DEL    127
-#define KUP    5
-#define KDN    24
-#define KRT    4
-#define KLT    19
-#define CTLG   7
-#define CTLK   11
-#define CTLL   12
-#define CTLN   14
-#define CTLO   15
-#define CTLQ   17
-#define CTLR   18
-#define CTLT   20
-#define CTLV   22
-#define CTLW   23
-
-/* ---- Externals ---- */
-
-int bdos();
-int bios();
-int fclose();
-int fgetc();
-int fputc();
-FILE *fopen();
-char *alloc();
-int free();
-
-/* From SDK/LONG.C (32-bit signed long math; longs are char[4]) */
-char *itol();
-int ltoi();
-int lcomp();
-char *ladd();
-char *lsub();
-char *lmul();
-char *ldiv();
-char *lmod();
-char *atol();
-char *ltoa();
-
-/* ---- Grid state ---- */
-
-char *cells[MAXROW][MAXCOL];
-int crow, ccol;
-int trow, tcol;
-char ebuf[80];
-char ename[16];
-char mesg[64];
-int dirty;
-int rall;
-
-/* Eval globals */
-char *epos;
-int eok;
-int edepth;
-
-/* Constant long buffers used by the evaluator; initialized in main(). */
-char lzro[4];
-char lten[4];
+#include "sheets.h"
 
 /* ---- VT100 helpers ---- */
 
@@ -228,482 +158,8 @@ int keywt()
     return c;
 }
 
-/* ---- Cell helpers ---- */
-
-int setcel(r, c, s)
-int r;
-int c;
-char *s;
-{
-    char *p;
-    int n;
-
-    if (r < 0 || r >= MAXROW || c < 0 || c >= MAXCOL)
-        return -1;
-
-    if (cells[r][c])
-    {
-        free(cells[r][c]);
-        cells[r][c] = 0;
-    }
-
-    if (s == 0 || s[0] == 0)
-        return 0;
-
-    n = strlen(s);
-    p = alloc(n + 1);
-    if (p == 0)
-        return -1;
-    strcpy(p, s);
-    cells[r][c] = p;
-    return 0;
-}
-
-int clrcel(r, c)
-int r;
-int c;
-{
-    if (cells[r][c])
-    {
-        free(cells[r][c]);
-        cells[r][c] = 0;
-        dirty = 1;
-    }
-    return 0;
-}
-
-/* ---- Parser / evaluator ---- */
-
-int eskp()
-{
-    while (*epos == ' ' || *epos == '\t')
-        epos++;
-    return 0;
-}
-
-int isdig(c)
-int c;
-{
-    return (c >= '0' && c <= '9');
-}
-
-int isal(c)
-int c;
-{
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-}
-
-int upr(c)
-int c;
-{
-    if (c >= 'a' && c <= 'z')
-        return c - 32;
-    return c;
-}
-
-/* parse a cell ref like A1 / z99, set *rp, *cp, advance epos */
-int prsref(rp, cp)
-int *rp;
-int *cp;
-{
-    int col;
-    int row;
-    int c;
-
-    eskp();
-    if (!isal(*epos))
-        return 0;
-    col = upr(*epos) - 'A';
-    epos++;
-    if (!isdig(*epos))
-        return 0;
-    row = 0;
-    while (isdig(*epos))
-    {
-        row = row * 10 + (*epos - '0');
-        epos++;
-    }
-    row = row - 1;
-    if (row < 0 || row >= MAXROW || col < 0 || col >= MAXCOL)
-        return 0;
-    *rp = row;
-    *cp = col;
-    return 1;
-}
-
-int evcell();
-int expr();
-int term();
-int factor();
-
-/* Forward-call wrapper: evaluate cell (r,c) into the 4-byte long
- * pointed to by vp. Recursion-guarded via edepth. */
-int evcell(r, c, vp)
-int r;
-int c;
-char *vp;
-{
-    char *s;
-    char *sav;
-    int ok;
-
-    itol(vp, 0);
-    if (r < 0 || r >= MAXROW || c < 0 || c >= MAXCOL)
-        return 0;
-    s = cells[r][c];
-    if (s == 0 || s[0] == 0)
-        return 1;
-    if (s[0] != '=')
-    {
-        /* Plain text/number: take leading signed integer if any. */
-        if (s[0] == '-' || isdig(s[0]))
-            atol(vp, s);
-        return 1;
-    }
-    if (edepth > 24)
-        return 0;
-    edepth++;
-    sav = epos;
-    epos = s + 1;
-    eok = 1;
-    ok = expr(vp);
-    epos = sav;
-    edepth--;
-    if (!ok || !eok)
-        return 0;
-    return 1;
-}
-
-int factor(vp)
-char *vp;
-{
-    int neg;
-    int r, c, r2, c2;
-    int i, j;
-    int tag;
-    int cnt;
-    int gotn;
-    char rv[4];
-    char dig[4];
-    char tmp[4];
-
-    eskp();
-    neg = 0;
-    while (*epos == '-' || *epos == '+')
-    {
-        if (*epos == '-')
-            neg = !neg;
-        epos++;
-        eskp();
-    }
-
-    if (*epos == '(')
-    {
-        epos++;
-        if (!expr(vp))
-            return 0;
-        eskp();
-        if (*epos != ')')
-        {
-            eok = 0;
-            return 0;
-        }
-        epos++;
-    }
-    else if (isdig(*epos))
-    {
-        itol(vp, 0);
-        while (isdig(*epos))
-        {
-            itol(dig, *epos - '0');
-            lmul(vp, vp, lten);
-            ladd(vp, vp, dig);
-            epos++;
-        }
-    }
-    else if ((upr(epos[0]) == 'S') && (upr(epos[1]) == 'U')
-             && (upr(epos[2]) == 'M') && (epos[3] == '('))
-    {
-        tag = 0;
-        epos = epos + 4;
-        goto rng;
-    }
-    else if ((upr(epos[0]) == 'A') && (upr(epos[1]) == 'V')
-             && (upr(epos[2]) == 'G') && (epos[3] == '('))
-    {
-        tag = 1;
-        epos = epos + 4;
-        goto rng;
-    }
-    else if ((upr(epos[0]) == 'M') && (upr(epos[1]) == 'I')
-             && (upr(epos[2]) == 'N') && (epos[3] == '('))
-    {
-        tag = 2;
-        epos = epos + 4;
-        goto rng;
-    }
-    else if ((upr(epos[0]) == 'M') && (upr(epos[1]) == 'A')
-             && (upr(epos[2]) == 'X') && (epos[3] == '('))
-    {
-        tag = 3;
-        epos = epos + 4;
-        goto rng;
-    }
-    else if ((upr(epos[0]) == 'C') && (upr(epos[1]) == 'O')
-             && (upr(epos[2]) == 'U') && (upr(epos[3]) == 'N')
-             && (upr(epos[4]) == 'T') && (epos[5] == '('))
-    {
-        tag = 4;
-        epos = epos + 6;
-rng:
-        if (!prsref(&r, &c))
-        {
-            eok = 0;
-            return 0;
-        }
-        eskp();
-        if (*epos != ':')
-        {
-            eok = 0;
-            return 0;
-        }
-        epos++;
-        if (!prsref(&r2, &c2))
-        {
-            eok = 0;
-            return 0;
-        }
-        eskp();
-        if (*epos != ')')
-        {
-            eok = 0;
-            return 0;
-        }
-        epos++;
-        itol(vp, 0);
-        cnt = 0;
-        gotn = 0;
-        for (i = r; i <= r2; i++)
-        {
-            for (j = c; j <= c2; j++)
-            {
-                if (tag == 4)
-                {
-                    if (cells[i][j] && cells[i][j][0])
-                        cnt++;
-                    continue;
-                }
-                if (!evcell(i, j, rv))
-                {
-                    eok = 0;
-                    return 0;
-                }
-                /* Only count cells that hold a numeric value (a
-                 * number or a formula) so AVG ignores empty and
-                 * non-numeric text cells. */
-                if (cells[i][j] && (cells[i][j][0] == '='
-                    || cells[i][j][0] == '-'
-                    || isdig(cells[i][j][0])))
-                    cnt++;
-                if (tag == 0 || tag == 1)
-                {
-                    ladd(vp, vp, rv);
-                }
-                else if (tag == 2)
-                {
-                    if (!gotn || lcomp(rv, vp) < 0)
-                    {
-                        vp[0] = rv[0];
-                        vp[1] = rv[1];
-                        vp[2] = rv[2];
-                        vp[3] = rv[3];
-                    }
-                    gotn = 1;
-                }
-                else if (tag == 3)
-                {
-                    if (!gotn || lcomp(rv, vp) > 0)
-                    {
-                        vp[0] = rv[0];
-                        vp[1] = rv[1];
-                        vp[2] = rv[2];
-                        vp[3] = rv[3];
-                    }
-                    gotn = 1;
-                }
-            }
-        }
-        if (tag == 1)
-        {
-            if (cnt == 0)
-            {
-                eok = 0;
-                return 0;
-            }
-            itol(dig, cnt);
-            ldiv(vp, vp, dig);
-        }
-        else if (tag == 4)
-        {
-            itol(vp, cnt);
-        }
-    }
-    else if (isal(*epos))
-    {
-        if (!prsref(&r, &c))
-        {
-            eok = 0;
-            return 0;
-        }
-        if (!evcell(r, c, vp))
-        {
-            eok = 0;
-            return 0;
-        }
-    }
-    else
-    {
-        eok = 0;
-        return 0;
-    }
-
-    if (neg)
-    {
-        lsub(tmp, lzro, vp);
-        vp[0] = tmp[0];
-        vp[1] = tmp[1];
-        vp[2] = tmp[2];
-        vp[3] = tmp[3];
-    }
-    return 1;
-}
-
-int term(vp)
-char *vp;
-{
-    char rhs[4];
-    char op;
-
-    if (!factor(vp))
-        return 0;
-    eskp();
-    while (*epos == '*' || *epos == '/')
-    {
-        op = *epos;
-        epos++;
-        if (!factor(rhs))
-            return 0;
-        if (op == '*')
-            lmul(vp, vp, rhs);
-        else
-        {
-            if (lcomp(rhs, lzro) == 0)
-            {
-                eok = 0;
-                return 0;
-            }
-            ldiv(vp, vp, rhs);
-        }
-        eskp();
-    }
-    return 1;
-}
-
-int expr(vp)
-char *vp;
-{
-    char rhs[4];
-    char op;
-
-    if (!term(vp))
-        return 0;
-    eskp();
-    while (*epos == '+' || *epos == '-')
-    {
-        op = *epos;
-        epos++;
-        if (!term(rhs))
-            return 0;
-        if (op == '+')
-            ladd(vp, vp, rhs);
-        else
-            lsub(vp, vp, rhs);
-        eskp();
-    }
-    return 1;
-}
-
-/* ---- Formatting ---- */
-
-/* Render cell (r,c) into buf right-padded/truncated to CWID chars
- * plus a trailing NUL. Returns 0 always. */
-int rndcel(r, c, buf)
-int r;
-int c;
-char *buf;
-{
-    char *s;
-    char tmp[16];
-    char lv[4];
-    int ok;
-    int n, i, p;
-
-    for (i = 0; i < CWID; i++)
-        buf[i] = ' ';
-    buf[CWID] = 0;
-
-    s = cells[r][c];
-    if (s == 0 || s[0] == 0)
-        return 0;
-
-    if (s[0] == '=')
-    {
-        edepth = 0;
-        ok = evcell(r, c, lv);
-        if (!ok)
-        {
-            strcpy(buf, "  #ERR    ");
-            buf[CWID] = 0;
-            return 0;
-        }
-        ltoa(tmp, lv);
-        n = strlen(tmp);
-        if (n > CWID)
-        {
-            for (i = 0; i < CWID; i++)
-                buf[i] = '#';
-            buf[CWID] = 0;
-            return 0;
-        }
-        p = CWID - n;
-        for (i = 0; i < n; i++)
-            buf[p + i] = tmp[i];
-        return 0;
-    }
-
-    /* Plain text or number: right-align numeric, left-align text. */
-    if (s[0] == '-' || isdig(s[0]))
-    {
-        n = strlen(s);
-        if (n > CWID)
-        {
-            for (i = 0; i < CWID; i++)
-                buf[i] = '#';
-            return 0;
-        }
-        p = CWID - n;
-        for (i = 0; i < n; i++)
-            buf[p + i] = s[i];
-        return 0;
-    }
-
-    n = strlen(s);
-    if (n > CWID)
-        n = CWID;
-    for (i = 0; i < n; i++)
-        buf[i] = s[i];
-    return 0;
-}
+/* ---- Cell storage, formula engine, and rendering live in
+ * SHEETC.C (split out so each unit fits the BDS C compiler). ---- */
 
 /* ---- Drawing ---- */
 
@@ -862,7 +318,7 @@ int helpbr()
     curmv(HLPR, 1);
     /* dim amber */
     cput("\033[2;33m");
-    cput("^W Help ^O Save ^L Load ^G Goto ^N InsRow ^T InsCol ^R/V Page ^Q Quit");
+    cput("^W Help ^O Save ^G Goto ^C Copy ^P Paste ^R/V Page ^Q Quit");
     eol();
     cput("\033[0m");
     return 0;
@@ -1108,11 +564,12 @@ int clrall()
  *           >= dr+1 (1-based) are bumped by +1.
  * dc >= 0 : a col was inserted at index dc; refs with col
  *           index >= dc are bumped by +1.
- * Use -1 on the axis that didn't change.  Refs that would
- * leave the grid are clamped at the last valid index.
- * Returns a freshly alloc'd string, or 0 on alloc failure.
- * Function names (SUM/AVG/MIN/MAX/COUNT) are skipped because
- * they are followed by '(' not a digit.
+ * Use -1 on the axis that didn't change.  Excel-style absolute
+ * markers ('$') are preserved, and absolute refs are still
+ * shifted by a structural insert (as Excel does).  A ref pushed
+ * off the grid becomes "#REF!".  Returns a freshly alloc'd
+ * string, or 0 on alloc failure.  Function names are skipped
+ * because they are followed by '(' not a digit.
  */
 char *bmpref(s, dr, dc)
 char *s;
@@ -1125,45 +582,76 @@ int dc;
     int i;
     int col, row;
     int n;
+    int colabs, rowabs;
+    int isref;
 
     p = s;
     i = 0;
-    while (*p && i < 155)
+    while (*p && i < 150)
     {
-        if (isal(*p) && p[1] >= '0' && p[1] <= '9')
+        isref = 0;
+        if (*p == '$' && isal(p[1]))
+            isref = 1;
+        else if (isal(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+            isref = 1;
+
+        if (!isref)
         {
-            col = upr(*p) - 'A';
+            buf[i++] = *p++;
+            continue;
+        }
+
+        colabs = 0;
+        rowabs = 0;
+        if (*p == '$')
+        {
+            colabs = 1;
             p++;
-            row = 0;
-            n = 0;
-            while (*p >= '0' && *p <= '9' && n < 2)
-            {
-                row = row * 10 + (*p - '0');
-                p++;
-                n++;
-            }
-            if (dc >= 0 && col >= dc && col < MAXCOL - 1)
-                col++;
-            if (dr >= 0 && row >= dr + 1 && row < MAXROW)
-                row++;
-            if (col < 0) col = 0;
-            if (col >= MAXCOL) col = MAXCOL - 1;
-            if (row < 1) row = 1;
-            if (row > MAXROW) row = MAXROW;
-            buf[i++] = 'A' + col;
-            if (row >= 10)
-            {
-                buf[i++] = '0' + (row / 10);
-                buf[i++] = '0' + (row % 10);
-            }
-            else
-            {
-                buf[i++] = '0' + row;
-            }
+        }
+        col = upr(*p) - 'A';
+        p++;
+        if (*p == '$')
+        {
+            rowabs = 1;
+            p++;
+        }
+        row = 0;
+        n = 0;
+        while (*p >= '0' && *p <= '9' && n < 2)
+        {
+            row = row * 10 + (*p - '0');
+            p++;
+            n++;
+        }
+
+        if (dc >= 0 && col >= dc)
+            col++;
+        if (dr >= 0 && row >= dr + 1)
+            row++;
+
+        if (col < 0 || col >= MAXCOL || row < 1 || row > MAXROW)
+        {
+            buf[i++] = '#';
+            buf[i++] = 'R';
+            buf[i++] = 'E';
+            buf[i++] = 'F';
+            buf[i++] = '!';
+            continue;
+        }
+
+        if (colabs)
+            buf[i++] = '$';
+        buf[i++] = 'A' + col;
+        if (rowabs)
+            buf[i++] = '$';
+        if (row >= 10)
+        {
+            buf[i++] = '0' + (row / 10);
+            buf[i++] = '0' + (row % 10);
         }
         else
         {
-            buf[i++] = *p++;
+            buf[i++] = '0' + row;
         }
     }
     buf[i] = 0;
@@ -1340,32 +828,191 @@ int helpsc()
     curmv(8, 4);
     cput("Edit cell:  Enter (keep)  or any printable (replace)");
     curmv(9, 4);
-    cput("Clear cell: Ctrl-K");
+    cput("Clear cell: Ctrl-K  (or Backspace/Del)");
     curmv(10, 4);
     cput("Insert row: Ctrl-N  (shifts rows down, drops bottom)");
     curmv(11, 4);
     cput("Insert col: Ctrl-T  (shifts cols right, drops rightmost)");
     curmv(12, 4);
-    cput("Save file:  Ctrl-O");
+    cput("Save file:  Ctrl-O              Goto cell: Ctrl-G (e.g. C12)");
     curmv(13, 4);
-    cput("Load file:  Ctrl-L");
-    curmv(14, 4);
-    cput("Goto cell:  Ctrl-G  (e.g. C12)");
+    cput("Page up/dn: Ctrl-R / Ctrl-V      Quit:      Ctrl-Q or ESC");
     curmv(15, 4);
-    cput("Page up/dn: Ctrl-R / Ctrl-V");
+    cput("Copy/paste: Ctrl-C copies the current cell, Ctrl-P pastes it.");
     curmv(16, 4);
-    cput("Quit:       Ctrl-Q  or ESC");
+    cput("On paste, relative refs shift by how far you moved the cursor:");
     curmv(17, 4);
-    cput("Formulas: =A1+B2*3   =-A1   =(A1+A2)/2");
+    cput("copy =A1 in B2, paste in B3 -> =A2.  Pinned ($) parts stay put.");
     curmv(18, 4);
+    cput("Formulas: =A1+B2*3   =-A1   =(A1+A2)/2");
+    curmv(19, 4);
     cput("          =SUM(A1:A5)  =AVG(A1:C3)  =MIN/MAX/COUNT(A1:A9)");
     curmv(20, 4);
-    cput("Integers only (32-bit, -2147483648..2147483647).  Refs are");
+    cput("          =RAND() 0..32767  =RAND(6) 0..5 (fixed when typed)");
     curmv(21, 4);
-    cput("renumbered automatically when rows/columns are inserted.");
+    cput("Absolute refs: $A$1 pins both, $A1 pins col, A$1 pins row.");
+    curmv(22, 4);
+    cput("Relative refs shift on copy/paste; off-grid refs show #REF!.");
     curmv(23, 4);
     cput("Press any key to return.");
     keywt();
+    rall = 1;
+    return 0;
+}
+
+/* ---- Copy / paste ---- */
+
+/* Copy current cell's contents into the clipboard buffer. */
+int copycl()
+{
+    char *s;
+
+    s = cells[crow][ccol];
+    if (s == 0 || s[0] == 0)
+    {
+        hasclip = 0;
+        clip[0] = 0;
+        msg("Nothing to copy");
+        return 0;
+    }
+    strncpy(clip, s, 78);
+    clip[78] = 0;
+    hasclip = 1;
+    cliprow = crow;
+    clipcol = ccol;
+    msg("Copied");
+    return 0;
+}
+
+/* Build a copy of formula 's' with every relative cell reference
+ * shifted by (dr, dc) - the row/column distance from the copy
+ * source to the paste destination. Excel-style absolute markers
+ * are honoured: a '$' before the column pins the column, a '$'
+ * before the row pins the row, and pinned parts are not shifted.
+ * A relative reference that moves outside the grid is written as
+ * "#REF!" (matching Excel) instead of being clamped. Function
+ * names (SUM/AVG/MIN/MAX/COUNT) are left alone because they are
+ * followed by '(' not a digit. Returns a freshly alloc'd string,
+ * or 0 on alloc failure. */
+char *reloc(s, dr, dc)
+char *s;
+int dr;
+int dc;
+{
+    char buf[160];
+    char *p;
+    char *out;
+    int i;
+    int col, row;
+    int n;
+    int colabs, rowabs;
+    int isref;
+
+    p = s;
+    i = 0;
+    while (*p && i < 150)
+    {
+        isref = 0;
+        if (*p == '$' && isal(p[1]))
+            isref = 1;
+        else if (isal(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+            isref = 1;
+
+        if (!isref)
+        {
+            buf[i++] = *p++;
+            continue;
+        }
+
+        colabs = 0;
+        rowabs = 0;
+        if (*p == '$')
+        {
+            colabs = 1;
+            p++;
+        }
+        col = upr(*p) - 'A';
+        p++;
+        if (*p == '$')
+        {
+            rowabs = 1;
+            p++;
+        }
+        row = 0;
+        n = 0;
+        while (*p >= '0' && *p <= '9' && n < 2)
+        {
+            row = row * 10 + (*p - '0');
+            p++;
+            n++;
+        }
+
+        if (!colabs)
+            col = col + dc;
+        if (!rowabs)
+            row = row + dr;
+
+        if (col < 0 || col >= MAXCOL || row < 1 || row > MAXROW)
+        {
+            buf[i++] = '#';
+            buf[i++] = 'R';
+            buf[i++] = 'E';
+            buf[i++] = 'F';
+            buf[i++] = '!';
+            continue;
+        }
+
+        if (colabs)
+            buf[i++] = '$';
+        buf[i++] = 'A' + col;
+        if (rowabs)
+            buf[i++] = '$';
+        if (row >= 10)
+        {
+            buf[i++] = '0' + (row / 10);
+            buf[i++] = '0' + (row % 10);
+        }
+        else
+        {
+            buf[i++] = '0' + row;
+        }
+    }
+    buf[i] = 0;
+    out = alloc(i + 1);
+    if (out == 0) return 0;
+    strcpy(out, buf);
+    return out;
+}
+
+/* Paste the clipboard buffer into the current cell. If the
+ * clipboard holds a formula, its references are shifted relative
+ * to how far the cursor has moved from the copy source. */
+int pastcl()
+{
+    char *nw;
+
+    if (!hasclip)
+    {
+        msg("Clipboard empty");
+        return 0;
+    }
+    if (clip[0] == '=')
+    {
+        nw = reloc(clip, crow - cliprow, ccol - clipcol);
+        if (nw == 0)
+        {
+            msg("Out of memory");
+            return 0;
+        }
+        setcel(crow, ccol, nw);
+        free(nw);
+    }
+    else
+    {
+        setcel(crow, ccol, clip);
+    }
+    dirty = 1;
+    msg("Pasted");
     rall = 1;
     return 0;
 }
@@ -1427,17 +1074,7 @@ int askqt()
 
 /* ---- Main ---- */
 
-int usage()
-{
-    cput("\r\nSHEETS - simple BDS C spreadsheet\r\n");
-    cput("Usage: sheets [filename]\r\n");
-    cput("Ctrl-W inside the program shows help.\r\n");
-    return 0;
-}
-
-int main(argc, argv)
-int argc;
-char **argv;
+int main()
 {
     int k;
     int r, c;
@@ -1446,6 +1083,10 @@ char **argv;
 
     ename[0] = 0;
     mesg[0] = 0;
+    clip[0] = 0;
+    hasclip = 0;
+    cliprow = 0;
+    clipcol = 0;
     dirty = 0;
     crow = 0;
     ccol = 0;
@@ -1516,11 +1157,19 @@ char **argv;
         {
             editcl(0);
         }
-        else if (k == CTLK)
+        else if (k == CTLK || k == BKSP || k == DEL)
         {
             clrcel(crow, ccol);
             msg("Cleared");
             rall = 1;
+        }
+        else if (k == CTLC)
+        {
+            copycl();
+        }
+        else if (k == CTLP)
+        {
+            pastcl();
         }
         else if (k == CTLN)
         {
@@ -1534,10 +1183,6 @@ char **argv;
         {
             savef();
             rall = 1;
-        }
-        else if (k == CTLL)
-        {
-            loadf();
         }
         else if (k == CTLG)
         {

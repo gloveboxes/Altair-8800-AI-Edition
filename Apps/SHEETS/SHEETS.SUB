@@ -1,4 +1,6 @@
 ft -g file://sheets/sheets.c
+ft -g file://sheets/sheetc.c
+ft -g file://sheets/sheets.h
 ft -g file://sdk/string.c
 ft -g file://sdk/string.h
 ft -g file://sdk/long.c
@@ -10,11 +12,16 @@ cc long
 era long.c
 
 cc sheets
+era sheets.c
+cc sheetc
+era sheetc.c
 era string.h
-clink sheets string long
+era sheets.h
+clink sheets sheetc string long
 era a:sheets.*
 a:pip a:sheets.com=sheets.com
 era sheets.*
+era sheetc.*
 era string.*
 era long.*
 mcpdone sheets
