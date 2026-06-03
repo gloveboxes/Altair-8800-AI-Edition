@@ -17,11 +17,13 @@
  * A single place that recognises a built-in function name, so the
  * parser no longer carries hand-unrolled per-character compares.
  * fnat() tests for "NAME(" at pointer p (case-insensitive; NAME is
- * supplied in upper case) without moving anything. fnmatch() does
- * the same at the parser cursor epos and, on a match, advances epos
- * past the '(' so the argument handler can run. The actual table of
- * names and handler pointers (fnnam[]/fnfn[], dispatched by dofn)
- * lives further down, after evcell(), because the handlers call it. */
+ * supplied in upper case), tolerating spaces/tabs between the name
+ * and the '(' so "SUM (a1:b1)" parses like "SUM(a1:b1)"; on a match
+ * it returns the offset of the character just past the '(' , else 0.
+ * fnmatch() applies that at the parser cursor epos and, on a match,
+ * advances epos past the '(' so the argument handler can run. The
+ * table of names and handler pointers (dispatched by dofn) lives
+ * further down, after evcell(), because the handlers call it. */
 int fnat(p, name)
 char *p;
 char *name;
@@ -35,20 +37,22 @@ char *name;
             return 0;
         i++;
     }
-    return p[i] == '(';
+    while (p[i] == ' ' || p[i] == '\t')
+        i++;
+    if (p[i] != '(')
+        return 0;
+    return i + 1;
 }
 
 int fnmatch(name)
 char *name;
 {
-    int i;
+    int n;
 
-    if (!fnat(epos, name))
+    n = fnat(epos, name);
+    if (n == 0)
         return 0;
-    i = 0;
-    while (name[i])
-        i++;
-    epos = epos + i + 1;
+    epos = epos + n;
     return 1;
 }
 
