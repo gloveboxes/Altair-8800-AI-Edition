@@ -49,6 +49,8 @@
 #define CTLT   20
 #define CTLV   22
 #define CTLW   23
+#define CTLU   21
+#define CTLY   25
 
 /* ---- Externals ---- */
 

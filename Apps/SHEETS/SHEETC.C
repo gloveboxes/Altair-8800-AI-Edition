@@ -425,6 +425,7 @@ int tag;
     int i, j;
     int cnt;
     int gotn;
+    int isnum;
     char rv[4];
     char dig[4];
 
@@ -460,13 +461,17 @@ int tag;
                     cnt++;
                 continue;
             }
-            if (!evcell(i, j, rv)) { eok = 0; return 0; }
-            /* Only count cells that hold a numeric value (a number
-             * or a formula) so AVG ignores empty / text cells. */
-            if (cells[i][j] && (cells[i][j][0] == '='
+            /* A cell holds a numeric value if it is a number or a
+             * formula; empty and text cells are skipped so SUM/AVG
+             * ignore them and MIN/MAX are not dragged to 0 by empty
+             * cells in the range. */
+            isnum = cells[i][j] && (cells[i][j][0] == '='
                 || cells[i][j][0] == '-'
-                || isdig(cells[i][j][0])))
-                cnt++;
+                || isdig(cells[i][j][0]));
+            if (!isnum)
+                continue;
+            if (!evcell(i, j, rv)) { eok = 0; return 0; }
+            cnt++;
             if (tag == 0 || tag == 1)
             {
                 ladd(vp, vp, rv);

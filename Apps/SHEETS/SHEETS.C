@@ -16,7 +16,8 @@
  *          RAND() / RAND(n) draws a hardware random number; unlike
  *          Excel RAND() it is frozen to a fixed value when entered.
  *          Relative refs shift on copy/paste and row/col
- *          insert; a ref pushed off the grid renders as #REF!.
+ *          insert/delete; a ref pushed off the grid - or one that
+ *          pointed at a deleted row/col - renders as #REF!.
  *          A formula that refers back to its own cell (directly or
  *          through other cells, including a range that spans it)
  *          is detected as a circular reference and renders #CIRC.
@@ -27,6 +28,8 @@
  *   Any printable Start fresh edit with that character
  *   ESC           (in edit) cancel ; (in nav) quit
  *   Ctrl-K        Clear current cell
+ *   Ctrl-N        Insert row    Ctrl-T  Insert column
+ *   Ctrl-Y        Delete row    Ctrl-U  Delete column
  *   Ctrl-C        Copy current cell
  *   Ctrl-P        Paste into current cell (formula refs shift)
  *   Ctrl-O        Write file
@@ -185,7 +188,7 @@ int title()
 {
     curmv(TITR, 1);
     /* bright white on Altair-panel blue */
-    cput("\033[1;97;44m ALTAIR SHEETS  ");
+    cput("\033[1;97;44m ALTAIR SHEETS 1.0  ");
     if (ename[0])
         cput(ename);
     else
@@ -748,6 +751,200 @@ int inscol()
     return 0;
 }
 
+/* Build a renumbered copy of formula 's' after a deletion.
+ * dr >= 0 : the row at index dr (1-based dr+1) was removed; refs
+ *           to that row become "#REF!" and refs below it move up
+ *           by one.
+ * dc >= 0 : the col at index dc was removed; refs to that col
+ *           become "#REF!" and refs to its right move left by one.
+ * Use -1 on the axis that didn't change. Absolute markers ('$')
+ * are preserved; like Excel, a ref to a deleted line breaks to
+ * "#REF!" while surviving refs are renumbered. Returns a freshly
+ * alloc'd string, or 0 on alloc failure. Function names are
+ * skipped because they are followed by '(' not a digit. */
+char *cutref(s, dr, dc)
+char *s;
+int dr;
+int dc;
+{
+    char buf[160];
+    char *p;
+    char *out;
+    int i;
+    int col, row;
+    int n;
+    int colabs, rowabs;
+    int isref;
+    int dead;
+
+    p = s;
+    i = 0;
+    while (*p && i < 150)
+    {
+        isref = 0;
+        if (*p == '$' && isal(p[1]))
+            isref = 1;
+        else if (isal(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+            isref = 1;
+
+        if (!isref)
+        {
+            buf[i++] = *p++;
+            continue;
+        }
+
+        colabs = 0;
+        rowabs = 0;
+        if (*p == '$')
+        {
+            colabs = 1;
+            p++;
+        }
+        col = upr(*p) - 'A';
+        p++;
+        if (*p == '$')
+        {
+            rowabs = 1;
+            p++;
+        }
+        row = 0;
+        n = 0;
+        while (*p >= '0' && *p <= '9' && n < 2)
+        {
+            row = row * 10 + (*p - '0');
+            p++;
+            n++;
+        }
+
+        dead = 0;
+        if (dc >= 0)
+        {
+            if (col == dc)
+                dead = 1;
+            else if (col > dc)
+                col--;
+        }
+        if (dr >= 0)
+        {
+            if (row == dr + 1)
+                dead = 1;
+            else if (row > dr + 1)
+                row--;
+        }
+
+        if (dead || col < 0 || col >= MAXCOL || row < 1 || row > MAXROW)
+        {
+            buf[i++] = '#';
+            buf[i++] = 'R';
+            buf[i++] = 'E';
+            buf[i++] = 'F';
+            buf[i++] = '!';
+            continue;
+        }
+
+        if (colabs)
+            buf[i++] = '$';
+        buf[i++] = 'A' + col;
+        if (rowabs)
+            buf[i++] = '$';
+        if (row >= 10)
+        {
+            buf[i++] = '0' + (row / 10);
+            buf[i++] = '0' + (row % 10);
+        }
+        else
+        {
+            buf[i++] = '0' + row;
+        }
+    }
+    buf[i] = 0;
+    out = alloc(i + 1);
+    if (out == 0) return 0;
+    strcpy(out, buf);
+    return out;
+}
+
+/* Apply cutref to every formula cell in the grid. */
+int cutall(dr, dc)
+int dr;
+int dc;
+{
+    int r, c;
+    char *s;
+    char *nw;
+
+    for (r = 0; r < MAXROW; r++)
+    {
+        for (c = 0; c < MAXCOL; c++)
+        {
+            s = cells[r][c];
+            if (s == 0 || s[0] != '=')
+                continue;
+            nw = cutref(s, dr, dc);
+            if (nw == 0)
+                continue;
+            free(s);
+            cells[r][c] = nw;
+        }
+    }
+    return 0;
+}
+
+/* Delete the row at crow. Rows below shift up by one; the bottom
+ * row becomes blank. Formula refs to the deleted row become
+ * #REF!; refs below it are renumbered up by one. */
+int delrow()
+{
+    int r, c;
+
+    for (c = 0; c < MAXCOL; c++)
+    {
+        if (cells[crow][c])
+        {
+            free(cells[crow][c]);
+            cells[crow][c] = 0;
+        }
+    }
+    for (r = crow; r < MAXROW - 1; r++)
+    {
+        for (c = 0; c < MAXCOL; c++)
+            cells[r][c] = cells[r + 1][c];
+    }
+    for (c = 0; c < MAXCOL; c++)
+        cells[MAXROW - 1][c] = 0;
+    cutall(crow, -1);
+    dirty = 1;
+    rall = 1;
+    msg("Row deleted");
+    return 0;
+}
+
+/* Delete the column at ccol. Columns to the right shift left by
+ * one; the rightmost column becomes blank. Formula refs to the
+ * deleted column become #REF!; refs to its right are renumbered
+ * left by one. */
+int delcol()
+{
+    int r, c;
+
+    for (r = 0; r < MAXROW; r++)
+    {
+        if (cells[r][ccol])
+        {
+            free(cells[r][ccol]);
+            cells[r][ccol] = 0;
+        }
+        for (c = ccol; c < MAXCOL - 1; c++)
+            cells[r][c] = cells[r][c + 1];
+        cells[r][MAXCOL - 1] = 0;
+    }
+    cutall(-1, ccol);
+    dirty = 1;
+    rall = 1;
+    msg("Column deleted");
+    return 0;
+}
+
 int loadf()
 {
     char ln[120];
@@ -837,28 +1034,30 @@ int helpsc()
     curmv(11, 4);
     cput("Insert col: Ctrl-T  (shifts cols right, drops rightmost)");
     curmv(12, 4);
-    cput("Save file:  Ctrl-O              Goto cell: Ctrl-G (e.g. C12)");
+    cput("Delete row: Ctrl-Y  Delete col: Ctrl-U (refs -> #REF!)");
     curmv(13, 4);
+    cput("Save file:  Ctrl-O              Goto cell: Ctrl-G (e.g. C12)");
+    curmv(14, 4);
     cput("Page up/dn: Ctrl-R / Ctrl-V      Quit:      Ctrl-Q or ESC");
-    curmv(15, 4);
-    cput("Copy/paste: Ctrl-C copies the current cell, Ctrl-P pastes it.");
     curmv(16, 4);
-    cput("On paste, relative refs shift by how far you moved the cursor:");
+    cput("Copy/paste: Ctrl-C copies the current cell, Ctrl-P pastes it.");
     curmv(17, 4);
-    cput("copy =A1 in B2, paste in B3 -> =A2.  Pinned ($) parts stay put.");
+    cput("On paste, relative refs shift by how far you moved the cursor:");
     curmv(18, 4);
-    cput("Formulas: =A1+B2*3   =-A1   =(A1+A2)/2");
+    cput("copy =A1 in B2, paste in B3 -> =A2.  Pinned ($) parts stay put.");
     curmv(19, 4);
-    cput("          =SUM(A1:A5)  =AVG(A1:C3)  =MIN/MAX/COUNT(A1:A9)");
+    cput("Formulas: =A1+B2*3   =-A1   =(A1+A2)/2");
     curmv(20, 4);
-    cput("          =RAND() 0..32767  =RAND(6) 0..5 (fixed when typed)");
+    cput("          =SUM(A1:A5)  =AVG(A1:C3)  =MIN/MAX/COUNT(A1:A9)");
     curmv(21, 4);
-    cput("Absolute refs: $A$1 pins both, $A1 pins col, A$1 pins row.");
+    cput("          =RAND() 0..32767  =RAND(6) 0..5 (fixed when typed)");
     curmv(22, 4);
-    cput("Relative refs shift on copy/paste; off-grid refs show #REF!.");
+    cput("Absolute refs: $A$1 pins both, $A1 pins col, A$1 pins row.");
     curmv(23, 4);
-    cput("A cell in its own range/formula shows #CIRC (circular ref).");
+    cput("Relative refs shift on copy/paste; off-grid refs show #REF!.");
     curmv(24, 4);
+    cput("A cell in its own range/formula shows #CIRC (circular ref).");
+    curmv(25, 4);
     cput("Press any key to return.");
     keywt();
     rall = 1;
@@ -1183,6 +1382,14 @@ int main()
         else if (k == CTLT)
         {
             inscol();
+        }
+        else if (k == CTLY)
+        {
+            delrow();
+        }
+        else if (k == CTLU)
+        {
+            delcol();
         }
         else if (k == CTLO)
         {
