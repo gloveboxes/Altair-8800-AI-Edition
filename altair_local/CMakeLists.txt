@@ -8,6 +8,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(CURL QUIET)
 find_package(Threads REQUIRED)
 
+# Raspberry Pi Sense HAT front panel support. This peripheral is Linux-only
+# (Linux framebuffer + I2C) and is intended for the Docker image, which builds
+# with -DALTAIR_LOCAL_ENABLE_SENSE_HAT=ON. It stays OFF for desktop builds.
+option(ALTAIR_LOCAL_ENABLE_SENSE_HAT "Build Raspberry Pi Sense HAT front panel support (Linux/Docker only)" OFF)
+
 set(ALTAIR_DIR ${CMAKE_CURRENT_LIST_DIR}/../altair8800)
 set(MAIN_DIR ${CMAKE_CURRENT_LIST_DIR}/../main)
 set(FRONT_PANEL_DIR ${CMAKE_CURRENT_LIST_DIR}/../front_panel)
@@ -50,6 +55,9 @@ add_executable(altair-local
     PortDrivers/time_io.c
     PortDrivers/utility_io.c
     PortDrivers/weather_io.c
+    # Sense HAT integration glue. Always compiled; the body is an inert stub
+    # unless ALTAIR_LOCAL_ENABLE_SENSE_HAT is set on a Linux target below.
+    drivers/sense_hat/sense_hat_panel.c
     ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/json_scan.c
     ${ALTAIR_DIR}/universal_88dcdd.c
     ${ALTAIR_DIR}/intel8080.c
@@ -65,6 +73,7 @@ add_executable(altair-local
 target_include_directories(altair-local PRIVATE
     .
     ./PortDrivers
+    ./drivers/sense_hat
     ${ALTAIR_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/../port_drivers
     ${MAIN_DIR}
@@ -76,6 +85,20 @@ target_compile_definitions(altair-local PRIVATE
 )
 
 target_link_libraries(altair-local PRIVATE Threads::Threads)
+
+# Sense HAT hardware drivers (framebuffer LED matrix + I2C sensors) require
+# Linux headers, so they are only added on Linux when explicitly enabled.
+if(ALTAIR_LOCAL_ENABLE_SENSE_HAT AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(altair-local PRIVATE
+        drivers/sense_hat/led_panel.c
+        drivers/sense_hat/graphics.c
+        drivers/sense_hat/sense_hat.c
+    )
+    target_compile_definitions(altair-local PRIVATE ALTAIR_LOCAL_ENABLE_SENSE_HAT=1)
+    message(STATUS "altair-local: Raspberry Pi Sense HAT front panel ENABLED")
+elseif(ALTAIR_LOCAL_ENABLE_SENSE_HAT)
+    message(WARNING "altair-local: ALTAIR_LOCAL_ENABLE_SENSE_HAT requested but target is not Linux; Sense HAT disabled")
+endif()
 
 if(ALTAIR_LOCAL_HAVE_WEB_TERMINAL)
     target_compile_definitions(altair-local PRIVATE ALTAIR_LOCAL_HAVE_WEB_TERMINAL=1)

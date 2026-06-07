@@ -7,134 +7,190 @@ Below you'll find instructions for standard and advanced deployment modes, envir
 
 ## Altair 8800 Standard Mode
 
-This option is recommended for most users and works on 32-bit and 64-bit (recommended) versions of Linux, macOS, Windows, and Raspberry Pi.
+This option is recommended for most users and works on 64-bit (recommended) and 32-bit versions of Linux, macOS, Windows, and Raspberry Pi. The container always serves the **browser terminal**: it serves the web UI over HTTP and bridges it to the emulator over a WebSocket, so you run it detached and connect from a browser.
 
 ```shell
-docker run -d --user root -p 8082:8082 -p 8088:8080 --name altair8800 --rm glovebox/altair8800:latest
+docker run -d -p 8800:8080 --name altair8800 --restart unless-stopped glovebox/altair8800v2:latest
 ```
+
+Then open `http://localhost:8800/` in a browser. The emulator waits to boot until the first browser connects, then streams the CP/M banner to the page.
 
 !!! note "Ports"
 
-    - Port 8088 provides access to the Web Terminal interface
-    - Port 8082 enables Altair emulator terminal I/O through a WebSocket connection.
+    The container exposes a single port, **8080**, which serves both the Web Terminal UI and the WebSocket bridge. Publish it to any host port with `-p HOST:8080` (the examples use `8800`). Select a different in-container port with `ALTAIR_WEB_PORT` and publish the matching `-p`.
 
 ## Altair 8800 Advanced Modes
 
-You can enable advanced features by setting environment variables. These options can be combined as needed:
+You can enable advanced features through environment variables and mounted files. These options can be combined as needed:
 
 - Set the time zone.
-- Connect to an MQTT broker to publish Altair address and data bus information.
-- Integrate with OpenAI Chat Completions
-- Connect to the Open Weather Map service for current weather data.
+- Integrate with OpenAI (or any OpenAI-compatible) Chat Completions endpoint.
+- Connect to the OpenWeatherMap service for current weather data.
 - Run on a Raspberry Pi with a Pi Sense HAT to display address and data bus info on the 8x8 LED panel.
 
-### Docker Environment Variables
+Configuration comes from **two** places:
 
-The Altair emulator supports several Docker environment variables. The easiest way to set these is with the env file `--env-file` option. You'll find a sample `altair.env` file in the [root folder](https://github.com/gloveboxes/Altair-8800-Emulator/blob/main/altair.env){:target=_blank} of this project. Create a copy of this file, modify it as needed and save it somewhere convenient and safe especially if it contains sensitive information like API keys.
+1. **Docker `-e` environment variables** — passed on the `docker run` command line. These control the container and runtime (time zone, Sense HAT, web port, disk selection).
+2. **The `altair_env.txt` environment store** — a text file mounted into the container. This holds the emulator's own key/value store (API keys, weather settings, chat settings, and any variables your CP/M programs read through the `ENV` utility).
 
-Store your modified `altair.env` file in a secure location, especially if it contains sensitive information such as API keys. Open the `altair.env` file in a text editor and set the environment variables you want to use. Then, start the Altair emulator Docker container with the `--env-file` option.
+### Docker `-e` Environment Variables
 
-#### Supported Environment Variables
+| Variable                | Description                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------- |
+| `TZ`                    | Time zone for the emulated clock (see [Time Zone](#time-zone) below).                         |
+| `ALTAIR_SENSE_HAT`      | Set to `1` to drive a Raspberry Pi Sense HAT front panel (see [Pi Sense HAT](#raspberry-pi-with-pi-sense-hat)). |
+| `ALTAIR_SENSE_HAT_I2C`  | Override the Sense HAT sensor I2C bus number (default `1`). Useful on the Raspberry Pi 5.     |
+| `ALTAIR_SENSE_HAT_FB`   | Force a specific Sense HAT LED framebuffer (`/dev/fbN` or just `N`); otherwise auto-detected. |
+| `ALTAIR_WEB_PORT`       | In-container port for the browser terminal (**default `8080`**). Publish the matching `-p`.   |
+| `ALTAIR_DRIVE_A` … `D`  | Disk image filename for each drive, relative to the disks directory.                          |
+| `ALTAIR_DRIVE_A_PATH` … `D_PATH` | Full path override for each drive (takes precedence over the filename form).         |
+| `ALTAIR_DISKS_DIR`      | Directory that holds the disk images (**default `/opt/altair/disks`**).                       |
+| `ALTAIR_APPS_ROOT`      | Apps folder used by the FT file-transfer lookups (**default `/opt/altair/Apps`**).            |
+| `ALTAIR_ENV_FILE`       | Path to the `altair_env.txt` store (**default `/opt/altair/runtime/altair_env.txt`**).        |
+| `ALTAIR_WEB_ROOT`       | Location of the bundled terminal UI (**default `/opt/altair`**); rarely needs changing.       |
 
-| Variable                 | Description                                                               |
-| ------------------------ | ------------------------------------------------------------------------- |
-| TZ                       | Set the time zone (e.g., Australia/Sydney)                                |
-| MQTT_HOST                | MQTT broker host                                                          |
-| MQTT_PORT                | MQTT broker port (**default: 1883**)                                      |
-| MQTT_CLIENT_ID           | Unique MQTT client ID                                                     |
-| OPENAI_API_KEY           | OpenAI API Key                                                            |
-| OPENAI_ENDPOINT          | OpenAI Endpoint (**default: https://api.openai.com/v1/chat/completions**) |
-| OPEN_WEATHER_MAP_API_KEY | API key for Open Weather Map                                              |
-| FRONT_PANEL              | Front panel type (sensehat, kit, none; **default: none**)                 |
-| SLOW_CPU_ON_DISCONNECT   | Slow CPU on Browser Disconnect. Defaults to true and power saving mode.   |
+### The `altair_env.txt` Environment Store
 
+The emulator keeps a small key/value store that CP/M programs read and write through the `ENV` utility, and that the weather and chat drivers read for their configuration. It is a plain `KEY=VALUE` text file, one entry per line.
 
+!!! warning "This file is not baked into the image"
+
+    Because it can hold secrets such as API keys, `altair_env.txt` is **not** included in the published image. Mount it at runtime with `-v`. When it is absent, the emulator simply starts with an empty store.
+
+Mount your file over `/opt/altair/runtime/altair_env.txt`:
 
 ```shell
-docker run -d --env-file altair.env --user root -p 8082:8082 -p 8088:8080 --name altair8800 --rm glovebox/altair8800:latest
+docker run -d -p 8800:8080 --name altair8800 \
+  -v "$PWD/altair_env.txt:/opt/altair/runtime/altair_env.txt" \
+  --restart unless-stopped \
+  glovebox/altair8800v2:latest
+```
+
+#### Recognised `altair_env.txt` keys
+
+| Key               | Description                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------ |
+| `OWM_KEY`         | OpenWeatherMap API key (get a free key at [OpenWeatherMap](https://openweathermap.org/api){:target=_blank}). |
+| `OWM_LOCATION`    | Weather location, e.g. `Sydney,AU`.                                                               |
+| `OWM_UNITS`       | Units: `metric`, `imperial`, or `standard`.                                                       |
+| `CHAT_OPENAI_KEY` | Bearer token for OpenAI or any compatible endpoint that requires auth.                            |
+| `CHAT_PROVIDER`   | `openai` (default) or `compatible`.                                                               |
+| `CHAT_ENDPOINT`   | Full chat-completions URL, used when `CHAT_PROVIDER=compatible` (e.g. a local Ollama/LM Studio server). |
+| `CHAT_MODEL`      | Model name, e.g. `gpt-4o-mini` or `gemma3:1b`.                                                    |
+| `CHAT_MAX_TOKENS` | Maximum response tokens, e.g. `4096`.                                                             |
+| `CHAT_TEMPERATURE`| Sampling temperature, e.g. `0.7`.                                                                 |
+
+Any other `KEY=VALUE` lines (for example `NAME=dave`) are available to your CP/M programs through the `ENV` utility.
+
+Example `altair_env.txt`:
+
+```ini
+OWM_KEY=your-openweathermap-key
+OWM_LOCATION=Sydney,AU
+OWM_UNITS=metric
+CHAT_OPENAI_KEY=your-openai-or-compatible-key
+CHAT_PROVIDER=compatible
+CHAT_ENDPOINT=http://192.168.1.127:11434/v1/chat/completions
+CHAT_MODEL=gemma3:1b
+CHAT_MAX_TOKENS=4096
+CHAT_TEMPERATURE=0.7
 ```
 
 ### Time Zone
 
-Set the time zone with the `TZ=YOUR_TIME_ZONE` environment variable. For example, to set the time zone to Sydney, Australia, use `TZ=Australia/Sydney`. See the [list of time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones){:target=_blank} for your location.
+Set the time zone with the `TZ` Docker environment variable so the emulated clock reports local time.
 
-### MQTT Broker
+For a fixed UTC offset, use a POSIX `TZ` string. **POSIX inverts the sign**, so UTC+10 is written `UTC-10`:
 
-Connect to an MQTT broker to publish Altair address and data bus information. Set the following environment variables:
+```shell
+docker run -d -p 8800:8080 --name altair8800 -e TZ=UTC-10 \
+  --restart unless-stopped glovebox/altair8800v2:latest
+```
 
-- MQTT_HOST=`YOUR_MQTT_HOST`
-- MQTT_PORT=`YOUR_MQTT_PORT` (default: 1883)
-- MQTT_CLIENT_ID=`YOUR_MQTT_CLIENT_ID` (must be unique for each client)
+`TZ=UTC-10` is a fixed offset with no daylight saving. The published image is built on Alpine/musl and does not bundle the IANA time-zone database, so named zones like `Australia/Sydney` (which would apply DST automatically) are not available out of the box.
 
-#### ThingsBoard
+### OpenWeatherMap
 
-Telemetry data is sent to the MQTT topic `v1/devices/me/telemetry` in ThingsBoard format.
-You can install the free ThingsBoard Community Edition locally, including on devices like a Raspberry Pi. See the [ThingsBoard installation guide](https://thingsboard.io/docs/user-guide/install/installation-options/){:target=_blank}.
-In ThingsBoard, create an MQTT device to represent your Altair emulator. Use the same `MQTT_CLIENT_ID` when connecting from the Altair emulator.
+Set `OWM_KEY`, `OWM_LOCATION`, and `OWM_UNITS` in `altair_env.txt` to fetch current weather. Get a free API key at [OpenWeatherMap](https://openweathermap.org/api){:target=_blank}.
 
-### Open Weather Map
+### OpenAI / Compatible Chat
 
-Connect to the Open Weather Map service for current weather information. Set:
+Set `CHAT_OPENAI_KEY` in `altair_env.txt` to enable the chat port.
 
-- OPEN_WEATHER_MAP_API_KEY=`YOUR_OPEN_WEATHER_MAP_API_KEY` (get a free API key at [Open Weather Map](https://openweathermap.org/api){:target=_blank})
-
-### OpenAI Chat Key
-
-Configure your OpenAI API Key
-
-- OPENAI_API_KEY
-
-### OpenAI Endpoint
-
- - The default endpoint is **https://api.openai.com/v1/chat/completions**.
- - For LM Studio, use **http://IP_ADDRESS:1234/v1/chat/completions**. If Altair runs in a container, use the LM Studio server's IP address—not localhost—since localhost refers to the container itself.
+- For OpenAI, leave `CHAT_PROVIDER=openai` (the default); requests go to `https://api.openai.com/v1/chat/completions`.
+- For a local or self-hosted server (Ollama, LM Studio, etc.), set `CHAT_PROVIDER=compatible` and `CHAT_ENDPOINT` to the full URL, e.g. `http://192.168.1.127:11434/v1/chat/completions`. If the Altair runs in a container, use the server's LAN IP address—not `localhost`, which refers to the container itself.
 
 ### Raspberry Pi with Pi Sense HAT
 
-You can run the Altair emulator on a Raspberry Pi with a Pi Sense HAT attached. The Pi Sense HAT 8x8 LED panel displays the Altair address and data bus information. For games, you can switch between *Font* and *bitmap* display modes.
-
-
-You can switch between *Font* and *bitmap* display modes using the emulator's front panel controls or configuration options. Refer to the emulator documentation for specific instructions on changing display modes.
+You can run the Altair emulator on a Raspberry Pi with a Pi Sense HAT attached. The Sense HAT's 8x8 LED panel displays the Altair address and data bus information, and CP/M programs can switch it between *bus*, *font*, and *bitmap* display modes and read the onboard temperature, pressure, and humidity sensors.
 
 | Raspberry Pi with Pi Sense HAT                                                       | Raspberry Pi Sense HAT                                                                   |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | ![The image shows the address and data bus LEDs](img/raspberry_pi_sense_hat_map.png) | ![The gif shows the address and data bus LEDs in action](img/raspberry_pi_sense_hat.gif) |
 
-#### Enable the Pi Sense HAT
+#### Enable I2C hardware access
 
-Set the front panel environment variable:
+The Sense HAT sensors are on the I2C bus, so enable I2C on the Raspberry Pi first:
 
-- FRONT_PANEL=`sensehat` (Options: sensehat, kit, none; default: none)
+```bash
+sudo raspi-config nonint do_i2c 0
+```
 
-#### Enable I2C Hardware Access
+#### Start the container with the Sense HAT enabled
 
-Enable I2C hardware access and pass the `--device` option to the `docker run` command:
+Set `ALTAIR_SENSE_HAT=1` to signal the presence of the Pi Sense HAT, and grant the container access to the hardware with `--privileged --device=/dev/i2c-1`:
 
-1. Enable I2C hardware access on the Raspberry Pi:
+```shell
+docker run -d --privileged --device=/dev/i2c-1 \
+  -e ALTAIR_SENSE_HAT=1 \
+  -e TZ=UTC-10 \
+  -p 8800:8080 --name altair8800 \
+  -v "$PWD/altair_env.txt:/opt/altair/runtime/altair_env.txt" \
+  --restart unless-stopped \
+  glovebox/altair8800v2:latest
+```
 
-    ```bash
-    sudo raspi-config nonint do_i2c 0
-    ```
+The LED panel lights up as soon as the framebuffer is found—even if the sensors are unavailable. Check the startup diagnostics with:
 
-2. Pass the `--device` option to the `docker run` command:
+```bash
+docker logs altair8800 2>&1 | grep -i sense-hat
+```
 
-    ```shell
-    docker run -d --env-file ~/altair.env --privileged --device=/dev/i2c-1 --user root -p 8082:8082 -p 8088:8080 --name altair8800 --restart always glovebox/altair8800:latest
-    ```
+!!! note "Raspberry Pi 5"
+
+    The Pi 5's RP1 I/O controller can change the device numbering. The LED framebuffer is auto-detected across `/dev/fb0`–`/dev/fb31`, but if the sensor I2C bus differs, find it with `ls /dev/i2c-*` and `i2cdetect -y <bus>` (look for `0x5c` and `0x5f`), then pass `--device=/dev/i2c-N -e ALTAIR_SENSE_HAT_I2C=N`. If the LED panel is not found, force it with `-e ALTAIR_SENSE_HAT_FB=N`.
 
 ## Altair Disk Storage
 
-Altair emulator disks can be stored in a Docker persistent storage volume. This ensures any changes made to the contents of the Altair disks are saved if the Docker container is stopped or deleted.
+Altair emulator disks live in the container's disks directory (`/opt/altair/disks`). Bind-mount a host folder there so any changes made to the disks are saved when the container is stopped or deleted:
 
 ```shell
-docker run -d --env-file ~/altair.env --privileged --device=/dev/i2c-1 -v altair-disks:/app/Disks --user root -p 8082:8082 -p 8088:8080 --name altair8800 --restart always glovebox/altair8800:latest
+docker run -d -p 8800:8080 --name altair8800 \
+  -v "$PWD/altair_env.txt:/opt/altair/runtime/altair_env.txt" \
+  -v "$PWD/disks:/opt/altair/disks" \
+  --restart unless-stopped \
+  glovebox/altair8800v2:latest
 ```
 
-Or, pass environment variables using the environment file:
+You can also use a named Docker volume instead of a host folder:
 
 ```shell
-docker run -d -v altair-disks:/app/Disks --env-file altair.env --user root -p 8082:8082 -p 8088:8080 --name altair8800 --rm glovebox/altair8800:latest
+docker run -d -p 8800:8080 --name altair8800 \
+  -v altair-disks:/opt/altair/disks \
+  --restart unless-stopped \
+  glovebox/altair8800v2:latest
 ```
+
+Override an individual drive's disk image without changing the others with `ALTAIR_DRIVE_A` … `ALTAIR_DRIVE_D`:
+
+```shell
+docker run -d -p 8800:8080 --name altair8800 \
+  -v "$PWD/disks:/opt/altair/disks" \
+  -e ALTAIR_DRIVE_B=my-workbench.dsk \
+  --restart unless-stopped \
+  glovebox/altair8800v2:latest
+```
+
 
 ## Open the Web Terminal
 
@@ -143,8 +199,8 @@ To access the Altair emulator, open the Web Terminal:
 
 1. Familiarize yourself with the [Web Terminal](../20-fundamentals/25-Web-Terminal.md) and the CP/M operating system.
 2. Open your web browser:
-    - If running locally, go to `http://localhost:8088`.
-    - If running remotely, go to `http://<hostname_or_ip_address>:8088`.
+    - If running locally, go to `http://localhost:8800`.
+    - If running remotely, go to `http://<hostname_or_ip_address>:8800`.
 
     ![The following image is of the web terminal command prompt](../20-fundamentals/img/web_terminal_intro.png)
 

@@ -7,7 +7,7 @@ ARG TARGETPLATFORM
 ARG TARGETARCH
 
 RUN echo "Building altair-local on ${BUILDPLATFORM} for ${TARGETPLATFORM} (${TARGETARCH})" \
-    && apk add --no-cache build-base cmake curl-dev
+    && apk add --no-cache build-base cmake curl-dev linux-headers
 
 WORKDIR /src
 
@@ -25,6 +25,7 @@ COPY Apps/ Apps/
 COPY terminal/ terminal/
 
 RUN cmake -S altair_local -B /tmp/altair-local-build -DCMAKE_BUILD_TYPE=Release \
+        -DALTAIR_LOCAL_ENABLE_SENSE_HAT=ON \
     && cmake --build /tmp/altair-local-build --parallel \
     && strip /tmp/altair-local-build/altair-local
 
@@ -44,7 +45,6 @@ COPY --from=build /src/disks ./disks
 # ALTAIR_WEB_ROOT points the runner at <root>/terminal/index.html.
 COPY --from=build /src/terminal ./terminal
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-COPY docker/altair_env.txt ./runtime/altair_env.txt
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

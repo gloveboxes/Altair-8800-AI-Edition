@@ -14,7 +14,7 @@ if [ ! -f "$REPO_ROOT/altair_local/external/wsServer/src/ws.c" ]; then
     exit 1
 fi
 
-PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64}
+PLATFORMS=${PLATFORMS:-linux/arm64,linux/arm/v7,linux/arm/v6,linux/amd64}
 BUILD_CONTEXT=${BUILD_CONTEXT:-$REPO_ROOT}
 DOCKERFILE=${DOCKERFILE:-$SCRIPT_DIR/Dockerfile}
 BUILDER_NAME=${BUILDER_NAME:-altair8800v2-multiarch}

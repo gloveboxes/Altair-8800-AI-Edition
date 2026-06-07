@@ -3,8 +3,8 @@
 This folder packages the local Altair runner as a small multi-stage Alpine image.
 The container always serves the **browser terminal**: it serves the web terminal
 UI over HTTP and bridges it to the emulator over a WebSocket, so you run it
-detached and connect from a browser. The Dockerfile is buildx-ready for both
-`linux/amd64` and `linux/arm64`.
+detached and connect from a browser. The Dockerfile is buildx-ready for
+`linux/arm64`, `linux/arm/v7`, `linux/arm/v6` (32-bit ARM, e.g. Raspberry Pi OS 32-bit and older Pi/Zero boards), and `linux/amd64`.
 
 ## Quick start (prebuilt image)
 
@@ -38,7 +38,7 @@ docker build -f docker/Dockerfile -t glovebox/altair8800v2:latest .
 
 ## Build multi-architecture images
 
-To build and push a combined `linux/amd64` + `linux/arm64` image to Docker Hub,
+To build and push a combined `linux/arm64` + `linux/arm/v7` + `linux/arm/v6` + `linux/amd64` image to Docker Hub,
 log in first and either set your Docker Hub username or let the script prompt for it:
 
 ```sh
@@ -55,7 +55,7 @@ Optional environment variables:
 - `IMAGE_NAME` defaults to `altair8800v2`.
 - `DOCKER_TAG` defaults to `latest`.
 - `DOCKER_IMAGE` overrides the fully-qualified image reference directly.
-- `PLATFORMS` defaults to `linux/amd64,linux/arm64`.
+- `PLATFORMS` defaults to `linux/arm64,linux/arm/v7,linux/arm/v6,linux/amd64`.
 - `BUILDER_NAME` defaults to `altair8800v2-multiarch`.
 - `DOCKERFILE` defaults to `docker/Dockerfile`.
 - `BUILD_CONTEXT` defaults to the repository root.

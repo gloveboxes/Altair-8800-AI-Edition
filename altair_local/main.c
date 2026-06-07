@@ -10,6 +10,7 @@
 #include "cpu_state.h"
 #include "host_platform.h"
 #include "io_ports.h"
+#include "drivers/sense_hat/sense_hat_panel.h"
 #include "virtual_monitor.h"
 #include "web_terminal.h"
 
@@ -72,6 +73,10 @@ static bool g_disk_controller_ready = false;
 static volatile sig_atomic_t keep_running = 1;
 static bool g_web_mode = false;
 static uint16_t g_web_port = DEFAULT_WEB_PORT;
+/* Opt-in at runtime via --sense-hat or ALTAIR_SENSE_HAT=1. Only meaningful on
+   the Docker/Linux build that compiles in Sense HAT support; otherwise the
+   request is honoured but sense_hat_panel_enable() simply reports unavailable. */
+static bool g_sense_hat_requested = false;
 
 static void terminal_write(uint8_t c);
 static uint8_t sense_switches(void);
@@ -183,6 +188,27 @@ static uint8_t sense_switches(void)
     return 0xff;
 }
 
+/* Snapshot the live CPU state for the Sense HAT sampler thread. Reading three
+   scalar fields is an inherent snapshot; no lock is needed, and a momentarily
+   mixed sample self-corrects on the next 50 Hz tick. */
+static void sense_hat_sample_cpu(uint8_t *status, uint8_t *data, uint16_t *bus)
+{
+    *status = cpu.cpuStatus;
+    *data   = cpu.data_bus;
+    *bus    = cpu.address_bus;
+}
+
+static bool env_flag_enabled(const char *name)
+{
+    const char *value = getenv(name);
+    if (value == NULL || value[0] == '\0')
+    {
+        return false;
+    }
+    return strcmp(value, "0") != 0 && strcmp(value, "false") != 0 &&
+           strcmp(value, "no") != 0 && strcmp(value, "off") != 0;
+}
+
 static void print_usage(const char *program)
 {
     fprintf(stderr,
@@ -195,6 +221,10 @@ static void print_usage(const char *program)
             "           Serve the browser terminal (terminal/index.html) and a WebSocket\n"
             "           bridge on PORT (default 8080) instead of using the stdio terminal.\n"
             "           Open http://localhost:PORT/ in a browser to connect.\n"
+            "  --sense-hat\n"
+            "           Drive a Raspberry Pi Sense HAT front panel (Linux/Docker build only;\n"
+            "           requires --privileged and --device=/dev/i2c-1). Also enabled by\n"
+            "           setting ALTAIR_SENSE_HAT=1. Ignored if the hardware is not present.\n"
             "\n"
             "Defaults reference the repository disks and Apps folders:\n"
             "  A: %s\n"
@@ -268,6 +298,10 @@ static bool parse_args(int argc, char **argv)
         else if (strcmp(argv[i], "--env-file") == 0 && i + 1 < argc)
         {
             env_file_path = argv[++i];
+        }
+        else if (strcmp(argv[i], "--sense-hat") == 0)
+        {
+            g_sense_hat_requested = true;
         }
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
         {
@@ -370,6 +404,20 @@ int main(int argc, char **argv)
     i8080_examine(&cpu, 0xff00);
     bus_switches = cpu.address_bus;
 
+    if (g_sense_hat_requested || env_flag_enabled("ALTAIR_SENSE_HAT"))
+    {
+        if (sense_hat_panel_enable(sense_hat_sample_cpu))
+        {
+            fprintf(stderr, "[altair-local] Raspberry Pi Sense HAT front panel enabled.\n");
+        }
+        else
+        {
+            fprintf(stderr,
+                    "[altair-local] Sense HAT requested but unavailable; continuing without it.\n"
+                    "[altair-local] (Linux/Docker build only; run with --privileged --device=/dev/i2c-1.)\n");
+        }
+    }
+
     /* In web mode, don't run the CPU until a browser is attached so the boot
        banner is delivered to the first client (mirrors the ESP32 firmware). */
     if (g_web_mode)
@@ -420,6 +468,7 @@ int main(int argc, char **argv)
     }
 
     host_disk_close();
+    sense_hat_panel_shutdown();
     if (g_web_mode)
     {
         web_terminal_stop();

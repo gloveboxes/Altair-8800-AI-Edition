@@ -10,6 +10,11 @@
  * headers vs the firmware's port_drivers/ headers); the files driver is reached
  * through the host files_output()/files_input() shim. When the mapping changes,
  * update the ESP32 file first and re-sync this one.
+ *
+ * One host-only addition: the Raspberry Pi Sense HAT front-panel ports
+ * (63, 65, 80, 81, 85, 90-102) are dispatched to sense_hat_panel_output().
+ * That peripheral is Linux/Docker-only and is not present in the ESP32
+ * firmware, so this case group has no counterpart in the source-of-truth file.
  */
 
 #include "io_ports.h"
@@ -20,6 +25,7 @@
 #include "PortDrivers/time_io.h"
 #include "PortDrivers/utility_io.h"
 #include "PortDrivers/weather_io.h"
+#include "drivers/sense_hat/sense_hat_panel.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -92,6 +98,29 @@ void io_port_out(uint8_t port, uint8_t data)
         case ENVIRONMENT_PORT_COMMAND:
         case ENVIRONMENT_PORT_DATA:
             request_unit.len = environment_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
+            break;
+
+        // Raspberry Pi Sense HAT front panel + sensors (host-only addition, not
+        // in the ESP32 firmware mirror). Inert when the panel is not active.
+        case 63:  // onboard sensors (temperature/pressure/light/humidity)
+        case 65:  // LED panel color
+        case 80:  // panel mode (bus/font/bitmap)
+        case 81:  // font color
+        case 85:  // display character
+        case 90:  // bitmap rows 0-7
+        case 91:
+        case 92:
+        case 93:
+        case 94:
+        case 95:
+        case 96:
+        case 97:
+        case 98:  // pixel on
+        case 99:  // pixel off
+        case 100: // pixel flip
+        case 101: // clear all pixels
+        case 102: // bitmap draw
+            request_unit.len = sense_hat_panel_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
 
         default:
