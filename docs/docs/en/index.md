@@ -8,6 +8,8 @@ You may have heard of "vibe coding" &mdash; tossing a quick request at an AI and
 
 Think of the AI as a fast but eager helper. It writes a lot of the code, but you're the one reviewing it, understanding it, and making the calls. That's the habit this project helps you build.
 
+The best way to work is one small step at a time. Ask for a little, try it out, see what happens, then ask for the next piece. Building up your project in small, testable chunks keeps you in control, makes problems easy to spot, and helps you actually understand how everything fits together &mdash; instead of ending up with a big pile of code you don't recognise.
+
 Want to dig deeper? Start with [Simon Willison's post on Vibe Engineering](https://news.ycombinator.com/item?id=45503867){:target=_blank} and Andrew Orobator's [Vibe Engineering: From Random Code to Deterministic Systems](https://medium.com/@andreworobator/vibe-engineering-from-random-code-to-deterministic-systems-06e2bf87c144){:target=_blank}.
 
 The [Altair 8800](https://en.wikipedia.org/wiki/Altair_8800?azure-portal=true){:target=_blank} kick-started the personal computer revolution. Microsoft's first product was [Altair BASIC](https://en.wikipedia.org/wiki/Altair_BASIC?azure-portal=true){:target=_blank} written for the Altair 8800 by Bill Gates and Paul Allen. At the time, Altair BASIC was a huge step forward as it allowed people to write programs using a high-level programming language.
