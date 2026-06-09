@@ -2,7 +2,7 @@
    Licensed under the MIT License. */
 
 #include "virtual_monitor.h"
-#include "i8080_disasm.h"
+#include "cpu_disasm.h"
 #include "memory.h"
 #ifdef REMOTE_FS_SUPPORT
 #include "remote_fs.h"
@@ -48,7 +48,7 @@ static void publish_virtual_input_data(uint16_t switches)
     uint8_to_binary((uint8_t)(switches), address_bus_low_byte, sizeof(address_bus_low_byte));
 
     snprintf(panel_info, sizeof(panel_info), "\r\n%14s: %s %s (0x%04x), %s %dB", "Input", address_bus_high_byte,
-             address_bus_low_byte, switches, get_i8080_instruction_name((uint8_t)switches, &i8080_instruction_size),
+             address_bus_low_byte, switches, get_cpu_instruction_name((uint8_t)switches, &i8080_instruction_size),
              i8080_instruction_size);
     publish_message(panel_info, strlen(panel_info));
 }
@@ -158,7 +158,7 @@ void disassemble(intel8080_t* cpu)
         size_t msg_length = (size_t)snprintf(
             panel_info, sizeof(panel_info), "\r\n%-6s: A=%s.%s(0x%04X) D=%s(0x%02X) %-12s %dB",
             "Disasm", address_bus_high_byte, address_bus_low_byte, cpu->address_bus, data_bus_binary, cpu->data_bus,
-            get_i8080_instruction_name(cpu->data_bus, &instruction_length), instruction_length);
+            get_cpu_instruction_name(cpu->data_bus, &instruction_length), instruction_length);
 
         publish_message(panel_info, msg_length);
 
@@ -203,7 +203,7 @@ void trace(intel8080_t* cpu)
         size_t msg_length = (size_t)snprintf(
             panel_info, sizeof(panel_info), "\r\n%-6s: A=%s.%s(0x%04X) D=%s(0x%02X) %-12s %dB",
             "Trace", address_bus_high_byte, address_bus_low_byte, cpu->address_bus, data_bus_binary, cpu->data_bus,
-            get_i8080_instruction_name(cpu->data_bus, &instruction_length), instruction_length);
+            get_cpu_instruction_name(cpu->data_bus, &instruction_length), instruction_length);
 
         publish_message(panel_info, msg_length);
 
@@ -246,7 +246,7 @@ void publish_cpu_state(char* command, uint16_t address_bus, uint8_t data_bus)
         (size_t)snprintf(panel_info, sizeof(panel_info),
                          "\r\n%-6s: A=%s.%s(0x%04X) D=%s(0x%02X) %-12s %dB\r\nCPU MONITOR> ",
                          command, address_bus_high_byte, address_bus_low_byte, address_bus, data_bus_binary, data_bus,
-                         get_i8080_instruction_name(data_bus, &instruction_length), instruction_length);
+                         get_cpu_instruction_name(data_bus, &instruction_length), instruction_length);
 
     publish_message((const char*)panel_info, msg_length);
 }

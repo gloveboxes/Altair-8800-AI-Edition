@@ -69,6 +69,7 @@ set(ALTAIR_LOCAL_COMMON_SOURCES
     # The host build provides a stub sdkconfig.h (no CONFIG_ALTAIR_DISPLAY_*)
     # and a stub websocket_console.{h,c}, so these files compile unchanged.
     ${MAIN_DIR}/i8080_disasm.c
+    ${MAIN_DIR}/z80_disasm.c
     ${MAIN_DIR}/cpu_state.c
     ${FRONT_PANEL_DIR}/virtual_monitor.c
 )

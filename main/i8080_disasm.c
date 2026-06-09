@@ -1,7 +1,13 @@
 /* Copyright (c) Microsoft Corporation. All rights reserved.
    Licensed under the MIT License. */
 
-#include "i8080_disasm.h"
+#include "cpu_disasm.h"
+
+// Intel 8080 disassembler. Active only when the firmware is built for the 8080
+// CPU. When built for the Z80 (ALTAIR_CPU_Z80), z80_disasm.c provides these
+// symbols instead.
+#if !defined(ALTAIR_CPU_Z80)
+
 #include "websocket_console.h"
 #include "sdkconfig.h"
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
@@ -49,7 +55,7 @@ void publish_message(const char* message, size_t length)
     }
 }
 
-const char *get_i8080_instruction_name(uint8_t opcode, uint8_t *i8080_instruction_size)
+const char *get_cpu_instruction_name(uint8_t opcode, uint8_t *i8080_instruction_size)
 {
     // http://www.emulator101.com/reference/8080-by-opcode.html
     static const char *const i8080_instruction[] = {"NOP", "LXI B,D16", "STAX B", "INX B", "INR B", "DCR B", "MVI B, D8",
@@ -91,3 +97,5 @@ const char *get_i8080_instruction_name(uint8_t opcode, uint8_t *i8080_instructio
     *i8080_instruction_size = i8080_instruction_length[opcode];
     return i8080_instruction[opcode];
 }
+
+#endif // !ALTAIR_CPU_Z80

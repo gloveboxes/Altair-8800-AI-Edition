@@ -1,7 +1,7 @@
 #include "cpu_state.h"
 #include "intel8080.h"
 #include "altair_panel.h"
-#include "i8080_disasm.h"
+#include "cpu_disasm.h"
 #include "virtual_monitor.h"
 #include "sdkconfig.h"
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
@@ -81,7 +81,11 @@ CPU_OPERATING_MODE cpu_state_toggle_mode(void)
     if (g_cpu_mode == CPU_STOPPED)
     {
         // Prompt for CPU monitor
-        const char* prompt = "\r\n*** CPU STOPPED ***\r\nCPU MONITOR> ";
+#if defined(ALTAIR_CPU_Z80)
+        const char* prompt = "\r\n*** CPU STOPPED (Z80) ***\r\nCPU MONITOR> ";
+#else
+        const char* prompt = "\r\n*** CPU STOPPED (8080) ***\r\nCPU MONITOR> ";
+#endif
         publish_message(prompt, strlen(prompt));
     }
 

@@ -1,5 +1,6 @@
 set(app_sources
     "i8080_disasm.c"
+    "z80_disasm.c"
     "cpu_state.c"
     "main.c"
     "ansi_input.c"
@@ -92,6 +93,9 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ESP_LCD_AXS15231B_VER_MAJOR=2
     ESP_LCD_AXS15231B_VER_MINOR=1
     ESP_LCD_AXS15231B_VER_PATCH=0
+    # Selects the Z80 mnemonic table in the disassembler (cpu_disasm.h). The
+    # core is also forced to Z80 below, so the two stay consistent.
+    ALTAIR_CPU_Z80=1
 )
 
 # The upstream ntvcm x80 core emits a handful of warnings (printf width on a
