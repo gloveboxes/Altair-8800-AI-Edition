@@ -8,7 +8,8 @@ This project stands on the shoulders of the following projects:
 2. [Deramp retro disks](https://deramp.com/downloads/altair/software/icom_floppy/FD3812/CPM%202.2%20Disk%20Images/).
 3. [The Altair Front Panel Kit](https://dankar.github.io/emulator/2015/04/12/altair-8800-emulator/).
 4. [CP/M Disk Operating System](https://en.wikipedia.org/wiki/CP/M).
-5. Codex and Claude Foundation models.
+5. [CP/M-80 2.2 Compilers](https://medium.com/@davidly_33504/cp-m-80-2-2-compilers-91958a8f1d58) and [Retro Compiler Community](https://github.com/gloveboxes/cpm_compilers)
+6. Codex and Claude Foundation models.
 
 ## Agentic Engineering
 
