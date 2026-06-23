@@ -10,6 +10,29 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(CURL QUIET)
 find_package(Threads REQUIRED)
 
+# Some macOS toolchains expose a broken CURL::libcurl imported target whose
+# INTERFACE_INCLUDE_DIRECTORIES points at a non-existent SDK include path.
+# Detect this early and gracefully disable curl-dependent features for the
+# local runner instead of failing CMake generation.
+set(ALTAIR_LOCAL_HAVE_LIBCURL FALSE)
+if(CURL_FOUND AND TARGET CURL::libcurl)
+    get_target_property(_altair_curl_includes CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+    set(_altair_curl_target_valid TRUE)
+    foreach(_inc IN LISTS _altair_curl_includes)
+        if(_inc AND NOT IS_DIRECTORY "${_inc}")
+            set(_altair_curl_target_valid FALSE)
+            message(WARNING "altair-local: disabling libcurl due to invalid include directory from CURL::libcurl: ${_inc}")
+            break()
+        endif()
+    endforeach()
+    if(_altair_curl_target_valid)
+        set(ALTAIR_LOCAL_HAVE_LIBCURL TRUE)
+    endif()
+elseif(CURL_FOUND)
+    # Older FindCURL modules may not provide the imported target.
+    set(ALTAIR_LOCAL_HAVE_LIBCURL TRUE)
+endif()
+
 # Raspberry Pi Sense HAT front panel support. This peripheral is Linux-only
 # (Linux framebuffer + I2C) and is intended for the Docker image, which builds
 # with -DALTAIR_LOCAL_ENABLE_SENSE_HAT=ON. It stays OFF for desktop builds.
@@ -112,7 +135,7 @@ function(configure_altair_local target)
         target_link_libraries(${target} PRIVATE wsserver)
     endif()
 
-    if(CURL_FOUND)
+    if(ALTAIR_LOCAL_HAVE_LIBCURL)
         target_compile_definitions(${target} PRIVATE HAVE_LIBCURL=1)
         target_link_libraries(${target} PRIVATE CURL::libcurl)
     endif()
@@ -158,7 +181,7 @@ else()
     message(STATUS "altair-local: web terminal disabled (Windows or wsServer submodule missing)")
 endif()
 
-if(CURL_FOUND)
+if(ALTAIR_LOCAL_HAVE_LIBCURL)
     message(STATUS "altair-local: libcurl found, OpenAI chat port enabled")
 else()
     message(STATUS "altair-local: libcurl NOT found, OpenAI chat port disabled")

@@ -144,10 +144,12 @@ typedef struct
 
 static weather_state_t s_state;
 static pthread_mutex_t s_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool            s_initialized = false;
+#ifdef HAVE_LIBCURL
 static pthread_cond_t  s_cond  = PTHREAD_COND_INITIALIZER;
 static pthread_t       s_thread;
-static bool            s_initialized = false;
 static bool            s_thread_started = false;
+#endif
 
 static char s_api_key[WEATHER_KEY_MAX + 1];
 static char s_location[WEATHER_LOC_MAX + 1];
@@ -689,13 +691,3 @@ uint8_t weather_input(uint8_t port)
     return s;
 }
 
-#ifndef HAVE_LIBCURL
-/* Silence -Wunused for the no-libcurl build (only static functions
- * declared above; nothing referenced). */
-static void weather_unused_no_curl(void)
-{
-    (void)weather_now_us;
-    (void)weather_set_error;
-    (void)weather_load_settings_locked;
-}
-#endif
