@@ -13,10 +13,20 @@ find_package(Threads REQUIRED)
 # Some macOS toolchains expose a broken CURL::libcurl imported target whose
 # INTERFACE_INCLUDE_DIRECTORIES points at a non-existent SDK include path.
 # Detect this early and gracefully disable curl-dependent features for the
-# local runner instead of failing CMake generation.
+# local runner instead of failing CMake generation. On Apple, also drop a
+# redundant MacOSX.sdk/usr/include entry: passing it explicitly to clang can put
+# C headers ahead of libc++ wrapper headers and break <cstddef>, <cstdio>, etc.
 set(ALTAIR_LOCAL_HAVE_LIBCURL FALSE)
 if(CURL_FOUND AND TARGET CURL::libcurl)
     get_target_property(_altair_curl_includes CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+    if(NOT _altair_curl_includes)
+        set(_altair_curl_includes "")
+    endif()
+    if(APPLE)
+        list(FILTER _altair_curl_includes EXCLUDE REGEX "/MacOSX\\.sdk/usr/include/?$")
+        set_property(TARGET CURL::libcurl PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_altair_curl_includes}")
+        set_property(TARGET CURL::libcurl PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_altair_curl_includes}")
+    endif()
     set(_altair_curl_target_valid TRUE)
     foreach(_inc IN LISTS _altair_curl_includes)
         if(_inc AND NOT IS_DIRECTORY "${_inc}")

@@ -114,6 +114,4 @@ set_source_files_properties(
     COMPILE_DEFINITIONS "X80_FORCE_Z80=1"
 )
 
-if(CONFIG_ALTAIR_STORAGE_INTERNAL_FLASH)
-    fatfs_create_spiflash_image(storage ../disks)
-endif()
+fatfs_create_spiflash_image(storage ../disks)
