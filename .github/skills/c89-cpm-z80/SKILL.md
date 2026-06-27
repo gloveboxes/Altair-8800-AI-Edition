@@ -1,6 +1,6 @@
 ---
 name: c89-cpm-z80
-description: 'Write, build, test, and debug C89 code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, ma.sh, or VT100/ANSI CP/M terminal apps. Treat dcc as standard C89 plus a few C99 conveniences (for-init decls, // comments, block scope, inline-ignored) EXCEPT for the deviations this skill documents: no double (32-bit float is the only floating type), 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library (no atof/strtod; no locale/signal/time). Full library/printf/scanf inventory and pitfalls are in the reference files.'
+description: 'Write, build, test, and debug C89 code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, ma.sh, or VT100/ANSI CP/M terminal apps. Treat dcc as standard C89 plus a few C99 conveniences (for-init decls, // comments, block scope, inline-ignored) EXCEPT for the deviations this skill documents: no double (32-bit float is the only floating type), 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a nearly complete C89 library whose floating and CP/M-dependent calls are limited (strtod/atof return float not double; time/signal/locale exist but are CP/M no-op stubs). Full library/printf/scanf inventory and pitfalls are in the reference files.'
 argument-hint: 'Describe the C89/CP-M task (write code, build, run under ntvcm, debug a failure)'
 ---
 
@@ -26,7 +26,7 @@ expects — anything not listed here behaves as standard C89/C99.
 
 | Type | dcc | Note |
 | ---- | --- | ---- |
-| `int` / `short` | 16-bit | overflow at ±32767; use `long` + `%ld` for range |
+| `int` / `short` | 16-bit | overflow at ±32767; use `long`+`%ld` (needs `-flongio`) for range |
 | `long` | 32-bit | |
 | `float` | 32-bit | **the only floating type** |
 | `double` / `long double` | — | **not a keyword; using it is a compile error** |
@@ -41,24 +41,50 @@ Multi-byte values are little-endian (Z80-native).
 - Write `float`; unsuffixed constants (`3.14`) are already `float`, not `double`.
 - No `float`→`double` promotion in varargs (there is no double), so
   `printf("%f", x)` consumes a 32-bit `float` directly — but **requires the
-  `-ffloatio` build flag**; without it `%f` silently does nothing.
+  `-ffloatio` build flag** (`ma.sh` adds it automatically when it sees a `%f` in
+  the source); without it `%f` silently does nothing.
 - `<math.h>` provides the full single-precision set (`sinf`/`expf`/`powf`/… each
   with an unsuffixed alias that stays single-precision), but the transcendentals
   are ~5–6-digit polynomial approximations.
-- `atof` is a dcc extension returning `float` (not `double`); `strtod` is absent.
+- `atof` returns `float` (not `double`); `strtod` also exists but likewise
+  returns `float` (it delegates to `atof` and sets `endptr`).
 
-**The library is a subset.** A missing function is a **link** error
-(`unresolved external`), not a compile error, so check
-[references/library.md](./references/library.md) before assuming one exists.
-Notably absent: `strtod`, `<locale.h>`/`<signal.h>`/`<time.h>`, and
-some stdio entries (`fgetc`, `ungetc`, `rename`, …).
+**The C89 library is essentially complete — assume a standard function is
+present.** Any standard C89 call (`strtod`, `fgetc`, `ungetc`, `rename`,
+`realloc`, `qsort`, `bsearch`, `setjmp`, `vprintf`, the `mb*`/`wc*` set, …) is
+implemented and linkable; a genuinely missing one is a **link** error
+(`unresolved external`), not a compile error (see
+[references/library.md](./references/library.md)). The only exceptions, all
+forced by CP/M 2.2 or the single-precision float, are:
 
-**printf/scanf are a subset.** No `+`/space/`#` flags and no `*`
-width/precision; scanf is integer/string only (no `%f`, scansets, `%n`, `%p`).
-Conversion tables in library.md.
+- `<time.h>`: no real-time clock, so `clock`/`time`/`mktime` return `-1` and the
+  broken-down-time calls (`localtime`/`gmtime`/`asctime`/`ctime`/`strftime`)
+  return `NULL`/`0`.
+- `<signal.h>`: `signal`/`raise` are no-ops — only `raise(SIGABRT)` calls
+  `abort()`.
+- `<locale.h>`: `setlocale` accepts only `"C"`.
+- `strtod`/`atof` return **`float`** (there is no `double`); use
+  `strtol`/`strtoul` for integers.
 
-**No stack/heap guard.** Heap and stack share memory and can collide silently.
-Size the stack with `-stack N` (default 512); keep big buffers `static`/global.
+(dcc uses abbreviated public symbols internally — e.g. `realloc`→`__real`,
+`strcoll`→`__scol`, `fgetc`→`__fgetc` — so grepping `_funcname` in DCCRTL.MAC
+can under-report what is actually linkable.)
+
+**printf/scanf are a subset.** Field width, `-` left-justify, and integer
+precision work, but there are no `+`/space/`#` flags and no `*` run-time
+width/precision. Two format families are **opt-in build flags**: `%f` needs
+`-ffloatio` and the long formats (`%ld`/`%lu`/`%lx`/`%lX`/`%ls`) need `-flongio`
+— without the flag that specifier silently produces nothing. `ma.sh` scans the
+source and adds whichever flag it sees, so this is usually automatic. scanf is
+integer/string only (no `%f`, scansets, `%n`, `%p`). Conversion tables in
+library.md.
+
+**No stack/heap guard by default.** Heap and stack share memory and can collide
+silently. Size the stack with `-stack N` (default 512); keep big buffers
+`static`/global. For deep/recursive code, opt into the lightweight guard with
+`-fstack-check`, which aborts gracefully on overflow instead of corrupting the
+heap (`ma.sh` enables it when the source contains a `DCC_STACK_CHECK` marker or
+you set `DCC_FORCE_STACK_CHECK=1`).
 
 **Source filenames MUST be 8.3 and uppercase-safe** (≤ 8-char base, ≤ 3-char
 extension, no extra dots). `foo.c` → `FOO.COM`, run as `ntvcm FOO`. A source
@@ -114,10 +140,13 @@ ntvcm FOO ARG1 ARG2   # with CP/M command-line args
 > rename the file when you see it.
 
 **Useful `dcc` options:** `-o file` (output .mac), `-c`/`-module` (linkable
-module), `-f`/`-ffloatio` (float printf), `-stack N`/`-s N`/`--stack N` (reserve
-stack; default 512 — heap and stack share memory, **no guard**), `-I dir` (or
-joined `-Idir`; repeatable), `-Dname[=v]`,
-`-Uname`, `-v`, `-h`. `_DCC_=1` is always predefined.
+module), `-f`/`-ffloatio` (float `%f` printf), `-fl`/`-flongio` (long
+`%ld`/`%lu`/`%lx`/`%lX`/`%ls` printf), `-fstack-check` (opt-in graceful
+stack-overflow abort), `-stack N`/`-s N`/`--stack N` (reserve stack; default
+512 — heap and stack share memory, no guard unless `-fstack-check`), `-I dir`
+(or joined `-Idir`; repeatable), `-Dname[=v]`,
+`-Uname`, `-v`, `-h`. `_DCC_=1` is always predefined. Unrecognised flags are
+silently ignored (a typo'd flag is a no-op, not an error).
 
 **Finding the standard headers (`-I`).** dcc resolves `#include <stdio.h>` by
 checking the current directory first, then each `-I` directory in order. The
@@ -162,9 +191,10 @@ The compiler does little optimisation beyond an optional peephole pass, and the
   that takes `T *` works for both a global and a local buffer, so you don't pay
   code size (and bugs) for near-identical copies.
 - **Recursion needs stack headroom.** Stack and heap share one region with no
-  guard; deep/recursive code silently corrupts the heap on overflow. Raise it
-  with `-stack N` (default 512) and keep large scratch buffers `static`/global
-  rather than on the stack.
+  guard by default; deep/recursive code silently corrupts the heap on overflow.
+  Raise it with `-stack N` (default 512), opt into `-fstack-check` while tuning
+  to catch an overflow gracefully, and keep large scratch buffers
+  `static`/global rather than on the stack.
 
 ## Top pitfalls
 
@@ -177,14 +207,15 @@ for the full function inventory and `printf`/`scanf` conversion tables see
 ## Workflow
 
 1. **Plan for the deviations.** Floating point → single precision (no `double`);
-   decimal parsing → a `float` parser (no `atof`); `time`/`signal`/`locale` →
-   don't exist.
+   decimal parsing → `atof`/`strtod` return `float`, not `double`;
+   `time`/`signal`/`locale` link but are CP/M no-op stubs.
 2. **Check the library** in [references/library.md](./references/library.md)
    before calling anything unverified — a missing function is a link error,
    not a compile error.
 3. **Match repo conventions.** Read a nearby working program first. In the dcc
    repo, the exhaustive reference is
    [dcc-c89-reference-guide.md](dcc-c89-reference-guide.md) at the repo root.
-4. **Build and run**: `./ma.sh <name> peep && ntvcm <NAME>` (add the `-ffloatio`
-   path if you use `%f`); redirect stdin for interactive apps and compare
-   against expected output.
+4. **Build and run**: `./ma.sh <name> peep && ntvcm <NAME>`. `ma.sh` scans the
+   source and auto-enables `-ffloatio` (for `%f`) and `-flongio` (for `%ld`/…),
+   and turns on `-fstack-check` if the source has a `DCC_STACK_CHECK` marker;
+   redirect stdin for interactive apps and compare against expected output.
