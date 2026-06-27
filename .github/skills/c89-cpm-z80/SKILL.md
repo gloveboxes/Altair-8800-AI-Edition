@@ -75,7 +75,10 @@ you see that error.
 
 These behave as standard C99: `for`-init declarations with loop scope, `//` line
 comments, block-scoped declarations (inner blocks shadow outer names), and
-`inline` (parsed, ignored). `const`/`volatile`/`register`/`auto` are accepted
+`inline` (a **valid** keyword that compiles cleanly, but the compiler ignores it
+— **no inline optimization is implemented**; every function emits a real Z80
+`call`, so hand-inline tiny helpers in hot loops when you need the speed).
+`const`/`volatile`/`register`/`auto` are accepted
 but inert (`const` constant-folds initializers only — not read-only memory).
 K&R function definitions are still accepted; prefer prototypes for new code.
 
@@ -134,6 +137,34 @@ resolves the dcc headers.
 
 Notes: M80 needs CRLF (`ma.sh` converts). `RTLMIN.MAC` is generated per-app by
 `dccrtlstrip` during the build — don't hand-edit it.
+
+## Performance on the Z80
+
+The compiler does little optimisation beyond an optional peephole pass, and the
+8080/Z80 has no cache and slow multiply/divide, so source-level choices matter:
+
+- **Replace element-wise copy/clear loops with `memcpy`/`memset`.** DCCRTL
+  implements them with the Z80 block instructions (`LDIR`/`LDIR`-style fills),
+  which are far faster and smaller than a C `for` loop assigning one element at
+  a time. Use them for any array/struct copy or zero-fill on a hot path.
+- **There is no inlining** (see above) — every helper call is a real `CALL`/
+  `RET`. Hand-inline tiny helpers (a comparison, an index calc) inside the
+  innermost loops of hot code; keep them as functions everywhere else.
+- **Avoid `*`, `/`, `%` in hot loops.** 16-bit multiply/divide/modulo are
+  library subroutine calls, not single instructions. Prefer addition, shifts
+  (`<<`/`>>` for powers of two), or precomputed values.
+- **Buffer console output.** Each `putchar` is otherwise one BDOS call. Install
+  one static buffer once with `setvbuf(stdout, buf, _IOFBF, N)`, write through
+  `putchar`-based escape helpers, and `fflush(stdout)` only where the user must
+  see output (before a key read, during a pause). This collapses many tiny
+  writes into a few BDOS calls.
+- **Share one pointer-taking routine instead of duplicating logic.** A function
+  that takes `T *` works for both a global and a local buffer, so you don't pay
+  code size (and bugs) for near-identical copies.
+- **Recursion needs stack headroom.** Stack and heap share one region with no
+  guard; deep/recursive code silently corrupts the heap on overflow. Raise it
+  with `-stack N` (default 512) and keep large scratch buffers `static`/global
+  rather than on the stack.
 
 ## Top pitfalls
 
