@@ -60,6 +60,10 @@
 
 #define ERROR (-1)
 
+#define FM_TRAIN 1
+#define FM_VALID 2
+#define FM_INFER 3
+
 /* Trained weights are saved here so inference can reload them. */
 #define WFILE "ATTN.WTS"
 
@@ -212,6 +216,8 @@ static void mktarg(void);
 static void gensm(void);
 static void trseq(void);
 static int  ckseq(void);
+static int  doseq(int mode);
+static int  seqfile(char *fname, int mode);
 static int  filrun(char *fname, int trn);
 static void count(void);
 static int  closs(void);
@@ -220,6 +226,8 @@ static void report(void);
 static void test(void);
 static int  infseq(void);
 static int  runfil(char *fname);
+static int  wio(int fd, long *w, int n, int wr);
+static int  wfile(int fd, int wr);
 static int  savew(void);
 static int  loadw(void);
 static unsigned elapsed(void);
@@ -692,8 +700,19 @@ static int ckseq(void)
     return ok;
 }
 
-/* read fixed samples from fname. trn=1 trains; trn=0 validates quietly. */
-static int filrun(char *fname, int trn)
+static int doseq(int mode)
+{
+    if (mode == FM_INFER)
+        return infseq();
+    mktarg();
+    if (mode == FM_TRAIN) {
+        trseq();
+        return 1;
+    }
+    return ckseq();
+}
+
+static int seqfile(char *fname, int mode)
 {
     int ch, i, n;
     FILE *fp;
@@ -704,10 +723,6 @@ static int filrun(char *fname, int trn)
 
     n = 0;
     i = 0;
-    if (!trn) {
-        vhits = 0;
-        cvt16();
-    }
     while ((ch = getc(fp)) != EOF && ch != 26) {
         if (ch >= '0' && ch <= '9') {
             if (i < S)
@@ -715,26 +730,39 @@ static int filrun(char *fname, int trn)
             i = i + 1;
         } else if (ch == '\n') {
             if (i >= S) {
-                mktarg();
-                if (trn)
-                    trseq();
-                else
-                    vhits = vhits + ckseq();
                 n = n + 1;
-            }
+                if (mode == FM_VALID)
+                    vhits = vhits + doseq(mode);
+                else if (mode == FM_INFER)
+                    fhits = fhits + doseq(mode);
+                else
+                    doseq(mode);
+            } else if (mode == FM_INFER && i > 0)
+                printf(" (skipped line: %d digits, need %d)\n", i, S);
             i = 0;
         }
     }
     if (i >= S) {
-        mktarg();
-        if (trn)
-            trseq();
-        else
-            vhits = vhits + ckseq();
         n = n + 1;
+        if (mode == FM_VALID)
+            vhits = vhits + doseq(mode);
+        else if (mode == FM_INFER)
+            fhits = fhits + doseq(mode);
+        else
+            doseq(mode);
     }
     fclose(fp);
     return n;
+}
+
+/* read fixed samples from fname. trn=1 trains; trn=0 validates quietly. */
+static int filrun(char *fname, int trn)
+{
+    if (!trn) {
+        vhits = 0;
+        cvt16();
+    }
+    return seqfile(fname, trn ? FM_TRAIN : FM_VALID);
 }
 
 /* count correct argmax predictions */
@@ -802,9 +830,9 @@ static void test(void)
     int n, i, idx, allok, ok;
 
     ok = 0;
+    cvt16();
     for (n = 0; n < 10; n++) {
         gensm();
-        cvt16();
         forwrd();
         for (i = 0; i < S; i++) {
             vmax(&logits[i * V], V, &idx);
@@ -863,38 +891,8 @@ static int infseq(void)
  * Returns the count processed, or ERROR if the file cannot be opened. */
 static int runfil(char *fname)
 {
-    int ch, i, n;
-    FILE *fp;
-
-    fp = fopen(fname, "r");
-    if (fp == NULL)
-        return ERROR;
-
-    n = 0;
-    i = 0;
     fhits = 0;
-    while ((ch = getc(fp)) != EOF && ch != 26) {
-        if (ch >= '0' && ch <= '9') {
-            if (i < S)
-                tokens[i] = ch - '0';
-            i = i + 1;
-        } else if (ch == '\n') {
-            if (i >= S) {
-                fhits = fhits + infseq();
-                n = n + 1;
-            } else if (i > 0)
-                printf(" (skipped line: %d digits, need %d)\n", i, S);
-            i = 0;
-        }
-        /* other chars are in-line separators and are ignored */
-    }
-    /* handle a final line with no trailing newline */
-    if (i >= S) {
-        fhits = fhits + infseq();
-        n = n + 1;
-    }
-    fclose(fp);
-    return n;
+    return seqfile(fname, FM_INFER);
 }
 
 /* ============================================================ */
@@ -903,6 +901,26 @@ static int runfil(char *fname)
 
 /* save the six Q16 weight arrays to WFILE; 0 ok, ERROR on fail.
  * dcc stores `long` little-endian, so the file is little-endian. */
+static int wio(int fd, long *w, int n, int wr)
+{
+    int bytes;
+
+    bytes = n * (int)sizeof(long);
+    if (wr)
+        return write(fd, w, bytes) == bytes;
+    return read(fd, w, bytes) == bytes;
+}
+
+static int wfile(int fd, int wr)
+{
+    return wio(fd, wtke, V * D, wr)
+        && wio(fd, wpse, S * D, wr)
+        && wio(fd, wwq,  D * D, wr)
+        && wio(fd, wwk,  D * D, wr)
+        && wio(fd, wwv,  D * D, wr)
+        && wio(fd, wwot, D * V, wr);
+}
+
 static int savew(void)
 {
     int fd, ok;
@@ -910,12 +928,7 @@ static int savew(void)
     fd = open(WFILE, O_WRONLY | O_CREAT | O_TRUNC, 0);
     if (fd < 0)
         return ERROR;
-    ok = write(fd, wtke, sizeof(wtke)) == (int)sizeof(wtke)
-      && write(fd, wpse, sizeof(wpse)) == (int)sizeof(wpse)
-      && write(fd, wwq,  sizeof(wwq))  == (int)sizeof(wwq)
-      && write(fd, wwk,  sizeof(wwk))  == (int)sizeof(wwk)
-      && write(fd, wwv,  sizeof(wwv))  == (int)sizeof(wwv)
-      && write(fd, wwot, sizeof(wwot)) == (int)sizeof(wwot);
+    ok = wfile(fd, 1);
     close(fd);
     return ok ? 0 : ERROR;
 }
@@ -928,12 +941,7 @@ static int loadw(void)
     fd = open(WFILE, O_RDONLY, 0);
     if (fd < 0)
         return ERROR;
-    ok = read(fd, wtke, sizeof(wtke)) == (int)sizeof(wtke)
-      && read(fd, wpse, sizeof(wpse)) == (int)sizeof(wpse)
-      && read(fd, wwq,  sizeof(wwq))  == (int)sizeof(wwq)
-      && read(fd, wwk,  sizeof(wwk))  == (int)sizeof(wwk)
-      && read(fd, wwv,  sizeof(wwv))  == (int)sizeof(wwv)
-      && read(fd, wwot, sizeof(wwot)) == (int)sizeof(wwot);
+    ok = wfile(fd, 0);
     close(fd);
     return ok ? 0 : ERROR;
 }

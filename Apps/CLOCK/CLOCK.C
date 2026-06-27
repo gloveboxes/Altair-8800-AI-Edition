@@ -1,20 +1,15 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /*
- * CLOCK.C - 70s 7-segment psychedelic clock
- * BDS C 1.6 on CP/M / Altair 8800 emulator
+ * CLOCK.C89 - dcc C89/C99-style port of the BDS C CLOCK app.
  *
  * Reads ESP32 local wall clock through port 43, ticks every 50 ms,
- * redraws HH:MM as chunky VT100 character blocks shaped like
- * classic 7-segment digits. The colon blinks every second.
- *
- * The host port driver (port_drivers/time_io.c) fills its
- * request buffer with a 19-char "YYYY-MM-DDTHH:MM:SS" local
- * string when port 43 is written; the app reads byte-by-byte
- * from port 200 until it sees a 0.
- *
- * Press ESC or Ctrl-C to quit.
+ * and redraws HH:MM as chunky VT100 character blocks. Output goes
+ * through stdio with a 2 KB fully buffered console buffer; only actual
+ * VT100 update batches are flushed so idle timer polls do not drain it.
  */
-
-#include "stdio.h"
 
 #define T2H 28
 #define T2L 29
@@ -52,748 +47,548 @@
 
 #define BROW 10
 #define BCOL 14
-
-/* Date row, centered between clock digits and weather panel */
 #define DROW 18
-
-/* Weather panel rows (centered as a block) */
 #define WROW 22
-
-/* Uptime sits quietly in the top-right corner, inside the border */
 #define UROW 2
-#define ULEN 15  /* "Uptime 00:00:00" */
+#define ULEN 15
 
 #define SCRW 80
 #define SCRH 30
+#define CBUF_SIZE 2048
 
-#define DWID 6
-#define DHGT 7
+extern int inp(unsigned port);
+extern void outp(unsigned port, unsigned val);
+extern int bdos(int func, int val);
 
-int inp();
-int outp();
-int bdos();
-int bios();
-int atol();
-int itol();
-int ldiv();
-int lmod();
-int ltoi();
-char *strcpy();
-int strcmp();
-int strlen();
-int sprintf();
+static char console_buffer[CBUF_SIZE];
 
-/* previous shown digits (-1 = force redraw) */
-int ph0, ph1;
-int pm0, pm1;
+static int prev_hour_tens;
+static int prev_hour_ones;
+static int prev_min_tens;
+static int prev_min_ones;
 
-/* time string buffer */
-char tbuf[24];
+static char time_buffer[24];
+static int disp_hour_tens;
+static int disp_hour_ones;
+static int disp_min_tens;
+static int disp_min_ones;
+static int blink_phase;
 
-/* current parsed display digits */
-int gh0, gh1;
-int gm0, gm1;
+static char date_buffer[40];
+static char prev_date[40];
 
-/* blink phase for the colon (toggles each parsed second) */
-int blink;
+static char weather_buffer[64];
+static int weather_last;
+static int weather_tick;
 
-/* active time text: HH:MM */
-char timtxt[6];
+static int digit_colors[5] = {101, 103, 107, 102, 106};
 
-/* date string buffer and previous date (to detect changes) */
-char datbuf[40];
-char pdate[40];
+static char city[40];
+static char unit[4];
+static char current_main[40];
+static char current_temp[12];
+static char current_feels[12];
+static char current_humidity[12];
+static char current_wind[12];
+static char forecast_main[40];
+static char forecast_temp[12];
+static char forecast_feels[12];
 
-/* Weather field buffer and last-known status */
-char wbuf[64];
-int wlast;
-int wtick;
+static char *digit_rows[11][7] = {
+    {" ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "},
+    {"  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### "},
+    {" ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####"},
+    {"#### ", "    #", "    #", " ### ", "    #", "    #", "#### "},
+    {"#   #", "#   #", "#   #", "#####", "    #", "    #", "    #"},
+    {"#####", "#    ", "#    ", "#### ", "    #", "    #", "#### "},
+    {" ### ", "#    ", "#    ", "#### ", "#   #", "#   #", " ### "},
+    {"#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   "},
+    {" ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### "},
+    {" ### ", "#   #", "#   #", " ####", "    #", "    #", " ### "},
+    {"     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", "     "}
+};
 
-/* Seven-segment-ish rows. Each glyph is 5 chars wide. */
-char *dig0[7];
-char *dig1[7];
-char *dig2[7];
-char *dig3[7];
-char *dig4[7];
-char *dig5[7];
-char *dig6[7];
-char *dig7[7];
-char *dig8[7];
-char *dig9[7];
-char *digc[7];
-
-/* ---- VT100 helpers (short names for BDS C) ---- */
-
-int chout(c)
-int c;
+static int put_text(char *text)
 {
-    return bios(4, c);
-}
-
-int cput(s)
-char *s;
-{
-    while (*s)
-    {
-        chout(*s);
-        s++;
+    while (*text != '\0') {
+        putchar(*text);
+        text++;
     }
     return 0;
 }
 
-int nump(n)
-int n;
+static int put_number(int value)
 {
-    char b[6];
-    int i;
+    char digits[6];
+    int count;
 
-    if (n == 0)
-    {
-        chout('0');
+    if (value == 0) {
+        putchar('0');
         return 0;
     }
 
-    i = 0;
-    while (n > 0 && i < 6)
-    {
-        b[i] = (n % 10) + '0';
-        i++;
-        n = n / 10;
+    count = 0;
+    while (value > 0 && count < 6) {
+        digits[count] = (char)((value % 10) + '0');
+        count++;
+        value = value / 10;
     }
 
-    while (i > 0)
-    {
-        i--;
-        chout(b[i]);
+    while (count > 0) {
+        count--;
+        putchar(digits[count]);
     }
     return 0;
 }
 
-int curmv(r, c)
-int r;
-int c;
+static int cursor_move(int row, int col)
 {
-    chout(ESC);
-    cput("[");
-    nump(r);
-    cput(";");
-    nump(c);
-    cput("H");
+    putchar(ESC);
+    putchar('[');
+    put_number(row);
+    putchar(';');
+    put_number(col);
+    putchar('H');
     return 0;
 }
 
-int setsgr(c)
-int c;
+static int set_sgr(int color)
 {
-    chout(ESC);
-    cput("[");
-    nump(c);
-    cput("m");
+    putchar(ESC);
+    putchar('[');
+    put_number(color);
+    putchar('m');
     return 0;
 }
 
-int setblk(c)
-int c;
+static int reset_color(void)
 {
-    chout(ESC);
-    cput("[");
-    nump(c);
-    cput("m");
+    put_text("\033[0m");
     return 0;
 }
 
-int rstcol()
+static int hide_cursor(void)
 {
-    chout(ESC);
-    cput("[0m");
+    put_text("\033[?25l");
     return 0;
 }
 
-int hidecr()
+static int show_cursor(void)
 {
-    chout(ESC);
-    cput("[?25l");
+    put_text("\033[?25h");
     return 0;
 }
 
-int shocr()
+static int clear_screen(void)
 {
-    chout(ESC);
-    cput("[?25h");
+    reset_color();
+    put_text("\033[2J");
+    cursor_move(1, 1);
     return 0;
 }
 
-int cls()
+static int timer_set(unsigned ms)
 {
-    rstcol();
-    chout(ESC);
-    cput("[2J");
-    curmv(1, 1);
+    unsigned hi_byte;
+    unsigned lo_byte;
+
+    hi_byte = (ms >> 8) & 0xFF;
+    lo_byte = ms & 0xFF;
+    outp(T2H, hi_byte);
+    outp(T2L, lo_byte);
     return 0;
 }
 
-/* ---- Timer port helpers ---- */
-
-int tset(ms)
-unsigned ms;
+static int timer_expired(void)
 {
-    char hi, lo;
-
-    hi = ms >> 8;
-    outp(T2H, hi);
-    lo = ms & 0xFF;
-    outp(T2L, lo);
-    return 0;
+    return inp(T2L) == 0;
 }
 
-int texp()
+static int read_string(char *buffer, int max_len)
 {
-    return (inp(T2L) == 0);
-}
-
-/* ---- Time string read ---- */
-
-/*
- * Trigger the host time driver and pull the resulting ISO
- * string into tbuf. Returns the string length.
- */
-int getime()
-{
-    int i;
+    int index;
     int ch;
 
-    outp(TPRT, 0);
-    i = 0;
+    index = 0;
     ch = inp(RPRT);
-    while (ch && i < 23)
-    {
-        tbuf[i] = ch;
-        i = i + 1;
+    while (ch != 0 && index < max_len - 1) {
+        buffer[index] = (char)ch;
+        index++;
         ch = inp(RPRT);
     }
-    tbuf[i] = 0;
-    return i;
+    buffer[index] = '\0';
+    return index;
 }
 
-/*
- * Read NUL-terminated reply from port 200 into buf.
- */
-int rdstr(buf, max)
-char *buf;
-int max;
+static int get_time(void)
 {
-    int i, ch;
-
-    i = 0;
-    ch = inp(RPRT);
-    while (ch != 0 && i < max - 1)
-    {
-        buf[i] = ch;
-        i = i + 1;
-        ch = inp(RPRT);
-    }
-    buf[i] = 0;
-    return i;
+    outp(TPRT, 0);
+    return read_string(time_buffer, (int)sizeof(time_buffer));
 }
 
-/*
- * Trigger the host date driver and pull the long date string
- * ("Weekday, DD Month YYYY") into datbuf. Returns length.
- */
-int getdate()
+static int get_date(void)
 {
     outp(DPRT, 0);
-    return rdstr(datbuf, 39);
+    return read_string(date_buffer, (int)sizeof(date_buffer));
 }
 
-/*
- * Render the date centered on DROW in bright yellow (same as
- * uptime). Clears the whole row first so shorter strings don't
- * leave stale tails behind.
- */
-int shodat(row)
-int row;
+static int show_uptime(int row)
 {
-    int len, col, c;
-
-    len = 0;
-    while (datbuf[len])
-        len = len + 1;
-
-    /* Erase row (within border). */
-    curmv(row, 3);
-    for (c = 3; c < SCRW - 2; c = c + 1)
-        chout(' ');
-
-    col = ((SCRW - len) / 2) + 1;
-    if (col < 3)
-        col = 3;
-
-    curmv(row, col);
-    printf("\033[1;93m%s\033[0m", datbuf);
-    return 0;
-}
-
-/*
- * Read uptime seconds from port 41 and print as HH:MM:SS at
- * (row, col). Uses BDS C long-int library.
- */
-char upbuf[32];
-
-/*
- * Render the uptime in the top-right corner, inside the border,
- * in dim white so it reads as quiet telemetry rather than
- * competing with the clock or date.
- */
-int shoupt(row)
-int row;
-{
-    char lup[4], l3600[4], l60[4];
-    char lhr[4], lrem[4], lmn[4], lsc[4];
-    int hrs, mns, scs;
+    char uptime_buffer[32];
+    long uptime_seconds;
+    int hours;
+    int minutes;
+    int seconds;
     int col;
 
     outp(UPRT, 1);
-    rdstr(upbuf, 31);
-    atol(lup, upbuf);
-    itol(l3600, 3600);
-    itol(l60, 60);
-    ldiv(lhr, lup, l3600);
-    lmod(lrem, lup, l3600);
-    ldiv(lmn, lrem, l60);
-    lmod(lsc, lrem, l60);
-    hrs = ltoi(lhr);
-    mns = ltoi(lmn);
-    scs = ltoi(lsc);
+    read_string(uptime_buffer, (int)sizeof(uptime_buffer));
+    uptime_seconds = atol(uptime_buffer);
+    hours = (int)(uptime_seconds / 3600L);
+    minutes = (int)((uptime_seconds % 3600L) / 60L);
+    seconds = (int)(uptime_seconds % 60L);
 
     col = SCRW - 5 - ULEN;
-    curmv(row, col);
+    cursor_move(row, col);
     printf("\033[2;37mUptime %02d:%02d:%02d\033[0m",
-           hrs, mns, scs);
+           hours, minutes, seconds);
     return 0;
 }
 
-/* ---- Weather helpers ---- */
-
-/*
- * Read one weather field id into wbuf via ports 46/200.
- * Returns string length.
- */
-int wfget(id)
-int id;
+static int weather_get(int field_id)
 {
-    outp(WFLD, id);
-    return rdstr(wbuf, 63);
+    outp(WFLD, (unsigned)field_id);
+    return read_string(weather_buffer, (int)sizeof(weather_buffer));
 }
 
-/*
- * Erase the full inside-border span on `row` (cols 3..SCRW-3).
- */
-int werase(row)
-int row;
+static int centered_col(int width)
 {
-    int c;
+    int col;
 
-    curmv(row, 3);
-    for (c = 3; c < SCRW - 2; c = c + 1)
-        chout(' ');
+    col = ((SCRW - width) / 2) + 1;
+    if (col < 3)
+        col = 3;
+    return col;
+}
+
+static int show_date(int row)
+{
+    int text_len;
+    int col;
+    int col_index;
+
+    text_len = (int)strlen(date_buffer);
+
+    cursor_move(row, 3);
+    for (col_index = 3; col_index < SCRW - 2; col_index++)
+        putchar(' ');
+
+    col = centered_col(text_len);
+
+    cursor_move(row, col);
+    printf("\033[1;93m%s\033[0m", date_buffer);
     return 0;
 }
 
-/*
- * Render the weather panel in green, centered as a block. All
- * three rows start at the same column (computed from the widest
- * line) so the "Now"/"+3h" labels stay aligned.
- */
-int drwx(stat)
-int stat;
+static int erase_weather_row(int row)
 {
-    char city[40];
-    char unit[4];
-    char cmain[40];
-    char ctemp[12];
-    char cfeel[12];
-    char chum[12];
-    char cwind[12];
-    char fmain[40];
-    char ftemp[12];
-    char ffeel[12];
-    char l0[80], l1[80], l2[80];
-    int n0, n1, n2, maxw, scol, i;
+    int col_index;
 
-    /* Clear the 3 weather rows first. */
-    for (i = 0; i < 3; i = i + 1)
-        werase(WROW + i);
+    cursor_move(row, 3);
+    for (col_index = 3; col_index < SCRW - 2; col_index++)
+        putchar(' ');
+    return 0;
+}
 
-    if (stat == WS_NONE || stat == WS_FETCH)
-    {
+static int draw_weather(int status)
+{
+    int len0;
+    int len1;
+    int len2;
+    int max_width;
+    int start_col;
+    int row_offset;
+    int weather_disabled;
+
+    for (row_offset = 0; row_offset < 3; row_offset++)
+        erase_weather_row(WROW + row_offset);
+
+    if (status == WS_NONE || status == WS_FETCH)
         return 0;
-    }
 
-    if (stat == WS_ERR)
-    {
-        wfget(WF_ERR);
-        if (strcmp(wbuf, "libcurl not available - weather disabled") == 0)
-            sprintf(l0, "Weather unavailable");
+    if (status == WS_ERR) {
+        weather_get(WF_ERR);
+        weather_disabled = strcmp(weather_buffer,
+                                  "libcurl not available - weather disabled") == 0;
+
+        if (weather_disabled)
+            len0 = 19;
         else
-            sprintf(l0, "Weather: %s", wbuf);
-        n0 = strlen(l0);
-        scol = ((SCRW - n0) / 2) + 1;
-        if (scol < 3) scol = 3;
-        curmv(WROW, scol);
-        if (strcmp(wbuf, "libcurl not available - weather disabled") == 0)
+            len0 = 9 + (int)strlen(weather_buffer);
+        start_col = centered_col(len0);
+
+        cursor_move(WROW, start_col);
+        if (weather_disabled)
             printf("\033[0;90mWeather unavailable\033[0m");
         else
-            printf("\033[1;92mWeather: \033[1;91m%s\033[0m", wbuf);
+            printf("\033[1;92mWeather: \033[1;91m%s\033[0m", weather_buffer);
         return 0;
     }
 
-    /* WS_OK */
-    wfget(WF_CITY);  strcpy(city,  wbuf);
-    wfget(WF_UNIT);  strcpy(unit,  wbuf);
-    wfget(WF_CMAIN); strcpy(cmain, wbuf);
-    wfget(WF_CTEMP); strcpy(ctemp, wbuf);
-    wfget(WF_CFL);   strcpy(cfeel, wbuf);
-    wfget(WF_CHUM);  strcpy(chum,  wbuf);
-    wfget(WF_CWIND); strcpy(cwind, wbuf);
-    wfget(WF_FMAIN); strcpy(fmain, wbuf);
-    wfget(WF_FTEMP); strcpy(ftemp, wbuf);
-    wfget(WF_FFL);   strcpy(ffeel, wbuf);
+    weather_get(WF_CITY);
+    strcpy(city, weather_buffer);
+    weather_get(WF_UNIT);
+    strcpy(unit, weather_buffer);
+    weather_get(WF_CMAIN);
+    strcpy(current_main, weather_buffer);
+    weather_get(WF_CTEMP);
+    strcpy(current_temp, weather_buffer);
+    weather_get(WF_CFL);
+    strcpy(current_feels, weather_buffer);
+    weather_get(WF_CHUM);
+    strcpy(current_humidity, weather_buffer);
+    weather_get(WF_CWIND);
+    strcpy(current_wind, weather_buffer);
+    weather_get(WF_FMAIN);
+    strcpy(forecast_main, weather_buffer);
+    weather_get(WF_FTEMP);
+    strcpy(forecast_temp, weather_buffer);
+    weather_get(WF_FFL);
+    strcpy(forecast_feels, weather_buffer);
 
-    /* Build plain (uncolored) lines just for width measurement. */
-    sprintf(l0, "Weather  %s", city);
-    sprintf(l1, "  Now : %s  %s%s feels %s%s  %s%% RH wind %s",
-            cmain, ctemp, unit, cfeel, unit, chum, cwind);
-    sprintf(l2, "  +3h : %s  %s%s feels %s%s",
-            fmain, ftemp, unit, ffeel, unit);
+    len0 = 9 + (int)strlen(city);
+    len1 = 29 + (int)strlen(current_main) + (int)strlen(current_temp) +
+           ((int)strlen(unit) * 2) + (int)strlen(current_feels) +
+           (int)strlen(current_humidity) + (int)strlen(current_wind);
+    len2 = 17 + (int)strlen(forecast_main) + (int)strlen(forecast_temp) +
+           ((int)strlen(unit) * 2) + (int)strlen(forecast_feels);
+    max_width = len0;
+    if (len1 > max_width)
+        max_width = len1;
+    if (len2 > max_width)
+        max_width = len2;
 
-    n0 = strlen(l0);
-    n1 = strlen(l1);
-    n2 = strlen(l2);
-    maxw = n0;
-    if (n1 > maxw) maxw = n1;
-    if (n2 > maxw) maxw = n2;
+    start_col = centered_col(max_width);
 
-    scol = ((SCRW - maxw) / 2) + 1;
-    if (scol < 3) scol = 3;
-
-    curmv(WROW, scol);
+    cursor_move(WROW, start_col);
     printf("\033[1;92mWeather  \033[0;92m%s\033[0m", city);
 
-    curmv(WROW + 1, scol);
+    cursor_move(WROW + 1, start_col);
     printf("\033[0;92m  Now : %s  %s%s feels %s%s  %s%% RH wind %s\033[0m",
-           cmain, ctemp, unit, cfeel, unit, chum, cwind);
+           current_main, current_temp, unit, current_feels, unit,
+           current_humidity, current_wind);
 
-    curmv(WROW + 2, scol);
+    cursor_move(WROW + 2, start_col);
     printf("\033[0;92m  +3h : %s  %s%s feels %s%s\033[0m",
-           fmain, ftemp, unit, ffeel, unit);
+           forecast_main, forecast_temp, unit, forecast_feels, unit);
 
     return 0;
 }
 
-/* ---- Drawing primitives ---- */
-
-/* cbg(r,c) - Mancala-style checker border color. */
-int cbg(r, c)
-int r;
-int c;
+static int draw_border(void)
 {
-    if (((r / 2) + (c / 2)) & 1)
-    {
-        if (r & 1)
-            return 42;  /* green   */
-        return 43;      /* yellow  */
+    int row;
+    int col;
+
+    set_sgr(44);
+
+    cursor_move(1, 1);
+    for (col = 0; col < SCRW; col++)
+        putchar(' ');
+
+    cursor_move(SCRH, 1);
+    for (col = 0; col < SCRW; col++)
+        putchar(' ');
+
+    for (row = 2; row < SCRH; row++) {
+        cursor_move(row, 1);
+        putchar(' ');
+        putchar(' ');
+        cursor_move(row, SCRW - 1);
+        putchar(' ');
+        putchar(' ');
     }
-    if (c & 1)
-        return 41;      /* red     */
-    return 44;          /* blue    */
+
+    reset_color();
+    return 0;
 }
 
-/* brdr() - Draw a solid blue border around the screen. */
-int brdr()
+static int draw_glyph(char *glyph, int color)
 {
-    int r;
-    int c;
+    int glyph_col;
+    int cell_on;
+    int last_on;
 
-    setsgr(44);  /* blue bg */
-
-    curmv(1, 1);
-    for (c = 0; c < SCRW; c = c + 1)
-        chout(' ');
-    curmv(SCRH, 1);
-    for (c = 0; c < SCRW; c = c + 1)
-        chout(' ');
-
-    for (r = 2; r < SCRH; r = r + 1)
-    {
-        curmv(r, 1);
-        chout(' ');
-        chout(' ');
-        curmv(r, SCRW - 1);
-        chout(' ');
-        chout(' ');
+    last_on = -1;
+    for (glyph_col = 0; glyph_col < 5; glyph_col++) {
+        cell_on = glyph[glyph_col] != ' ';
+        if (cell_on != last_on) {
+            if (cell_on)
+                set_sgr(color);
+            else
+                reset_color();
+            last_on = cell_on;
+        }
+        putchar(' ');
+        putchar(' ');
     }
-    rstcol();
+
+    reset_color();
+    putchar(' ');
     return 0;
 }
 
-int cell(on, col)
-int on;
-int col;
+static int draw_clock(void)
 {
-    if (on)
-        setsgr(col);
-    else
-        rstcol();
-    chout(' ');
-    chout(' ');
-    return 0;
-}
+    int row;
 
-char *glyph(ch, row)
-int ch;
-int row;
-{
-    if (ch == '0') return dig0[row];
-    if (ch == '1') return dig1[row];
-    if (ch == '2') return dig2[row];
-    if (ch == '3') return dig3[row];
-    if (ch == '4') return dig4[row];
-    if (ch == '5') return dig5[row];
-    if (ch == '6') return dig6[row];
-    if (ch == '7') return dig7[row];
-    if (ch == '8') return dig8[row];
-    if (ch == '9') return dig9[row];
-    if (ch == ':') return digc[row];
-    return "     ";
-}
-
-int drg2(s, col)
-char *s;
-int col;
-{
-    int i;
-
-    for (i = 0; i < 5; i = i + 1)
-        cell(s[i] != ' ', col);
-    rstcol();
-    chout(' ');
-    return 0;
-}
-
-/* ---- Layout ---- */
-
-/* per-position bg colors: HH : MM  (colon gets white) */
-int dcol[5];
-
-int drall()
-{
-    int r;
-    int i;
-
-    timtxt[0] = gh0 + '0';
-    timtxt[1] = gh1 + '0';
-    timtxt[2] = ':';
-    timtxt[3] = gm0 + '0';
-    timtxt[4] = gm1 + '0';
-    timtxt[5] = 0;
-
-    /* Blink: hide colon on alternating seconds. */
-    if (blink)
-        timtxt[2] = ' ';
-
-    for (r = 0; r < 7; r = r + 1)
-    {
-        curmv(BROW + r, BCOL);
-        for (i = 0; i < 5; i = i + 1)
-            drg2(glyph(timtxt[i], r), dcol[i]);
+    for (row = 0; row < 7; row++) {
+        cursor_move(BROW + row, BCOL);
+        draw_glyph(digit_rows[disp_hour_tens][row], digit_colors[0]);
+        draw_glyph(digit_rows[disp_hour_ones][row], digit_colors[1]);
+        if (blink_phase)
+            draw_glyph(digit_rows[10][0], digit_colors[2]);
+        else
+            draw_glyph(digit_rows[10][row], digit_colors[2]);
+        draw_glyph(digit_rows[disp_min_tens][row], digit_colors[3]);
+        draw_glyph(digit_rows[disp_min_ones][row], digit_colors[4]);
     }
     return 0;
 }
 
-/* ---- Setup ---- */
-
-int setup()
+static int setup(void)
 {
-    dig0[0] = " ### "; dig0[1] = "#   #"; dig0[2] = "#   #";
-    dig0[3] = "#   #"; dig0[4] = "#   #"; dig0[5] = "#   #";
-    dig0[6] = " ### ";
-    dig1[0] = "  #  "; dig1[1] = " ##  "; dig1[2] = "  #  ";
-    dig1[3] = "  #  "; dig1[4] = "  #  "; dig1[5] = "  #  ";
-    dig1[6] = " ### ";
-    dig2[0] = " ### "; dig2[1] = "#   #"; dig2[2] = "    #";
-    dig2[3] = "  ## "; dig2[4] = " #   "; dig2[5] = "#    ";
-    dig2[6] = "#####";
-    dig3[0] = "#### "; dig3[1] = "    #"; dig3[2] = "    #";
-    dig3[3] = " ### "; dig3[4] = "    #"; dig3[5] = "    #";
-    dig3[6] = "#### ";
-    dig4[0] = "#   #"; dig4[1] = "#   #"; dig4[2] = "#   #";
-    dig4[3] = "#####"; dig4[4] = "    #"; dig4[5] = "    #";
-    dig4[6] = "    #";
-    dig5[0] = "#####"; dig5[1] = "#    "; dig5[2] = "#    ";
-    dig5[3] = "#### "; dig5[4] = "    #"; dig5[5] = "    #";
-    dig5[6] = "#### ";
-    dig6[0] = " ### "; dig6[1] = "#    "; dig6[2] = "#    ";
-    dig6[3] = "#### "; dig6[4] = "#   #"; dig6[5] = "#   #";
-    dig6[6] = " ### ";
-    dig7[0] = "#####"; dig7[1] = "    #"; dig7[2] = "   # ";
-    dig7[3] = "  #  "; dig7[4] = " #   "; dig7[5] = " #   ";
-    dig7[6] = " #   ";
-    dig8[0] = " ### "; dig8[1] = "#   #"; dig8[2] = "#   #";
-    dig8[3] = " ### "; dig8[4] = "#   #"; dig8[5] = "#   #";
-    dig8[6] = " ### ";
-    dig9[0] = " ### "; dig9[1] = "#   #"; dig9[2] = "#   #";
-    dig9[3] = " ####"; dig9[4] = "    #"; dig9[5] = "    #";
-    dig9[6] = " ### ";
-    digc[0] = "     "; digc[1] = "  #  "; digc[2] = "  #  ";
-    digc[3] = "     "; digc[4] = "  #  "; digc[5] = "  #  ";
-    digc[6] = "     ";
-
-    /* Rainbow gradient: walks the spectrum left to right.
-     *   H1 red, H2 yellow, : white, M1 green, M2 cyan
-     */
-    dcol[0] = 101;  /* bright red     */
-    dcol[1] = 103;  /* bright yellow  */
-    dcol[2] = 107;  /* bright white   */
-    dcol[3] = 102;  /* bright green   */
-    dcol[4] = 106;  /* bright cyan    */
-
-    ph0 = -1; ph1 = -1;
-    pm0 = -1; pm1 = -1;
-    blink = 0;
-    wlast = -1;
-    wtick = 0;
-    datbuf[0] = 0;
-    pdate[0] = 0;
+    prev_hour_tens = -1;
+    prev_hour_ones = -1;
+    prev_min_tens = -1;
+    prev_min_ones = -1;
+    blink_phase = 0;
+    weather_last = -1;
+    weather_tick = 0;
+    date_buffer[0] = '\0';
+    prev_date[0] = '\0';
 
     return 0;
 }
 
-/* ---- Main loop ---- */
-
-int hlp()
+static int help(void)
 {
-    printf("CLOCK - Altair local time and weather display\r\n\r\n");
-    printf("Usage: CLOCK [-H]\r\n\r\n");
-    printf("Setup may be done from the startup config menu\r\n");
-    printf("with a serial terminal connected, or from CP/M\r\n");
-    printf("using ESP32 ENV variables.\r\n\r\n");
-    printf("UTC offset examples:\r\n");
-    printf("     ENV UTC_OFFSET=10.0\r\n");
-    printf("     ENV UTC_OFFSET=8.5\r\n");
-    printf("     ENV UTC_OFFSET=-8.5\r\n\r\n");
-    printf("Restart the ESP32/emulator after changing UTC_OFFSET.\r\n");
-    printf("The offset is read once at startup and cached by firmware.\r\n");
+    printf("CLOCK.C89 - Altair local time and weather display\n\n");
+    printf("Usage: CLOCK [-H]\n\n");
+    printf("Setup may be done from the startup config menu\n");
+    printf("with a serial terminal connected, or from CP/M\n");
+    printf("using ESP32 ENV variables.\n\n");
+    printf("UTC offset examples:\n");
+    printf("     ENV UTC_OFFSET=10.0\n");
+    printf("     ENV UTC_OFFSET=8.5\n");
+    printf("     ENV UTC_OFFSET=-8.5\n\n");
+    printf("Restart the ESP32/emulator after changing UTC_OFFSET.\n");
+    printf("The offset is read once at startup and cached by firmware.\n");
     return 0;
 }
 
-int main(argc, argv)
-int argc;
-char *argv[];
+static int install_console_buffer(void)
 {
-    int chgh, chgm, chgs;
+    return setvbuf(stdout, console_buffer, _IOFBF, CBUF_SIZE);
+}
+
+int main(int argc, char *argv[])
+{
+    int changed_hour;
+    int changed_minute;
+    int changed_second;
     int key;
-    int n;
-    int tick;
-    int sec;
-    int nblink;
-    int wnow;
+    int time_len;
+    int seconds;
+    int new_blink;
+    int weather_now;
+    int screen_dirty;
 
-    if (argc > 1)
-    {
+    install_console_buffer();
+
+    if (argc > 1) {
         if (strcmp(argv[1], "-H") == 0 || strcmp(argv[1], "-h") == 0 ||
             strcmp(argv[1], "/?") == 0)
-        {
-            return hlp();
-        }
+            return help();
     }
 
     setup();
-    cls();
-    hidecr();
-    brdr();
+    clear_screen();
+    hide_cursor();
+    draw_border();
 
-    /* Initial uptime stat (top-right) and weather panel. */
-    shoupt(UROW);
-    drwx(WS_NONE);
+    show_uptime(UROW);
+    draw_weather(WS_NONE);
+    fflush(stdout);
 
-    tick = 0;
-    tset(50);
+    timer_set(50);
 
-    while (1)
-    {
-        if (texp())
-        {
-            tick = tick + 1;
-            n = getime();
+    while (1) {
+        if (timer_expired()) {
+            screen_dirty = 0;
+            time_len = get_time();
 
-            /* require full ISO format with 'T' separator */
-            if (n >= 19 && tbuf[10] == 'T')
-            {
-                gh0 = tbuf[11] - '0';
-                gh1 = tbuf[12] - '0';
-                gm0 = tbuf[14] - '0';
-                gm1 = tbuf[15] - '0';
-                sec = (tbuf[17] - '0') * 10 + (tbuf[18] - '0');
+            if (time_len >= 19 && time_buffer[10] == 'T') {
+                disp_hour_tens = time_buffer[11] - '0';
+                disp_hour_ones = time_buffer[12] - '0';
+                disp_min_tens = time_buffer[14] - '0';
+                disp_min_ones = time_buffer[15] - '0';
+                seconds = (time_buffer[17] - '0') * 10 +
+                          (time_buffer[18] - '0');
 
-                chgh = (gh0 != ph0) || (gh1 != ph1);
-                chgm = (gm0 != pm0) || (gm1 != pm1);
-                nblink = sec & 1;
-                chgs = (nblink != blink);
-                blink = nblink;
+                changed_hour = (disp_hour_tens != prev_hour_tens) ||
+                               (disp_hour_ones != prev_hour_ones);
+                changed_minute = (disp_min_tens != prev_min_tens) ||
+                                 (disp_min_ones != prev_min_ones);
+                new_blink = seconds & 1;
+                changed_second = new_blink != blink_phase;
+                blink_phase = new_blink;
 
-                if (chgh || chgm || chgs)
-                {
-                    drall();
-                    ph0 = gh0; ph1 = gh1;
-                    pm0 = gm0; pm1 = gm1;
+                if (changed_hour || changed_minute || changed_second) {
+                    draw_clock();
+                    prev_hour_tens = disp_hour_tens;
+                    prev_hour_ones = disp_hour_ones;
+                    prev_min_tens = disp_min_tens;
+                    prev_min_ones = disp_min_ones;
+                    screen_dirty = 1;
                 }
 
-                /* Refresh uptime once per second. */
-                if (chgs || chgm || chgh)
-                    shoupt(UROW);
+                if (changed_second || changed_minute || changed_hour) {
+                    show_uptime(UROW);
+                    screen_dirty = 1;
+                }
 
-                /* Refresh date only when the minute rolls over
-                 * (and on the first valid tick, when pdate is
-                 * still empty). Visible redraw still gated by a
-                 * string compare, so it only repaints at midnight.
-                 */
-                if (chgm || chgh || pdate[0] == 0)
-                {
-                    getdate();
-                    if (strcmp(datbuf, pdate) != 0)
-                    {
-                        shodat(DROW);
-                        strcpy(pdate, datbuf);
+                if (changed_minute || changed_hour || prev_date[0] == '\0') {
+                    get_date();
+                    if (strcmp(date_buffer, prev_date) != 0) {
+                        show_date(DROW);
+                        strcpy(prev_date, date_buffer);
+                        screen_dirty = 1;
                     }
                 }
-            }
-            else
-            {
-                /* No real wall-clock yet (SNTP not synced). Show
-                 * what the host actually returned so the user can
-                 * tell whether WiFi/NTP needs attention.
-                 */
-                curmv(BROW + 3, BCOL);
+            } else {
+                cursor_move(BROW + 3, BCOL);
                 printf("\033[1;91mWaiting for SNTP: \033[0m\033[K");
-                printf("\033[1;97m%s\033[0m", tbuf);
+                printf("\033[1;97m%s\033[0m", time_buffer);
+                screen_dirty = 1;
             }
 
-            /* Re-read cached weather when status changes, or every
-             * 5 minutes while OK. (50ms tick * 6000 = 300s.)
-             * This only reads the ESP32 cache; it does not ask the
-             * ESP32 to fetch OpenWeatherMap.
-             */
-            wtick = wtick + 1;
-            wnow = inp(WSTA);
-            if (wnow != wlast || (wnow == WS_OK && wtick >= 6000))
-            {
-                drwx(wnow);
-                wlast = wnow;
-                wtick = 0;
+            weather_now = inp(WSTA);
+            if (weather_now == WS_OK)
+                weather_tick++;
+            else
+                weather_tick = 0;
+            if (weather_now != weather_last ||
+                (weather_now == WS_OK && weather_tick >= 6000)) {
+                draw_weather(weather_now);
+                weather_last = weather_now;
+                weather_tick = 0;
+                screen_dirty = 1;
             }
 
-            tset(50);
+            if (screen_dirty)
+                fflush(stdout);
+            timer_set(50);
         }
 
         key = bdos(6, 0xFF) & 0xFF;
@@ -801,8 +596,9 @@ char *argv[];
             break;
     }
 
-    rstcol();
-    cls();
-    shocr();
+    reset_color();
+    clear_screen();
+    show_cursor();
+    fflush(stdout);
     return 0;
 }
