@@ -189,16 +189,14 @@ static int  fxdiv(int a, int b);
 static int  asr(int v, int n);
 static void addcl(int *dst, int v);
 static int  subcl(int a, int b);
-static int  vmax(int *vec, int n, int *pidx);
-static int  vdot(int *x, int *y, int n);
-static void vcpy(int *src, int *dst, int n);
-static void vclr(int *p, int n);
-static void vsadd(int sc, int *src, int *dst, int n);
-static void sftmx(int *vec, int n);
-static void mvmul(int *mat, int *vin, int *vout, int rows, int cols);
-static void mvadd(int *mat, int *vin, int *vout, int rows, int cols);
-static void vtmul(int *mat, int *vin, int *vout, int rows, int cols);
-static void outer(int *mat, int *vx, int *vy, int rows, int cols);
+static int  vmax(int *vec, unsigned char n, int *pidx);
+static int  vdot(int *x, int *y, unsigned char n);
+static void vsadd(int sc, int *src, int *dst, unsigned char n);
+static void sftmx(int *vec, unsigned char n);
+static void mvmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols);
+static void mvadd(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols);
+static void vtmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols);
+static void outer(int *mat, int *vx, int *vy, unsigned char rows, unsigned char cols);
 static void embed(void);
 static void attn(void);
 static void proj(void);
@@ -299,9 +297,10 @@ static int subcl(int a, int b)
 /* Vector primitives                                            */
 /* ============================================================ */
 
-static int vmax(int *vec, int n, int *pidx)
+static int vmax(int *vec, unsigned char n, int *pidx)
 {
-    int mx, mi, i;
+    int mx;
+    unsigned char mi, i;
 
     mx = vec[0];
     mi = 0;
@@ -314,10 +313,10 @@ static int vmax(int *vec, int n, int *pidx)
     return mx;
 }
 
-static int vdot(int *x, int *y, int n)
+static int vdot(int *x, int *y, unsigned char n)
 {
     long acc;
-    int i;
+    unsigned char i;
 
     acc = 0;
     for (i = 0; i < n; i++)
@@ -325,35 +324,20 @@ static int vdot(int *x, int *y, int n)
     return lq8(acc);
 }
 
-static void vcpy(int *src, int *dst, int n)
-{
-    int i;
-
-    for (i = 0; i < n; i++)
-        dst[i] = src[i];
-}
-
-static void vclr(int *p, int n)
-{
-    int i;
-
-    for (i = 0; i < n; i++)
-        p[i] = 0;
-}
-
 /* dst[k] += (scalar * src[k]) >> 8, saturating */
-static void vsadd(int sc, int *src, int *dst, int n)
+static void vsadd(int sc, int *src, int *dst, unsigned char n)
 {
-    int k;
+    unsigned char k;
 
     for (k = 0; k < n; k++)
         addcl(&dst[k], mq8(sc, src[k]));
 }
 
 /* softmax in place (Q8), LUT-based */
-static void sftmx(int *vec, int n)
+static void sftmx(int *vec, unsigned char n)
 {
-    int i, mx, d, idx, sum, dummy;
+    int mx, d, idx, sum, dummy;
+    unsigned char i;
 
     mx = vmax(vec, n, &dummy);
     sum = 0;
@@ -376,10 +360,11 @@ static void sftmx(int *vec, int n)
 /* ============================================================ */
 
 /* vout[i] = sum_j mat[i][j] * vin[j]  (Q16 accum, >>8, clamp) */
-static void mvmul(int *mat, int *vin, int *vout, int rows, int cols)
+static void mvmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols)
 {
     long acc;
-    int i, j, mi;
+    int mi;
+    unsigned char i, j;
 
     mi = 0;
     for (i = 0; i < rows; i++) {
@@ -392,10 +377,11 @@ static void mvmul(int *mat, int *vin, int *vout, int rows, int cols)
 }
 
 /* vout[i] += sum_j mat[i][j] * vin[j]  (saturating add) */
-static void mvadd(int *mat, int *vin, int *vout, int rows, int cols)
+static void mvadd(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols)
 {
     long acc;
-    int i, j, mi;
+    int mi;
+    unsigned char i, j;
 
     mi = 0;
     for (i = 0; i < rows; i++) {
@@ -408,12 +394,12 @@ static void mvadd(int *mat, int *vin, int *vout, int rows, int cols)
 }
 
 /* vout[j] = sum_i (mat[i][j] * vin[i]) >> 8   (per-product Q8) */
-static void vtmul(int *mat, int *vin, int *vout, int rows, int cols)
+static void vtmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols)
 {
-    int i, j, sc, mi;
+    unsigned char i, j;
+    int sc, mi;
 
-    for (j = 0; j < cols; j++)
-        vout[j] = 0;
+    memset(vout, 0, cols * (int)sizeof(int));
     mi = 0;
     for (i = 0; i < rows; i++) {
         sc = vin[i];
@@ -424,9 +410,10 @@ static void vtmul(int *mat, int *vin, int *vout, int rows, int cols)
 }
 
 /* mat[i][j] += (vx[i] * vy[j]) >> 8   (saturating) */
-static void outer(int *mat, int *vx, int *vy, int rows, int cols)
+static void outer(int *mat, int *vx, int *vy, unsigned char rows, unsigned char cols)
 {
-    int i, j, sc, mi;
+    int sc, mi;
+    unsigned char i, j;
 
     mi = 0;
     for (i = 0; i < rows; i++) {
@@ -444,7 +431,8 @@ static void outer(int *mat, int *vx, int *vy, int rows, int cols)
 /* X[i] = tok_emb[tokens[i]] + pos_emb[i] */
 static void embed(void)
 {
-    int i, j, tok, oi;
+    int tok, oi;
+    unsigned char i, j;
 
     oi = 0;
     for (i = 0; i < S; i++) {
@@ -458,7 +446,7 @@ static void embed(void)
 /* self-attention forward pass */
 static void attn(void)
 {
-    int i, j;
+    unsigned char i, j;
 
     /* Step 1-3: Q = X.Wq, K = X.Wk, V = X.Wv */
     for (i = 0; i < S; i++) {
@@ -485,7 +473,7 @@ static void attn(void)
 /* logits[i] = Wout^T . Y[i] */
 static void proj(void)
 {
-    int i;
+    unsigned char i;
 
     for (i = 0; i < S; i++)
         vtmul(qwot, &yy[i * D], &logits[i * V], D, V);
@@ -573,12 +561,12 @@ static void updat(void)
 
 static void zerog(void)
 {
-    vclr(gtke, V * D);
-    vclr(gpse, S * D);
-    vclr(gwq, D * D);
-    vclr(gwk, D * D);
-    vclr(gwv, D * D);
-    vclr(gwot, D * V);
+    memset(gtke, 0, V * D * (int)sizeof(int));
+    memset(gpse, 0, S * D * (int)sizeof(int));
+    memset(gwq, 0, D * D * (int)sizeof(int));
+    memset(gwk, 0, D * D * (int)sizeof(int));
+    memset(gwv, 0, D * D * (int)sizeof(int));
+    memset(gwot, 0, D * V * (int)sizeof(int));
 }
 
 /* ============================================================ */
@@ -590,7 +578,7 @@ static void bkwrd(void)
     int i, j, k, o, tok, dad, t;
 
     /* Step 1: dLogits, dWout, dY */
-    vclr(dy, S * D);
+    memset(dy, 0, S * D * (int)sizeof(int));
     for (i = 0; i < S; i++) {
         for (k = 0; k < V; k++)
             dl[k] = logits[i * V + k];
@@ -603,7 +591,7 @@ static void bkwrd(void)
     }
 
     /* Step 2: dA, dV */
-    vclr(dvv, S * D);
+    memset(dvv, 0, S * D * (int)sizeof(int));
     for (i = 0; i < S; i++)
         for (j = 0; j < S; j++) {
             da[i * S + j] = vdot(&work[VB + j * D], &dy[i * D], D);
@@ -630,7 +618,7 @@ static void bkwrd(void)
     }
 
     /* Step 5: backward projections + dX */
-    vcpy(dy, dxx, S * D);
+    memcpy(dxx, dy, S * D * (int)sizeof(int));
     for (i = 0; i < S; i++) {
         o = i * D;
         mvadd(qwq, &dqq[o], &dxx[o], D, D);
