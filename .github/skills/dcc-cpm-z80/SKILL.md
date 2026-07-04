@@ -1,6 +1,6 @@
 ---
 name: dcc-cpm-z80
-description: 'Write, build, test, and debug modern dcc C code for CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, ma.sh, or VT100/ANSI CP/M terminal apps. Treat current dcc as C89 plus most practical C99 and a substantial target-appropriate subset of C11, including a first-class _Bool scalar type, EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
+description: 'Write, build, test, and debug C89/C99/C11-targeted code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, dccmake, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, or VT100/ANSI CP/M terminal apps. Treat dcc as standard C89 plus a first-class _Bool scalar type and target-appropriate C99/C11 front-end compatibility EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
 argument-hint: 'Describe the C89/C99/C11 CP/M-Z80 task (write code, build, run under ntvcm, debug a failure)'
 ---
 
@@ -10,23 +10,20 @@ dcc is a cross-compiler (runs on the host) that emits Z80 assembly for CP/M 2.2.
 The runtime is [DCCRTL.MAC](DCCRTL.MAC); programs run on real hardware or an
 emulator such as **ntvcm** (Altair 8800).
 
-**Assume current dcc supports standard C89, most practical C99, and a substantial
-target-appropriate subset of C11.** It also has a first-class `_Bool` scalar
-type. This skill documents the exceptions and CP/M/Z80 lessons learned from real
-ports: the CP/M 2.2 runtime, Z80 data model, and DCCRTL library subset are part
-of the compiler contract. Anything not listed here should be treated as ordinary
-C89/C99/C11, but CP/M/Z80 limits always win over host ABI expectations.
+**Assume standard C89 plus dcc's first-class `_Bool` scalar type and
+target-appropriate C99/C11 front-end compatibility.** dcc is not a hosted
+desktop C implementation: the CP/M 2.2 runtime, Z80 data model, and DCCRTL
+library subset are part of the compiler contract. Anything not listed here
+should be treated as ordinary C89/C99/C11, but CP/M/Z80 limits always win over
+host ABI expectations.
 
 ## Compiler conformance level
 
-- C89 is the baseline language, and current dcc intentionally accepts most
-  practical C99 plus a large target-appropriate subset of C11.
-- The C99/C11 support rule is permissive: do not reject or rewrite modern source
-  solely because it is newer than C89. If this skill does not list the construct
-  as missing or target-inapplicable, compile a small probe or the real file with
-  dcc before assuming it is unsupported.
-- The Z80 data model still overrides hosted assumptions: `double`, `long long`,
-  host-sized `int`, and host ABI macros are not part of the target contract.
+- C89 is the baseline language, except where the Z80 data model makes a hosted
+  assumption impossible (`double`, `long long`, host-sized `int`, and host ABI
+  macros are not part of the target contract).
+- Target-appropriate C99/C11 front-end compatibility is supported when tested and
+  documented below.
 - Not-yet-implemented C99/C11/GNU front-end features are candidates for future
   support, not permanent target exclusions.
 - True target/runtime exceptions are: `double`/`long double`, `long long`/64-bit
@@ -37,7 +34,7 @@ C89/C99/C11, but CP/M/Z80 limits always win over host ABI expectations.
 ## When to use
 
 - Writing, porting, or reviewing C89/C99/C11 code compiled by `dcc`.
-- Building/running/debugging a dcc program (`ma.sh`, `ntvcm`).
+- Building/running/debugging a dcc program (`dccmake`, `ntvcm`).
 - CP/M file I/O, VT100/ANSI console UIs, or DCCRTL work.
 
 ## Deviations from standard C
@@ -95,8 +92,7 @@ you see that error.
 ## C99/C11 front-end compatibility dcc accepts (beyond C89)
 
 These behave as standard C99: `for`-init declarations with loop scope, `//` line
-comments, block-scoped declarations (inner blocks shadow outer names),
-mixed declarations and statements, and C99 `stdbool.h` spellings via `_Bool`.
+comments, and block-scoped declarations (inner blocks shadow outer names).
 `const`/`volatile`/`register`/`auto` are accepted but mostly inert (`const`
 constant-folds initializers only — not read-only memory).
 K&R function definitions are still accepted; prefer prototypes for new code.
@@ -106,7 +102,18 @@ inline simple return-expression helpers, early-return `if` chains lowered to
 conditional expressions, simple struct/pointer member accessors,
 statement-context `void` helpers made of one or more expression statements such
 as `*dst = value`, and scalar
-`int`/pointer/`long`/`float` expression helpers. `void` helpers inline only when
+`int`/pointer/`long`/`float` expression helpers. A value-returning `if`-branch
+(or the top-level body) may also have side-effecting statements ahead of its
+`return`, e.g. `if (tp >= tend) return 0; return tc[tp++];` or
+`if (k > 0) { n++; return 1; } return 0;` — these are folded into comma
+expressions rather than requiring a bare `return`. `++`/`--` inside an inlined
+return expression is only allowed on operands that don't reach a parameter
+(globals are fine; incrementing a parameter verbatim would mutate the caller's
+argument expression once substituted). A guard `if` with no `return` and no
+`else`, e.g. `if (sp <= 0) die("empty");` ahead of a later `return`, or as a
+standalone statement in a `void` body, is also supported - the side effect
+runs conditionally but the surrounding code executes unconditionally either
+way. `void` helpers inline only when
 called as a statement; their assignment/store expressions may contain ordinary
 helper calls such as `*dst = clamp((long)*dst + v)`. When every call site inlines
 and the function address is not taken,
@@ -120,22 +127,35 @@ statement bodies fall back. Plain externally linked `inline` is parsed
 for source compatibility but does not yet have C99 external-inline linkage
 semantics or call-site inlining.
 
+Inlining a helper called from many sites (e.g. a bytecode VM's per-opcode
+memory accessor invoked from a dozen `switch` cases) duplicates its body at
+each call site; on CP/M's small fixed address space this can grow a `nopeep`
+(unoptimized) binary enough to shrink the room left for the program's own
+heap, so a memory-hungry workload can start failing with an out-of-memory
+error that has nothing to do with the inlined code's logic. This only
+showed up in the harness's `nopeep` build - the `fast` (peephole-optimized)
+build stayed small enough to pass - so treat a `nopeep`-only failure after
+adding `static inline` as a size regression to check, not necessarily a
+correctness bug: compare `.COM` size with and without the change, and
+prefer leaving a many-call-site helper as a real function if inlining it
+doesn't leave enough headroom.
+
 dcc has a first-class C99-style `_Bool` scalar type: it is 1 byte wide, and
 nonzero values normalize to `1` on `_Bool` stores, casts, initializers,
 parameter loads, and returns. Include `stdbool.h` for the portable spellings
 `bool`, `true`, and `false`. dcc also accepts practical front-end compatibility
 used by common C99-era code: forward enum declarations are parsed as `int`-sized
 enum types, including inside function prototypes and function-pointer
-declarators such as `int (*member)(enum E value)`. C11 anonymous struct/union
-members are accepted, including aggregate initialization through the anonymous
-member. GNU `__attribute__((...))` annotations are skipped when they appear in
-supported declaration positions.
+declarators such as `int (*member)(enum E value)`. C11 anonymous struct and
+union members are accepted; members of anonymous aggregates are promoted for
+ordinary member access, including nested forms, and aggregate initialization
+through anonymous struct/union members is supported. GNU
+`__attribute__((...))` annotations are skipped when they appear in supported
+declaration positions.
 
-Not implemented yet, but plausible future front-end scope: C99 designated
-initializers, C99 array designators, C99 compound literals, C99 variadic macros,
-GNU statement expressions, `__builtin_expect`, and C11 `_Generic` for
-target-supported types. Treat this as a known-gap list, not as evidence that the
-rest of C99/C11 should be downgraded to C89 style.
+Not implemented yet, but plausible front-end scope: C99 designated initializers,
+C99 array designators, C99 compound literals, C99 variadic macros, GNU statement
+expressions, `__builtin_expect`, and C11 `_Generic` for target-supported types.
 
 Target-inapplicable or runtime-inapplicable exceptions: `double`/`long double`,
 `long long`, 64-bit integer typedefs/operations, host ABI checks,
@@ -155,24 +175,43 @@ characters can silently collide at link time — make such a one-file helper
 
 ## Build and run
 
-The standard helper scripts live in the dcc repo. **Set these env vars first**
-(they make `ma.sh` use the local binaries):
+The standard build helper is `dccmake`, which runs the full CP/M pipeline and
+uses the local tools on `PATH` by default. If needed, put the dcc and ntvcm
+directories first on `PATH`:
 
 ```sh
 export PATH="/Users/<USER_NAME_FOLDER>/GitHub/ntvcm:/Users/<USER_NAME_FOLDER>/GitHub/dcc:$PATH"
-export DCC=./dcc DCCPEEP=./dccpeep DCCRTLSTRIP=./dccrtlstrip
 ```
 
 **Build/run one program** (compile → peephole → strip runtime → M80 → L80):
 
 ```sh
-./ma.sh foo peep      # foo.c -> FOO.COM (peephole optimised); use 'nopeep' to skip
-ntvcm FOO             # run it (uppercase, no extension)
-ntvcm FOO ARG1 ARG2   # with CP/M command-line args
+dccmake foo.c dcc-output=FOO dcc-peep=true   # foo.c -> build/FOO.COM
+ntvcm build/FOO.COM                          # run it
+ntvcm build/FOO.COM ARG1 ARG2                # with CP/M command-line args
 ```
 
-> The source name passed to `ma.sh` must be 8.3-clean (base ≤ 8 chars,
-> extension ≤ 3, no extra dots). ntvcm reports
+Use `dcc-peep=false` for an unoptimized build. `dccmake` also accepts common dcc
+options and settings, for example:
+
+```sh
+dccmake foo.c dcc-output=FOO dcc-stack-bytes=768
+dccmake foo.c bar.c dcc-output=FOO
+dccmake foo.c dcc-output=FOO dcc-floatio=true
+dccmake foo.c dcc-output=FOO dcc-include-directory=include dcc-define=DEBUG=1
+```
+
+For repeatable local builds, put settings in `dccmake.txt`:
+
+```text
+dcc-input=foo.c, bar.c
+dcc-output=FOO
+dcc-peep=true
+dcc-stack-bytes=768
+```
+
+> The source and output names used by `dccmake` must be 8.3-clean (base ≤ 8
+> chars, extension ≤ 3, no extra dots). ntvcm reports
 > `argument is not a valid CP/M 8.3 filename` for a non-conforming name —
 > rename the file when you see it.
 
@@ -187,7 +226,7 @@ checking the current directory first, then each `-I` directory in order. The
 bundled headers (`stdio.h`, `stdlib.h`, `string.h`, `math.h`, …) live in the
 **dcc repo root**, so:
 
-- Building **inside** the dcc repo (as `ma.sh` does): they're found
+- Building **inside** the dcc repo: they're found
   automatically via the current directory — no `-I` needed.
 - Building **elsewhere**: point dcc at the repo, e.g.
   `dcc -I /path/to/dcc myapp.c -o myapp.mac` (repeat `-I` for more dirs).
@@ -198,7 +237,7 @@ the runtime but without type-checking); a missing `"..."` header is a fatal
 error. If standard calls compile yet misbehave, check that `-I` actually
 resolves the dcc headers.
 
-Notes: M80 needs CRLF (`ma.sh` converts). `RTLMIN.MAC` is generated per-app by
+Notes: M80 needs CRLF (`dccmake` handles this). `RTLMIN.MAC` is generated per-app by
 `dccrtlstrip` during the build — don't hand-edit it.
 
 ## Top pitfalls
@@ -211,18 +250,15 @@ for the full function inventory and `printf`/`scanf` conversion tables see
 
 ## Workflow
 
-1. **Start from current dcc, not old assumptions.** Keep modern C99/C11 style
-  when it is supported; before rewriting a construct to C89, verify that dcc
-  actually rejects it or that this skill lists it as target-inapplicable.
-2. **Plan for the deviations.** Floating point → single precision (no `double`);
+1. **Plan for the deviations.** Floating point → single precision (no `double`);
    decimal parsing → a `float` parser (no `atof`); `time`/`signal`/`locale` →
    don't exist.
-3. **Check the library** in [references/library.md](./references/library.md)
+2. **Check the library** in [references/library.md](./references/library.md)
    before calling anything unverified — a missing function is a link error,
    not a compile error.
-4. **Match repo conventions.** Read a nearby working program first. In the dcc
+3. **Match repo conventions.** Read a nearby working program first. In the dcc
    repo, the exhaustive reference is
    [dcc-c89-reference-guide.md](dcc-c89-reference-guide.md) at the repo root.
-5. **Build and run**: `./ma.sh <name> peep && ntvcm <NAME>` (add the `-ffloatio`
-   path if you use `%f`); redirect stdin for interactive apps and compare
-   against expected output.
+4. **Build and run**: `dccmake app.c dcc-output=APP dcc-peep=true && ntvcm build/APP.COM`
+  (set `dcc-floatio=true` if you use `%f`); redirect stdin for interactive apps
+  and compare against expected output.

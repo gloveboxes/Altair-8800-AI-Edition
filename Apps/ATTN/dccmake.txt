@@ -1,0 +1,22 @@
+# dccmake configuration for attnc99
+# A 1-layer transformer trained to reverse an 8-digit sequence
+# Ported from BDS C to dcc C89 (CP/M 2.2 / Z80)
+#
+# Prerequisites: Set DCC_DIR environment variable to the dcc repository path
+# e.g., export DCC_DIR=$HOME/GitHub/dcc
+# Note: dccmake.txt values are literal; ${...} is not expanded here.
+
+dcc-input=attnc99.c
+dcc-output=ATTNC99
+dcc-floatio=false
+dcc-flongio=false
+dcc-peep=true
+dcc-build-dir=build
+dcc-runtime=/Users/dave/GitHub/dcc/DCCRTL.MAC
+dcc-include-directory=/Users/dave/GitHub/dcc
+dcc-tool=/Users/dave/GitHub/dcc/dcc
+dccpeep-tool=/Users/dave/GitHub/dcc/dccpeep
+dccrtlstrip-tool=/Users/dave/GitHub/dcc/dccrtlstrip
+ntvcm-tool=/Users/dave/GitHub/ntvcm/ntvcm
+m80-command=/Users/dave/GitHub/dcc/m80.com
+l80-command=/Users/dave/GitHub/dcc/l80.com
