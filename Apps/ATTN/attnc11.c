@@ -10,34 +10,24 @@
  *
  * A 1-layer, 1-head transformer trained to reverse an 8-digit sequence.
  *
- * This is the dcc C11 (CP/M 2.2 / Z80) port of the BDS C 1.6 program
- * Apps/ATTN/ATTN.C, itself a port of the PDP-11 2.11BSD assembly attn.s
- * (davepl/pdpsrc) and the NN11 library by Damien Boureille (dbrll/ATTN-11).
+ * This dcc C11 implementation for CP/M 2.2 / Z80 is based on the PDP-11
+ * 2.11BSD assembly attn.s (davepl/pdpsrc) and the NN11 library by
+ * Damien Boureille (dbrll/ATTN-11).
  *
- * What changed vs. the BDS C original, and why it is faster/smaller:
+ * Implementation notes:
  *
- *   1. Native 32-bit `int32_t`.  BDS C had no 32-bit type, so every Q16
- *      operation went through the LONG package (char[4] buffers plus the
- *      itol/ltoi/lmul/ladd/lsub/ldiv/lcomp builtins - a function call per
- *      op).  dcc maps `int32_t` to its 32-bit `long`, so the fixed-point
- *      helpers collapse to ordinary arithmetic and the hot vector/matrix loops run
- *      far faster with much less code.
+ *   1. dcc maps `int32_t` to its native 32-bit `long`, so fixed-point
+ *      helpers use ordinary arithmetic in the hot vector and matrix loops.
  *
- *   2. The Q16 weight arrays are now `int32_t[]` instead of char[N*4].  dcc
- *      stores `int32_t` LITTLE-ENDIAN (Z80-native), so the weights written to
- *      ATTN.WTS are little-endian - unlike the BDS C LONG package, which
- *      stored them big-endian.  The companion inference port ATTNZ80.MAC
- *      has been updated to read little-endian to match this file.
+ *   2. Q16 weights use `int32_t[]`.  dcc stores `int32_t` little-endian
+ *      (Z80-native), so ATTN.WTS is little-endian.  The companion inference
+ *      port ATTNZ80.MAC reads the same format.
  *
- *   3. Aggregate initializers replace the hand-written initex()/initlg()
- *      table fillers (BDS C had no array initializers; dcc does).
+ *   3. Lookup tables use aggregate initializers.
  *
- *   4. POSIX byte I/O (open/read/write from <fcntl.h>/<unistd.h>) replaces
- *      BDS C's 128-byte sector creat/open/read/write.  The six weight
- *      blocks are exact multiples of 128 bytes, so the on-disk layout is
- *      identical apart from the endianness change in (2).
+ *   4. POSIX byte I/O uses open/read/write from <fcntl.h>/<unistd.h>.
  *
- * Numerics (faithful to ATTN.C):
+ * Fixed-point formats:
  *   Q8  forward activations   (int16_t, value = real * 256)
  *   Q15 backward gradients    (int16_t)
  *   Q16 weight accumulators   (int32_t, value = real * 65536)
@@ -150,7 +140,7 @@ static int training_step;
 static int file_hits;
 static int validation_hits;
 
-/* --- lookup tables (aggregate initialised; BDS C used init functions) --- */
+/* --- lookup tables --- */
 
 /* exp(-i/32) in Q8 */
 static model_value_t exponential_table[256] = {
@@ -299,9 +289,9 @@ static model_value_t clamp_to_model_value(weight_value_t value)
 }
 
 /* a (Q16 int32_t) >> 8 -> clamped Q8 int16_t.
- * Truncates toward zero (matching the BDS C ldiv and the ATTNZ80.MAC LQ8
- * helper), so it divides the magnitude and re-applies the sign rather than
- * using an arithmetic shift (which would floor for negatives). */
+ * Truncates toward zero to match the ATTNZ80.MAC LQ8 helper, so it divides
+ * the magnitude and re-applies the sign rather than using an arithmetic
+ * shift (which would floor for negatives). */
 static inline model_value_t q16_to_q8(weight_value_t value)
 {
     if (value < 0)
