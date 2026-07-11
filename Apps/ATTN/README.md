@@ -84,6 +84,11 @@ the 8x16 attention-value and 16x10 output projections avoid generic dimension
 handling. These transformations preserve the fixed-point accumulation order;
 training from the same seed produces a byte-identical `ATTN.WTS`.
 
+Internal state and helper names are expanded for readability instead of
+retaining the seven-character identifiers required by the original BDS C port.
+All file-local state has internal linkage, so descriptive names cannot collide
+at the CP/M linker boundary.
+
 Measured with `ntvcm -p` over the 14 sequences in `ATTN.IN`, the optimized
 forward path uses 442,506,230 Z80 cycles versus 455,257,575 before the
 inference-specific pass, a 2.80% reduction. The speed-focused kernels increase

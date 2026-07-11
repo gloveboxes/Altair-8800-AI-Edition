@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -15,15 +16,15 @@
  *
  * What changed vs. the BDS C original, and why it is faster/smaller:
  *
- *   1. Native 32-bit `long`.  BDS C had no 32-bit type, so every Q16
+ *   1. Native 32-bit `int32_t`.  BDS C had no 32-bit type, so every Q16
  *      operation went through the LONG package (char[4] buffers plus the
  *      itol/ltoi/lmul/ladd/lsub/ldiv/lcomp builtins - a function call per
- *      op).  dcc has a real `long`, so the fixed-point helpers collapse to
- *      ordinary arithmetic and the hot loops (vdot, mvmul, vtmul, ...) run
+ *      op).  dcc maps `int32_t` to its 32-bit `long`, so the fixed-point
+ *      helpers collapse to ordinary arithmetic and the hot vector/matrix loops run
  *      far faster with much less code.
  *
- *   2. The Q16 weight arrays are now `long[]` instead of char[N*4].  dcc
- *      stores `long` LITTLE-ENDIAN (Z80-native), so the weights written to
+ *   2. The Q16 weight arrays are now `int32_t[]` instead of char[N*4].  dcc
+ *      stores `int32_t` LITTLE-ENDIAN (Z80-native), so the weights written to
  *      ATTN.WTS are little-endian - unlike the BDS C LONG package, which
  *      stored them big-endian.  The companion inference port ATTNZ80.MAC
  *      has been updated to read little-endian to match this file.
@@ -37,9 +38,9 @@
  *      identical apart from the endianness change in (2).
  *
  * Numerics (faithful to ATTN.C):
- *   Q8  forward activations   (int, value = real * 256)
- *   Q15 backward gradients    (int)
- *   Q16 weight accumulators   (long, value = real * 65536)
+ *   Q8  forward activations   (int16_t, value = real * 256)
+ *   Q15 backward gradients    (int16_t)
+ *   Q16 weight accumulators   (int32_t, value = real * 65536)
  *
  * Build (from the dcc repo, with DCC/DCCPEEP/DCCRTLSTRIP exported):
  *   dccmake                     -> ATTNC11.COM
@@ -55,8 +56,11 @@
 #define S 8             /* sequence length    */
 #define V 10            /* vocab (digits 0-9) */
 
+typedef int16_t model_value_t;
+typedef int32_t weight_value_t;
+
 #define NPARAM (V*D + S*D + D*D + D*D + D*D + D*V)
-#define WBYTES (NPARAM * (int)sizeof(long))
+#define WBYTES (NPARAM * (int)sizeof(weight_value_t))
 
 #ifdef _DCC_
 #define SA_CAT2(a, b) a##b
@@ -86,8 +90,8 @@
 #define VB (2*S*D)
 #define AB (3*S*D)
 
-_Static_assert(sizeof(int) == 2, "ATTNC11 needs 16-bit int");
-_Static_assert(sizeof(long) == 4, "ATTNC11 needs 32-bit long");
+_Static_assert(sizeof(model_value_t) == 2, "model values must be 16-bit");
+_Static_assert(sizeof(weight_value_t) == 4, "weights must be 32-bit");
 _Static_assert(D == 16, "ATTNC11 assumes d_model is 16");
 _Static_assert(S == 8, "ATTNC11 assumes sequence length is 8");
 _Static_assert(V == 10, "ATTNC11 assumes 10 digit tokens");
@@ -95,61 +99,61 @@ _Static_assert(AB == 3*S*D, "ATTNC11 workspace offsets changed");
 _Static_assert(AB + S*S == 3*S*D + S*S, "ATTNC11 workspace size changed");
 _Static_assert(WBYTES == 4864, "ATTNC11 weight file payload changed");
 
-/* --- Q16 weight accumulators (native little-endian long) --- */
-long wtke[V*D];         /* token embed  */
-long wpse[S*D];         /* pos embed    */
-long wwq[D*D];          /* Wq           */
-long wwk[D*D];          /* Wk           */
-long wwv[D*D];          /* Wv           */
-long wwot[D*V];         /* Wout         */
+/* --- Q16 weight accumulators (native little-endian int32_t) --- */
+static weight_value_t token_weights_q16[V*D];
+static weight_value_t position_weights_q16[S*D];
+static weight_value_t query_weights_q16[D*D];
+static weight_value_t key_weights_q16[D*D];
+static weight_value_t value_weights_q16[D*D];
+static weight_value_t output_weights_q16[D*V];
 
 /* --- Q8 weight copies (rebuilt from the Q16 accumulators) --- */
-int qtke[V*D];
-int qpse[S*D];
-int qwq[D*D];
-int qwk[D*D];
-int qwv[D*D];
-int qwot[D*V];
+static model_value_t token_weights_q8[V*D];
+static model_value_t position_weights_q8[S*D];
+static model_value_t query_weights_q8[D*D];
+static model_value_t key_weights_q8[D*D];
+static model_value_t value_weights_q8[D*D];
+static model_value_t output_weights_q8[D*V];
 
 /* --- Q15 gradient accumulators --- */
-int gtke[V*D];
-int gpse[S*D];
-int gwq[D*D];
-int gwk[D*D];
-int gwv[D*D];
-int gwot[D*V];
+static model_value_t token_gradients[V*D];
+static model_value_t position_gradients[S*D];
+static model_value_t query_weight_gradients[D*D];
+static model_value_t key_weight_gradients[D*D];
+static model_value_t value_weight_gradients[D*D];
+static model_value_t output_weight_gradients[D*V];
 
 /* --- forward state --- */
-int xx[S*D];            /* embeddings (attn input)   */
-int yy[S*D];            /* attn output (Y = O + X)   */
-int logits[S*V];        /* output logits             */
-int work[3*S*D + S*S];  /* attn workspace Q|K|V|A     */
+static model_value_t embeddings[S*D];
+static model_value_t attention_output[S*D];
+static model_value_t logits[S*V];
+static model_value_t attention_workspace[3*S*D + S*S];
 
 /* --- backward workspace --- */
-int dl[V];              /* dLogits (one position)    */
-int dy[S*D];            /* dY                        */
-int da[S*S];            /* dA, reused as dSc         */
-int dqq[S*D];           /* dQ                        */
-int dkk[S*D];           /* dK                        */
-int dvv[S*D];           /* dV                        */
-int dxx[S*D];           /* dX                        */
-int dtmp[D];            /* temp column vector        */
+static model_value_t logit_gradients[V];
+static model_value_t attention_output_gradients[S*D];
+static model_value_t attention_score_gradients[S*S];
+static model_value_t query_state_gradients[S*D];
+static model_value_t key_state_gradients[S*D];
+static model_value_t value_state_gradients[S*D];
+static model_value_t embedding_gradients[S*D];
+static model_value_t gradient_column[D];
 
 /* --- training data / state --- */
-int tokens[S];
-int target[S];
-int teprd[S];
-unsigned rseed;
-int thit;
-int ttot;
-int tstep;
-int fhits;
-int vhits;
+static model_value_t tokens[S];
+static model_value_t targets[S];
+static model_value_t test_predictions[S];
+static uint16_t random_seed;
+static int training_hits;
+static int training_total;
+static int training_step;
+static int file_hits;
+static int validation_hits;
 
 /* --- lookup tables (aggregate initialised; BDS C used init functions) --- */
 
 /* exp(-i/32) in Q8 */
-int exptbl[256] = {
+static model_value_t exponential_table[256] = {
     256,248,240,233,226,219,212,206,199,193,187,182,176,171,165,160,
     155,150,146,141,137,133,129,125,121,117,114,110,107,103,100,97,
     94,91,88,86,83,81,78,76,73,71,69,67,65,63,61,59,
@@ -169,9 +173,10 @@ int exptbl[256] = {
 };
 
 /* -ln(x/256)*4096 in Q12.  Indexed by a Q8 probability p only under the
- * `if (p < 256)` guard in closs(), so index 256 (p == 1.0) is never read;
+ * `if (probability < 256)` guard in cross_entropy_loss(), so index 256
+ * (probability == 1.0) is never read;
  * the table is 256 entries (dcc caps an initializer list at 256 elements). */
-int logtbl[256] = {
+static model_value_t logarithm_table[256] = {
     22713,22713,19874,18213,17035,16121,15374,14743,14196,13713,
     13282,12891,12535,12207,11903,11621,11357,11108,10874,10653,
     10443,10243,10052,9870,9696,9529,9368,9213,9064,8921,
@@ -201,225 +206,261 @@ int logtbl[256] = {
 };
 
 /* --- forward declarations --- */
-static int  lci(long a);
-static inline int lq8(long a);
-static inline int mq8(int a, int b);
-static inline int fxdiv(int a, int b);
-static int  asr(int v, int n);
-static inline void addcl(int *dst, int v);
-static inline int subcl(int a, int b);
-static int  vmax(int *vec, unsigned char n, int *pidx);
-static int  vdot(int *x, int *y, unsigned char n);
-static int  score16(int *x, int *y);
-static void vsadd(int sc, int *src, int *dst, unsigned char n);
-static void sftmx(int *vec, unsigned char n);
-static void sftmx8(int *vec);
-static void mvmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols);
-static void mvadd(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols);
-static void vtmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols);
-static void qkvall(void);
-static void vtmul8x16(int *mat, int *vin, int *vout);
-static void vtmul16x10(int *mat, int *vin, int *vout);
-static void outer(int *mat, int *vx, int *vy, unsigned char rows, unsigned char cols);
-static void embed(void);
-static void attn(void);
-static void proj(void);
-static void forwrd(void);
-static void cv1(long *w, int *q, int n);
-static void cvt16(void);
-static int  rndnum(void);
-static void in_fil(long *w, int n);
-static void initw(void);
-static void up_do(long *w, int *g, int n, int shift);
-static void updat(void);
-static void zerog(void);
-static void bkwrd(void);
-static void mktarg(void);
-static void gensm(void);
-static void trseq(void);
-static bool ckseq(void);
-static int  doseq(int mode);
-static int  seqfile(char *fname, int mode);
-static int  filrun(char *fname, bool trn);
-static void count(void);
-static int  closs(void);
-static inline int lossfr(int loss);
-static void report(void);
-static void test(void);
-static bool infseq(void);
-static int  runfil(char *fname);
-static int  wio(int fd, long *w, int n, bool wr);
-static int  wfile(int fd, bool wr);
-static int  savew(void);
-static int  loadw(void);
-static unsigned elapsed(void);
+static model_value_t clamp_to_model_value(weight_value_t value);
+static inline model_value_t q16_to_q8(weight_value_t value);
+static inline model_value_t multiply_q8(model_value_t left,
+                                         model_value_t right);
+static inline model_value_t divide_q8(model_value_t numerator,
+                                       model_value_t denominator);
+static model_value_t arithmetic_shift_right(model_value_t value, int bits);
+static inline void add_clamped(model_value_t *destination,
+                               model_value_t value);
+static inline model_value_t subtract_clamped(model_value_t left,
+                                              model_value_t right);
+static model_value_t vector_maximum(model_value_t *vector,
+                                    unsigned char length, int *index);
+static model_value_t vector_dot_product(model_value_t *left,
+                                         model_value_t *right,
+                                         unsigned char length);
+static model_value_t attention_score_16(model_value_t *query,
+                                         model_value_t *key);
+static void vector_scaled_add(model_value_t scalar, model_value_t *source,
+                              model_value_t *destination,
+                              unsigned char length);
+static void softmax(model_value_t *vector, unsigned char length);
+static void softmax_8(model_value_t *vector);
+static void matrix_vector_multiply(model_value_t *matrix,
+                                   model_value_t *input, model_value_t *output,
+                                   unsigned char rows, unsigned char columns);
+static void matrix_vector_add(model_value_t *matrix, model_value_t *input,
+                              model_value_t *output,
+                              unsigned char rows, unsigned char columns);
+static void transposed_matrix_vector_multiply(
+    model_value_t *matrix, model_value_t *input, model_value_t *output,
+    unsigned char rows, unsigned char columns);
+static void project_all_qkv(void);
+static void transposed_multiply_8x16(model_value_t *matrix,
+                                     model_value_t *input,
+                                     model_value_t *output);
+static void transposed_multiply_16x10(model_value_t *matrix,
+                                      model_value_t *input,
+                                      model_value_t *output);
+static void add_outer_product(model_value_t *matrix, model_value_t *left,
+                              model_value_t *right,
+                              unsigned char rows, unsigned char columns);
+static void build_embeddings(void);
+static void forward_attention(void);
+static void project_logits(void);
+static void forward_pass(void);
+static void convert_weight_group(weight_value_t *weights,
+                                 model_value_t *quantized, int count);
+static void convert_weights_to_q8(void);
+static int random_number(void);
+static void initialize_weight_group(weight_value_t *weights, int count);
+static void initialize_weights(void);
+static void update_weight_group(weight_value_t *weights,
+                                model_value_t *gradients, int count, int shift);
+static void update_weights(void);
+static void zero_gradients(void);
+static void backward_pass(void);
+static void make_targets(void);
+static void generate_sample(void);
+static void train_sequence(void);
+static bool check_sequence(void);
+static int process_sequence(int mode);
+static int process_sequence_file(char *filename, int mode);
+static int run_training_file(char *filename, bool train);
+static void count_predictions(void);
+static int cross_entropy_loss(void);
+static inline int loss_fraction(int loss);
+static void report_training(void);
+static void test_random_samples(void);
+static bool infer_sequence(void);
+static int run_inference_file(char *filename);
+static int transfer_weight_group(int file, weight_value_t *weights, int count,
+                                 bool write_data);
+static int transfer_weight_file(int file, bool write_data);
+static int save_weights(void);
+static int load_weights(void);
+static uint16_t elapsed_seconds(void);
 
 /* ============================================================ */
-/* 32-bit fixed-point helpers (native long)                     */
+/* 32-bit fixed-point helpers (int32_t)                         */
 /* ============================================================ */
 
-/* clamp a 32-bit long to a signed 16-bit int */
-static int lci(long a)
+/* clamp a 32-bit value to a signed 16-bit model value */
+static model_value_t clamp_to_model_value(weight_value_t value)
 {
-    if (a > 32767L)
+    if (value > 32767L)
         return 32767;
-    if (a < -32768L)
+    if (value < -32768L)
         return -32768;
-    return (int)a;
+    return (model_value_t)value;
 }
 
-/* a (Q16 long) >> 8 -> clamped Q8 int.
+/* a (Q16 int32_t) >> 8 -> clamped Q8 int16_t.
  * Truncates toward zero (matching the BDS C ldiv and the ATTNZ80.MAC LQ8
  * helper), so it divides the magnitude and re-applies the sign rather than
  * using an arithmetic shift (which would floor for negatives). */
-static inline int lq8(long a)
+static inline model_value_t q16_to_q8(weight_value_t value)
 {
-    if (a < 0)
-        return lci(-((-a) >> 8));
-    return lci(a >> 8);
+    if (value < 0)
+        return clamp_to_model_value(-((-value) >> 8));
+    return clamp_to_model_value(value >> 8);
 }
 
 /* (a * b) >> 8 -> clamped Q8 int */
-static inline int mq8(int a, int b)
+static inline model_value_t multiply_q8(model_value_t left,
+                                         model_value_t right)
 {
-    return lq8((long)a * b);
+    return q16_to_q8((weight_value_t)left * right);
 }
 
 /* Q8 divide: (a << 8) / b -> clamped Q8 int (a >= 0, b > 0 at all call sites) */
-static inline int fxdiv(int a, int b)
+static inline model_value_t divide_q8(model_value_t numerator,
+                                       model_value_t denominator)
 {
-    return lci(((long)a * 256L) / (long)b);
+    return clamp_to_model_value(
+        ((weight_value_t)numerator * 256L) / denominator);
 }
 
 /* arithmetic shift right by n (floor toward -inf), n small */
-static int asr(int v, int n)
+static model_value_t arithmetic_shift_right(model_value_t value, int bits)
 {
     int d, q;
 
     d = 1;
-    while (n-- > 0)
+    while (bits-- > 0)
         d = d << 1;
-    q = v / d;
-    if (v < 0 && (v % d) != 0)
+    q = value / d;
+    if (value < 0 && (value % d) != 0)
         q = q - 1;
     return q;
 }
 
 /* *dst += v, saturating to signed 16-bit */
-static inline void addcl(int *dst, int v)
+static inline void add_clamped(model_value_t *destination,
+                               model_value_t value)
 {
-    *dst = lci((long)*dst + v);
+    *destination = clamp_to_model_value((weight_value_t)*destination + value);
 }
 
 /* a - b, saturating to signed 16-bit */
-static inline int subcl(int a, int b)
+static inline model_value_t subtract_clamped(model_value_t left,
+                                              model_value_t right)
 {
-    return lci((long)a - b);
+    return clamp_to_model_value((weight_value_t)left - right);
 }
 
 /* ============================================================ */
 /* Vector primitives                                            */
 /* ============================================================ */
 
-static int vmax(int *vec, unsigned char n, int *pidx)
+static model_value_t vector_maximum(model_value_t *vector,
+                                    unsigned char length, int *index)
 {
-    int mx;
-    unsigned char mi, i;
+    model_value_t maximum;
+    unsigned char maximum_index, i;
 
-    mx = *vec;
-    mi = 0;
-    for (i = 1, vec++; i < n; i++, vec++) {
-        if (*vec > mx) {
-            mx = *vec;
-            mi = i;
+    maximum = *vector;
+    maximum_index = 0;
+    for (i = 1, vector++; i < length; i++, vector++) {
+        if (*vector > maximum) {
+            maximum = *vector;
+            maximum_index = i;
         }
     }
-    *pidx = mi;
-    return mx;
+    *index = maximum_index;
+    return maximum;
 }
 
-static int vdot(int *x, int *y, unsigned char n)
+static model_value_t vector_dot_product(model_value_t *left,
+                                         model_value_t *right,
+                                         unsigned char length)
 {
-    long acc;
+    weight_value_t acc;
     unsigned char i;
 
     acc = 0;
-    for (i = 0; i < n; i++)
-        acc += (long)*x++ * *y++;
-    return lq8(acc);
+    for (i = 0; i < length; i++)
+        acc += (weight_value_t)*left++ * *right++;
+    return q16_to_q8(acc);
 }
 
 /* Fixed D-element dot product scaled by sqrt(D) = 4. */
-static int score16(int *x, int *y)
+static model_value_t attention_score_16(model_value_t *query,
+                                         model_value_t *key)
 {
-    long acc;
-    int value;
+    weight_value_t acc;
+    model_value_t value;
     unsigned char i;
 
     acc = 0;
     for (i = 0; i < D; i++)
-        acc += (long)*x++ * *y++;
-    value = lq8(acc);
+        acc += (weight_value_t)*query++ * *key++;
+    value = q16_to_q8(acc);
     if (value < 0 && (value % 4) != 0)
         return value / 4 - 1;
     return value / 4;
 }
 
 /* dst[k] += (scalar * src[k]) >> 8, saturating */
-static void vsadd(int sc, int *src, int *dst, unsigned char n)
+static void vector_scaled_add(model_value_t scalar, model_value_t *source,
+                              model_value_t *destination,
+                              unsigned char length)
 {
     unsigned char k;
 
-    for (k = 0; k < n; k++)
-        addcl(dst++, mq8(sc, *src++));
+    for (k = 0; k < length; k++)
+        add_clamped(destination++, multiply_q8(scalar, *source++));
 }
 
 /* softmax in place (Q8), LUT-based */
-static void sftmx(int *vec, unsigned char n)
+static void softmax(model_value_t *vector, unsigned char length)
 {
     int mx, d, idx, sum, dummy;
-    int *item;
+    model_value_t *item;
     unsigned char i;
 
-    mx = vmax(vec, n, &dummy);
+    mx = vector_maximum(vector, length, &dummy);
     sum = 0;
-    for (i = 0, item = vec; i < n; i++, item++) {
+    for (i = 0, item = vector; i < length; i++, item++) {
         d = mx - *item;
         if (d < 0)
             d = 0;
         idx = d >> 3;
         if (idx > 255)
             idx = 255;
-        *item = exptbl[idx];
+        *item = exponential_table[idx];
         sum = sum + *item;
     }
-    for (i = 0, item = vec; i < n; i++, item++)
-        *item = fxdiv(*item, sum);
+    for (i = 0, item = vector; i < length; i++, item++)
+        *item = divide_q8(*item, sum);
 }
 
-static void sftmx8(int *vec)
+static void softmax_8(model_value_t *vector)
 {
     int mx, d, idx, sum;
-    int *item;
+    model_value_t *item;
     unsigned char i;
 
-    mx = vec[0];
+    mx = vector[0];
     for (i = 1; i < S; i++)
-        if (vec[i] > mx)
-            mx = vec[i];
+        if (vector[i] > mx)
+            mx = vector[i];
     sum = 0;
-    for (i = 0, item = vec; i < S; i++, item++) {
+    for (i = 0, item = vector; i < S; i++, item++) {
         d = mx - *item;
         if (d < 0)
             d = 0;
         idx = d >> 3;
         if (idx > 255)
             idx = 255;
-        *item = exptbl[idx];
+        *item = exponential_table[idx];
         sum += *item;
     }
-    for (i = 0, item = vec; i < S; i++, item++)
-        *item = fxdiv(*item, sum);
+    for (i = 0, item = vector; i < S; i++, item++)
+        *item = divide_q8(*item, sum);
 }
 
 /* ============================================================ */
@@ -427,70 +468,77 @@ static void sftmx8(int *vec)
 /* ============================================================ */
 
 /* vout[i] = sum_j mat[i][j] * vin[j]  (Q16 accum, >>8, clamp) */
-static void mvmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols)
+static void matrix_vector_multiply(model_value_t *matrix,
+                                   model_value_t *input, model_value_t *output,
+                                   unsigned char rows, unsigned char columns)
 {
-    long acc;
+    weight_value_t acc;
     unsigned char i, j;
 
     for (i = 0; i < rows; i++) {
         acc = 0;
-        for (j = 0; j < cols; j++)
-            acc += (long)*mat++ * vin[j];
-        *vout++ = lq8(acc);
+        for (j = 0; j < columns; j++)
+            acc += (weight_value_t)*matrix++ * input[j];
+        *output++ = q16_to_q8(acc);
     }
 }
 
 /* vout[i] += sum_j mat[i][j] * vin[j]  (saturating add) */
-static void mvadd(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols)
+static void matrix_vector_add(model_value_t *matrix, model_value_t *input,
+                              model_value_t *output,
+                              unsigned char rows, unsigned char columns)
 {
-    long acc;
+    weight_value_t acc;
     unsigned char i, j;
 
     for (i = 0; i < rows; i++) {
         acc = 0;
-        for (j = 0; j < cols; j++)
-            acc += (long)*mat++ * vin[j];
-        addcl(vout++, lq8(acc));
+        for (j = 0; j < columns; j++)
+            acc += (weight_value_t)*matrix++ * input[j];
+        add_clamped(output++, q16_to_q8(acc));
     }
 }
 
 /* vout[j] = sum_i (mat[i][j] * vin[i]) >> 8   (per-product Q8) */
-static void vtmul(int *mat, int *vin, int *vout, unsigned char rows, unsigned char cols)
+static void transposed_matrix_vector_multiply(
+    model_value_t *matrix, model_value_t *input, model_value_t *output,
+    unsigned char rows, unsigned char columns)
 {
     unsigned char i, j;
-    int sc;
+    model_value_t sc;
 
-    memset(vout, 0, cols * (int)sizeof(int));
+    memset(output, 0, columns * (int)sizeof(model_value_t));
     for (i = 0; i < rows; i++) {
-        sc = *vin++;
-        for (j = 0; j < cols; j++)
-            addcl(&vout[j], mq8(*mat++, sc));
+        sc = *input++;
+        for (j = 0; j < columns; j++)
+            add_clamped(&output[j], multiply_q8(*matrix++, sc));
     }
 }
 
 /* Fused Q/K/V projections for all rows: each input is loaded once. */
-static void qkvall(void)
+static void project_all_qkv(void)
 {
     unsigned char row, i, j;
-    int sc;
-    int *vin, *voutq, *voutk, *voutv;
-    int *matq, *matk, *matv;
+    model_value_t sc;
+    model_value_t *vin, *voutq, *voutk, *voutv;
+    model_value_t *matq, *matk, *matv;
 
-    memset(&work[QB], 0, 3 * S * D * (int)sizeof(int));
-    vin = xx;
-    voutq = &work[QB];
-    voutk = &work[KB];
-    voutv = &work[VB];
+    memset(&attention_workspace[QB], 0,
+           3 * S * D * (int)sizeof(model_value_t));
+    vin = embeddings;
+    voutq = &attention_workspace[QB];
+    voutk = &attention_workspace[KB];
+    voutv = &attention_workspace[VB];
     for (row = 0; row < S; row++) {
-        matq = qwq;
-        matk = qwk;
-        matv = qwv;
+        matq = query_weights_q8;
+        matk = key_weights_q8;
+        matv = value_weights_q8;
         for (i = 0; i < D; i++) {
             sc = *vin++;
             for (j = 0; j < D; j++) {
-                addcl(&voutq[j], mq8(*matq++, sc));
-                addcl(&voutk[j], mq8(*matk++, sc));
-                addcl(&voutv[j], mq8(*matv++, sc));
+                add_clamped(&voutq[j], multiply_q8(*matq++, sc));
+                add_clamped(&voutk[j], multiply_q8(*matk++, sc));
+                add_clamped(&voutv[j], multiply_q8(*matv++, sc));
             }
         }
         voutq += D;
@@ -499,42 +547,48 @@ static void qkvall(void)
     }
 }
 
-static void vtmul8x16(int *mat, int *vin, int *vout)
+static void transposed_multiply_8x16(model_value_t *matrix,
+                                     model_value_t *input,
+                                     model_value_t *output)
 {
     unsigned char i, j;
-    int sc;
+    model_value_t sc;
 
-    memset(vout, 0, D * (int)sizeof(int));
+    memset(output, 0, D * (int)sizeof(model_value_t));
     for (i = 0; i < S; i++) {
-        sc = *vin++;
+        sc = *input++;
         for (j = 0; j < D; j++)
-            addcl(&vout[j], mq8(*mat++, sc));
+            add_clamped(&output[j], multiply_q8(*matrix++, sc));
     }
 }
 
-static void vtmul16x10(int *mat, int *vin, int *vout)
+static void transposed_multiply_16x10(model_value_t *matrix,
+                                      model_value_t *input,
+                                      model_value_t *output)
 {
     unsigned char i, j;
-    int sc;
+    model_value_t sc;
 
-    memset(vout, 0, V * (int)sizeof(int));
+    memset(output, 0, V * (int)sizeof(model_value_t));
     for (i = 0; i < D; i++) {
-        sc = *vin++;
+        sc = *input++;
         for (j = 0; j < V; j++)
-            addcl(&vout[j], mq8(*mat++, sc));
+            add_clamped(&output[j], multiply_q8(*matrix++, sc));
     }
 }
 
 /* mat[i][j] += (vx[i] * vy[j]) >> 8   (saturating) */
-static void outer(int *mat, int *vx, int *vy, unsigned char rows, unsigned char cols)
+static void add_outer_product(model_value_t *matrix, model_value_t *left,
+                              model_value_t *right,
+                              unsigned char rows, unsigned char columns)
 {
-    int sc;
+    model_value_t sc;
     unsigned char i, j;
 
     for (i = 0; i < rows; i++) {
-        sc = *vx++;
-        for (j = 0; j < cols; j++)
-            addcl(mat++, mq8(sc, vy[j]));
+        sc = *left++;
+        for (j = 0; j < columns; j++)
+            add_clamped(matrix++, multiply_q8(sc, right[j]));
     }
 }
 
@@ -543,65 +597,68 @@ static void outer(int *mat, int *vx, int *vy, unsigned char rows, unsigned char 
 /* ============================================================ */
 
 /* X[i] = tok_emb[tokens[i]] + pos_emb[i] */
-static void embed(void)
+static void build_embeddings(void)
 {
     int tok;
-    int *dst, *pos, *src;
+    model_value_t *dst, *pos, *src;
     unsigned char i, j;
 
-    dst = xx;
-    pos = qpse;
+    dst = embeddings;
+    pos = position_weights_q8;
     for (i = 0; i < S; i++) {
         tok = tokens[i];
-        src = &qtke[tok * D];
+        src = &token_weights_q8[tok * D];
         for (j = 0; j < D; j++)
             *dst++ = *src++ + *pos++;
     }
 }
 
 /* self-attention forward pass */
-static void attn(void)
+static void forward_attention(void)
 {
-    int *key, *query, *score;
+    model_value_t *key, *query, *score;
     unsigned char i, j;
 
     /* Step 1-3: Q = X.Wq, K = X.Wk, V = X.Wv */
-    qkvall();
+    project_all_qkv();
     /* Step 4: S[i][j] = (Q[i] . K[j]) / sqrt(d), sqrt(16)=4 -> >>2 */
-    query = &work[QB];
-    score = &work[AB];
+    query = &attention_workspace[QB];
+    score = &attention_workspace[AB];
     for (i = 0; i < S; i++) {
-        key = &work[KB];
+        key = &attention_workspace[KB];
         for (j = 0; j < S; j++) {
-            *score++ = score16(query, key);
+            *score++ = attention_score_16(query, key);
             key += D;
         }
         /* Step 5: softmax this completed score row. */
-        sftmx8(score - S);
+        softmax_8(score - S);
         query += D;
     }
     /* Step 6: Y[i] = V^T . A[i] */
     for (i = 0; i < S; i++)
-        vtmul8x16(&work[VB], &work[AB + i * S], &yy[i * D]);
+        transposed_multiply_8x16(&attention_workspace[VB],
+                      &attention_workspace[AB + i * S],
+                      &attention_output[i * D]);
     /* Step 7: residual Y += X */
     for (i = 0; i < S * D; i++)
-        yy[i] = yy[i] + xx[i];
+        attention_output[i] = attention_output[i] + embeddings[i];
 }
 
 /* logits[i] = Wout^T . Y[i] */
-static void proj(void)
+static void project_logits(void)
 {
     unsigned char i;
 
     for (i = 0; i < S; i++)
-        vtmul16x10(qwot, &yy[i * D], &logits[i * V]);
+        transposed_multiply_16x10(output_weights_q8,
+                       &attention_output[i * D], &logits[i * V]);
 }
 
-static void forwrd(void)
+static void forward_pass(void)
 {
-    embed();
-    attn();
-    proj();
+    build_embeddings();
+    forward_attention();
+    project_logits();
 }
 
 /* ============================================================ */
@@ -609,141 +666,168 @@ static void forwrd(void)
 /* ============================================================ */
 
 /* convert one Q16 weight group to its Q8 copy */
-static void cv1(long *w, int *q, int n)
+static void convert_weight_group(weight_value_t *weights,
+                                 model_value_t *quantized, int count)
 {
     int i;
 
-    for (i = 0; i < n; i++)
-        q[i] = lq8(w[i]);
+    for (i = 0; i < count; i++)
+        quantized[i] = q16_to_q8(weights[i]);
 }
 
-static void cvt16(void)
+static void convert_weights_to_q8(void)
 {
-    cv1(wtke, qtke, V * D);
-    cv1(wpse, qpse, S * D);
-    cv1(wwq, qwq, D * D);
-    cv1(wwk, qwk, D * D);
-    cv1(wwv, qwv, D * D);
-    cv1(wwot, qwot, D * V);
+    convert_weight_group(token_weights_q16, token_weights_q8, V * D);
+    convert_weight_group(position_weights_q16, position_weights_q8, S * D);
+    convert_weight_group(query_weights_q16, query_weights_q8, D * D);
+    convert_weight_group(key_weights_q16, key_weights_q8, D * D);
+    convert_weight_group(value_weights_q16, value_weights_q8, D * D);
+    convert_weight_group(output_weights_q16, output_weights_q8, D * V);
 }
 
 /* 15-bit LCG */
-static int rndnum(void)
+static int random_number(void)
 {
-    rseed = (rseed * 25173 + 13849) & 0x7FFF;
-    return rseed;
+    random_seed = (random_seed * 25173 + 13849) & 0x7FFF;
+    return random_seed;
 }
 
 /* fill n Q16 weights with random Q8 in [-128,127] */
-static void in_fil(long *w, int n)
+static void initialize_weight_group(weight_value_t *weights, int count)
 {
     int i, r;
 
-    for (i = 0; i < n; i++) {
-        r = (rndnum() & 0x00FF) - 128;
-        w[i] = (long)r * 256L;
+    for (i = 0; i < count; i++) {
+        r = (random_number() & 0x00FF) - 128;
+        weights[i] = (weight_value_t)r * 256L;
     }
 }
 
-static void initw(void)
+static void initialize_weights(void)
 {
-    in_fil(wtke, V * D);
-    in_fil(wpse, S * D);
-    in_fil(wwq, D * D);
-    in_fil(wwk, D * D);
-    in_fil(wwv, D * D);
-    in_fil(wwot, D * V);
+    initialize_weight_group(token_weights_q16, V * D);
+    initialize_weight_group(position_weights_q16, S * D);
+    initialize_weight_group(query_weights_q16, D * D);
+    initialize_weight_group(key_weights_q16, D * D);
+    initialize_weight_group(value_weights_q16, D * D);
+    initialize_weight_group(output_weights_q16, D * V);
 }
 
 /* w_q16 -= grad_q15 >> (shift-1); zero grad after read */
-static void up_do(long *w, int *g, int n, int shift)
+static void update_weight_group(weight_value_t *weights,
+                                model_value_t *gradients, int count, int shift)
 {
     int i, delta;
 
-    for (i = 0; i < n; i++) {
-        delta = asr(g[i], shift - 1);
-        g[i] = 0;
-        w[i] -= (long)delta;
+    for (i = 0; i < count; i++) {
+        delta = arithmetic_shift_right(gradients[i], shift - 1);
+        gradients[i] = 0;
+        weights[i] -= (weight_value_t)delta;
     }
 }
 
-static void updat(void)
+static void update_weights(void)
 {
-    up_do(wtke, gtke, V * D, 4);
-    up_do(wpse, gpse, S * D, 4);
-    up_do(wwq, gwq, D * D, 1);
-    up_do(wwk, gwk, D * D, 1);
-    up_do(wwv, gwv, D * D, 1);
-    up_do(wwot, gwot, D * V, 6);
+    update_weight_group(token_weights_q16, token_gradients, V * D, 4);
+    update_weight_group(position_weights_q16, position_gradients, S * D, 4);
+    update_weight_group(query_weights_q16, query_weight_gradients, D * D, 1);
+    update_weight_group(key_weights_q16, key_weight_gradients, D * D, 1);
+    update_weight_group(value_weights_q16, value_weight_gradients, D * D, 1);
+    update_weight_group(output_weights_q16, output_weight_gradients, D * V, 6);
 }
 
-static void zerog(void)
+static void zero_gradients(void)
 {
-    memset(gtke, 0, V * D * (int)sizeof(int));
-    memset(gpse, 0, S * D * (int)sizeof(int));
-    memset(gwq, 0, D * D * (int)sizeof(int));
-    memset(gwk, 0, D * D * (int)sizeof(int));
-    memset(gwv, 0, D * D * (int)sizeof(int));
-    memset(gwot, 0, D * V * (int)sizeof(int));
+    memset(token_gradients, 0, V * D * (int)sizeof(model_value_t));
+    memset(position_gradients, 0, S * D * (int)sizeof(model_value_t));
+    memset(query_weight_gradients, 0,
+        D * D * (int)sizeof(model_value_t));
+    memset(key_weight_gradients, 0, D * D * (int)sizeof(model_value_t));
+    memset(value_weight_gradients, 0,
+        D * D * (int)sizeof(model_value_t));
+    memset(output_weight_gradients, 0,
+        D * V * (int)sizeof(model_value_t));
 }
 
 /* ============================================================ */
 /* Backward pass                                                */
 /* ============================================================ */
 
-static void bkwrd(void)
+static void backward_pass(void)
 {
     int i, j, k, o, tok, dad, t;
 
     /* Step 1: dLogits, dWout, dY */
-    memset(dy, 0, S * D * (int)sizeof(int));
+    memset(attention_output_gradients, 0,
+           S * D * (int)sizeof(model_value_t));
     for (i = 0; i < S; i++) {
-        memcpy(dl, &logits[i * V], V * (int)sizeof(int));
-        sftmx(dl, V);
-        dl[target[i]] = dl[target[i]] - 256;
+        memcpy(logit_gradients, &logits[i * V],
+               V * (int)sizeof(model_value_t));
+        softmax(logit_gradients, V);
+        logit_gradients[targets[i]] = logit_gradients[targets[i]] - 256;
         for (k = 0; k < V; k++)
-            dl[k] = dl[k] << 7;
-        outer(gwot, &yy[i * D], dl, D, V);
-        mvmul(qwot, dl, &dy[i * D], D, V);
+            logit_gradients[k] = logit_gradients[k] << 7;
+          add_outer_product(output_weight_gradients,
+                      &attention_output[i * D], logit_gradients, D, V);
+          matrix_vector_multiply(output_weights_q8, logit_gradients,
+                         &attention_output_gradients[i * D], D, V);
     }
 
     /* Step 2: dA, dV */
-    memset(dvv, 0, S * D * (int)sizeof(int));
+        memset(value_state_gradients, 0,
+            S * D * (int)sizeof(model_value_t));
     for (i = 0; i < S; i++)
         for (j = 0; j < S; j++) {
-            da[i * S + j] = vdot(&work[VB + j * D], &dy[i * D], D);
-            vsadd(work[AB + i * S + j], &dy[i * D], &dvv[j * D], D);
+            attention_score_gradients[i * S + j] =
+                    vector_dot_product(&attention_workspace[VB + j * D],
+                                 &attention_output_gradients[i * D], D);
+                vector_scaled_add(attention_workspace[AB + i * S + j],
+                            &attention_output_gradients[i * D],
+                            &value_state_gradients[j * D], D);
         }
 
     /* Step 3: backward softmax -> dSc (in da) */
     for (i = 0; i < S; i++) {
-        dad = vdot(&work[AB + i * S], &da[i * S], S);
+        dad = vector_dot_product(&attention_workspace[AB + i * S],
+                     &attention_score_gradients[i * S], S);
         for (j = 0; j < S; j++) {
-            t = subcl(da[i * S + j], dad);
-            t = mq8(work[AB + i * S + j], t);
-            da[i * S + j] = asr(t, 2);
+            t = subtract_clamped(attention_score_gradients[i * S + j], dad);
+            t = multiply_q8(attention_workspace[AB + i * S + j], t);
+            attention_score_gradients[i * S + j] =
+                arithmetic_shift_right(t, 2);
         }
     }
 
     /* Step 4: dQ, dK */
     for (i = 0; i < S; i++)
-        vtmul(&work[KB], &da[i * S], &dqq[i * D], S, D);
+        transposed_matrix_vector_multiply(
+            &attention_workspace[KB], &attention_score_gradients[i * S],
+            &query_state_gradients[i * D], S, D);
     for (j = 0; j < S; j++) {
         for (i = 0; i < S; i++)
-            dtmp[i] = da[i * S + j];
-        vtmul(&work[QB], dtmp, &dkk[j * D], S, D);
+            gradient_column[i] = attention_score_gradients[i * S + j];
+        transposed_matrix_vector_multiply(
+            &attention_workspace[QB], gradient_column,
+            &key_state_gradients[j * D], S, D);
     }
 
     /* Step 5: backward projections + dX */
-    memcpy(dxx, dy, S * D * (int)sizeof(int));
+        memcpy(embedding_gradients, attention_output_gradients,
+               S * D * (int)sizeof(model_value_t));
     for (i = 0; i < S; i++) {
         o = i * D;
-        mvadd(qwq, &dqq[o], &dxx[o], D, D);
-        outer(gwq, &xx[o], &dqq[o], D, D);
-        mvadd(qwk, &dkk[o], &dxx[o], D, D);
-        outer(gwk, &xx[o], &dkk[o], D, D);
-        mvadd(qwv, &dvv[o], &dxx[o], D, D);
-        outer(gwv, &xx[o], &dvv[o], D, D);
+        matrix_vector_add(query_weights_q8, &query_state_gradients[o],
+                          &embedding_gradients[o], D, D);
+        add_outer_product(query_weight_gradients, &embeddings[o],
+                          &query_state_gradients[o], D, D);
+        matrix_vector_add(key_weights_q8, &key_state_gradients[o],
+                          &embedding_gradients[o], D, D);
+        add_outer_product(key_weight_gradients, &embeddings[o],
+                          &key_state_gradients[o], D, D);
+        matrix_vector_add(value_weights_q8, &value_state_gradients[o],
+                          &embedding_gradients[o], D, D);
+        add_outer_product(value_weight_gradients, &embeddings[o],
+                          &value_state_gradients[o], D, D);
     }
 
     /* Step 6: backward embedding */
@@ -751,8 +835,10 @@ static void bkwrd(void)
         o = i * D;
         tok = tokens[i];
         for (k = 0; k < D; k++) {
-            addcl(&gtke[tok * D + k], dxx[o + k]);
-            addcl(&gpse[i * D + k], dxx[o + k]);
+            add_clamped(&token_gradients[tok * D + k],
+                        embedding_gradients[o + k]);
+            add_clamped(&position_gradients[i * D + k],
+                        embedding_gradients[o + k]);
         }
     }
 }
@@ -762,240 +848,243 @@ static void bkwrd(void)
 /* ============================================================ */
 
 /* set reversal target for the current tokens */
-static void mktarg(void)
+static void make_targets(void)
 {
     int i;
 
     for (i = 0; i < S; i++)
-        target[i] = tokens[S - 1 - i];
+        targets[i] = tokens[S - 1 - i];
 }
 
 /* generate a random reversal sample */
-static void gensm(void)
+static void generate_sample(void)
 {
     int i;
 
     for (i = 0; i < S; i++)
-        tokens[i] = rndnum() % 10;
-    mktarg();
+        tokens[i] = random_number() % 10;
+    make_targets();
 }
 
 /* train one current tokens/target sample */
-static void trseq(void)
+static void train_sequence(void)
 {
-    cvt16();
-    forwrd();
-    bkwrd();
-    updat();
-    count();
+    convert_weights_to_q8();
+    forward_pass();
+    backward_pass();
+    update_weights();
+    count_predictions();
 }
 
 /* quiet accuracy check for one current tokens/target sample */
-static bool ckseq(void)
+static bool check_sequence(void)
 {
     int i, idx;
     bool ok;
 
-    forwrd();
+    forward_pass();
     ok = true;
     for (i = 0; i < S; i++) {
-        vmax(&logits[i * V], V, &idx);
-        if (idx != target[i])
+        vector_maximum(&logits[i * V], V, &idx);
+        if (idx != targets[i])
             ok = false;
     }
     return ok;
 }
 
-static int doseq(int mode)
+static int process_sequence(int mode)
 {
     if (mode == FM_INFER)
-        return infseq();
-    mktarg();
+        return infer_sequence();
+    make_targets();
     if (mode == FM_TRAIN) {
-        trseq();
+        train_sequence();
         return 1;
     }
-    return ckseq();
+    return check_sequence();
 }
 
-static int seqfile(char *fname, int mode)
+static int process_sequence_file(char *filename, int mode)
 {
-    int ch, i, n;
-    FILE *fp;
+    int character, digit_count, sequence_count;
+    FILE *input_file;
 
-    fp = fopen(fname, "r");
-    if (fp == NULL)
+    input_file = fopen(filename, "r");
+    if (input_file == NULL)
         return ERROR;
 
-    n = 0;
-    i = 0;
-    while ((ch = getc(fp)) != EOF && ch != 26) {
-        if (ch >= '0' && ch <= '9') {
-            if (i < S)
-                tokens[i] = ch - '0';
-            i = i + 1;
-        } else if (ch == '\n') {
-            if (i >= S) {
-                n = n + 1;
+    sequence_count = 0;
+    digit_count = 0;
+    while ((character = getc(input_file)) != EOF && character != 26) {
+        if (character >= '0' && character <= '9') {
+            if (digit_count < S)
+                tokens[digit_count] = character - '0';
+            digit_count = digit_count + 1;
+        } else if (character == '\n') {
+            if (digit_count >= S) {
+                sequence_count = sequence_count + 1;
                 if (mode == FM_VALID)
-                    vhits = vhits + doseq(mode);
+                    validation_hits = validation_hits + process_sequence(mode);
                 else if (mode == FM_INFER)
-                    fhits = fhits + doseq(mode);
+                    file_hits = file_hits + process_sequence(mode);
                 else
-                    doseq(mode);
-            } else if (mode == FM_INFER && i > 0)
-                printf(" (skipped line: %d digits, need %d)\n", i, S);
-            i = 0;
+                    process_sequence(mode);
+            } else if (mode == FM_INFER && digit_count > 0)
+                printf(" (skipped line: %d digits, need %d)\n", digit_count, S);
+            digit_count = 0;
         }
     }
-    if (i >= S) {
-        n = n + 1;
+    if (digit_count >= S) {
+        sequence_count = sequence_count + 1;
         if (mode == FM_VALID)
-            vhits = vhits + doseq(mode);
+            validation_hits = validation_hits + process_sequence(mode);
         else if (mode == FM_INFER)
-            fhits = fhits + doseq(mode);
+            file_hits = file_hits + process_sequence(mode);
         else
-            doseq(mode);
+            process_sequence(mode);
     }
-    fclose(fp);
-    return n;
+    fclose(input_file);
+    return sequence_count;
 }
 
 /* read fixed samples from fname. trn=1 trains; trn=0 validates quietly. */
-static int filrun(char *fname, bool trn)
+static int run_training_file(char *filename, bool train)
 {
-    if (!trn) {
-        vhits = 0;
-        cvt16();
+    if (!train) {
+        validation_hits = 0;
+        convert_weights_to_q8();
     }
-    return seqfile(fname, trn ? FM_TRAIN : FM_VALID);
+    return process_sequence_file(filename, train ? FM_TRAIN : FM_VALID);
 }
 
 /* count correct argmax predictions */
-static void count(void)
+static void count_predictions(void)
 {
     int i, idx;
 
     for (i = 0; i < S; i++) {
-        vmax(&logits[i * V], V, &idx);
-        if (idx == target[i])
-            thit = thit + 1;
-        ttot = ttot + 1;
+        vector_maximum(&logits[i * V], V, &idx);
+        if (idx == targets[i])
+            training_hits = training_hits + 1;
+        training_total = training_total + 1;
     }
 }
 
 /* average cross-entropy loss (Q12) for the current sample */
-static int closs(void)
+static int cross_entropy_loss(void)
 {
-    long acc;
-    int i, p, t;
+    weight_value_t acc;
+    int i, probability, target_token;
 
     acc = 0;
     for (i = 0; i < S; i++) {
-        memcpy(dl, &logits[i * V], V * (int)sizeof(int));
-        sftmx(dl, V);
-        t = target[i];
-        p = dl[t];
-        if (p < 256)
-            acc += (long)logtbl[p];
+         memcpy(logit_gradients, &logits[i * V],
+             V * (int)sizeof(model_value_t));
+        softmax(logit_gradients, V);
+        target_token = targets[i];
+        probability = logit_gradients[target_token];
+        if (probability < 256)
+            acc += (weight_value_t)logarithm_table[probability];
     }
     return (int)(acc / 8L);
 }
 
 /* fractional part (0-9999) of a Q12 value */
-static inline int lossfr(int loss)
+static inline int loss_fraction(int loss)
 {
-    return (int)(((long)(loss & 0x0FFF) * 10000L) / 4096L);
+    return (int)(((weight_value_t)(loss & 0x0FFF) * 10000L) / 4096L);
 }
 
 /* print step / loss / accuracy, then reset counters */
-static void report(void)
+static void report_training(void)
 {
-    int loss, pm;
+    int loss, accuracy_thousandths;
 
-    loss = closs();
-    printf("\n step %4d loss=%d.%.4d", tstep, loss >> 12, lossfr(loss));
+    loss = cross_entropy_loss();
+        printf("\n step %4d loss=%d.%.4d", training_step, loss >> 12,
+               loss_fraction(loss));
 
-    pm = (int)(((long)thit * 1000L) / (long)ttot);
-    if (pm >= 1000)
+    accuracy_thousandths =
+        (int)(((weight_value_t)training_hits * 1000L) / training_total);
+    if (accuracy_thousandths >= 1000)
         printf(" acc=1.000\n");
     else
-        printf(" acc=0.%.3d\n", pm);
+        printf(" acc=0.%.3d\n", accuracy_thousandths);
 
-    thit = 0;
-    ttot = 0;
+    training_hits = 0;
+    training_total = 0;
 }
 
 /* final test: 10 samples */
-static void test(void)
+static void test_random_samples(void)
 {
-    int n, i, idx, allok, ok;
+    int sample, position, prediction, sample_correct, correct_samples;
 
-    ok = 0;
-    cvt16();
-    for (n = 0; n < 10; n++) {
-        gensm();
-        forwrd();
-        for (i = 0; i < S; i++) {
-            vmax(&logits[i * V], V, &idx);
-            teprd[i] = idx;
+    correct_samples = 0;
+    convert_weights_to_q8();
+    for (sample = 0; sample < 10; sample++) {
+        generate_sample();
+        forward_pass();
+        for (position = 0; position < S; position++) {
+            vector_maximum(&logits[position * V], V, &prediction);
+            test_predictions[position] = prediction;
         }
         printf(" ");
-        for (i = 0; i < S; i++)
-            printf("%d ", tokens[i]);
+        for (position = 0; position < S; position++)
+            printf("%d ", tokens[position]);
         printf("-> ");
-        for (i = 0; i < S; i++)
-            printf("%d ", teprd[i]);
-        allok = 1;
-        for (i = 0; i < S; i++)
-            if (teprd[i] != target[i])
-                allok = 0;
-        if (allok) {
-            ok = ok + 1;
+        for (position = 0; position < S; position++)
+            printf("%d ", test_predictions[position]);
+        sample_correct = 1;
+        for (position = 0; position < S; position++)
+            if (test_predictions[position] != targets[position])
+                sample_correct = 0;
+        if (sample_correct) {
+            correct_samples = correct_samples + 1;
             printf(" ok\n");
         } else
             printf(" fail\n");
     }
-    printf("\naccuracy  %2d/%d\n", ok, 10);
+    printf("\naccuracy  %2d/%d\n", correct_samples, 10);
 }
 
 /* run inference on the current tokens[] and print "in -> out".
  * The task is to reverse the sequence, so the expected output is the
  * input read backwards; score the prediction against it.
- * Assumes cvt16() has already built the Q8 weight copies.
+ * Assumes convert_weights_to_q8() has already built the Q8 weight copies.
  * Returns 1 if every position is correct, else 0. */
-static bool infseq(void)
+static bool infer_sequence(void)
 {
-    int i, idx;
-    bool ok;
+    int position, prediction;
+    bool sequence_correct;
 
-    forwrd();
+    forward_pass();
     printf(" ");
-    for (i = 0; i < S; i++)
-        printf("%d ", tokens[i]);
+    for (position = 0; position < S; position++)
+        printf("%d ", tokens[position]);
     printf("-> ");
-    ok = true;
-    for (i = 0; i < S; i++) {
-        vmax(&logits[i * V], V, &idx);
-        printf("%d ", idx);
-        if (idx != tokens[S - 1 - i])
-            ok = false;
+    sequence_correct = true;
+    for (position = 0; position < S; position++) {
+        vector_maximum(&logits[position * V], V, &prediction);
+        printf("%d ", prediction);
+        if (prediction != tokens[S - 1 - position])
+            sequence_correct = false;
     }
-    if (ok)
+    if (sequence_correct)
         printf(" ok\n");
     else
         printf(" fail\n");
-    return ok;
+    return sequence_correct;
 }
 
 /* read S-digit sequences from a text file and run inference on each.
  * Digits are 0-9; any non-digit (space, newline) separates sequences.
  * A line must supply at least S digits; the first S are used.
  * Returns the count processed, or ERROR if the file cannot be opened. */
-static int runfil(char *fname)
+static int run_inference_file(char *filename)
 {
-    fhits = 0;
-    return seqfile(fname, FM_INFER);
+    file_hits = 0;
+    return process_sequence_file(filename, FM_INFER);
 }
 
 /* ============================================================ */
@@ -1003,50 +1092,51 @@ static int runfil(char *fname)
 /* ============================================================ */
 
 /* save the six Q16 weight arrays to WFILE; 0 ok, ERROR on fail.
- * dcc stores `long` little-endian, so the file is little-endian. */
-static int wio(int fd, long *w, int n, bool wr)
+ * dcc stores int32_t little-endian, so the file is little-endian. */
+static int transfer_weight_group(int file, weight_value_t *weights, int count,
+                                 bool write_data)
 {
     int bytes;
 
-    bytes = n * (int)sizeof(long);
-    if (wr)
-        return write(fd, w, bytes) == bytes;
-    return read(fd, w, bytes) == bytes;
+    bytes = count * (int)sizeof(weight_value_t);
+    if (write_data)
+        return write(file, weights, bytes) == bytes;
+    return read(file, weights, bytes) == bytes;
 }
 
-static int wfile(int fd, bool wr)
+static int transfer_weight_file(int file, bool write_data)
 {
-    return wio(fd, wtke, V * D, wr)
-        && wio(fd, wpse, S * D, wr)
-        && wio(fd, wwq,  D * D, wr)
-        && wio(fd, wwk,  D * D, wr)
-        && wio(fd, wwv,  D * D, wr)
-        && wio(fd, wwot, D * V, wr);
+    return transfer_weight_group(file, token_weights_q16, V * D, write_data)
+        && transfer_weight_group(file, position_weights_q16, S * D, write_data)
+        && transfer_weight_group(file, query_weights_q16, D * D, write_data)
+        && transfer_weight_group(file, key_weights_q16, D * D, write_data)
+        && transfer_weight_group(file, value_weights_q16, D * D, write_data)
+        && transfer_weight_group(file, output_weights_q16, D * V, write_data);
 }
 
-static int savew(void)
+static int save_weights(void)
 {
-    int fd, ok;
+    int file, success;
 
-    fd = open(WFILE, O_WRONLY | O_CREAT | O_TRUNC, 0);
-    if (fd < 0)
+    file = open(WFILE, O_WRONLY | O_CREAT | O_TRUNC, 0);
+    if (file < 0)
         return ERROR;
-    ok = wfile(fd, true);
-    close(fd);
-    return ok ? 0 : ERROR;
+    success = transfer_weight_file(file, true);
+    close(file);
+    return success ? 0 : ERROR;
 }
 
 /* load the six Q16 weight arrays from WFILE; 0 ok, ERROR on fail */
-static int loadw(void)
+static int load_weights(void)
 {
-    int fd, ok;
+    int file, success;
 
-    fd = open(WFILE, O_RDONLY, 0);
-    if (fd < 0)
+    file = open(WFILE, O_RDONLY, 0);
+    if (file < 0)
         return ERROR;
-    ok = wfile(fd, false);
-    close(fd);
-    return ok ? 0 : ERROR;
+    success = transfer_weight_file(file, false);
+    close(file);
+    return success ? 0 : ERROR;
 }
 
 /* ============================================================ */
@@ -1073,7 +1163,7 @@ extern void outp(unsigned port, unsigned val);
 #define RDPORT 200              /* request-buffer read-back */
 
 /* read the latched 4-byte big-endian elapsed seconds; low 16 bits */
-static unsigned elapsed(void)
+static uint16_t elapsed_seconds(void)
 {
     int hi, lo;
 
@@ -1090,12 +1180,12 @@ static unsigned elapsed(void)
 
 int main(int argc, char *argv[])
 {
-    int step, ns, vs;
+    int step, sequence_count, validation_count;
     bool train;
-    char *fname;
+    char *filename;
 
     train = false;
-    fname = IFILE;
+    filename = IFILE;
     if (argc > 1) {
         if (strcmp(argv[1], "-t") == 0 || strcmp(argv[1], "-T") == 0)
             train = true;
@@ -1109,7 +1199,7 @@ int main(int argc, char *argv[])
             printf("  attnc11 -h       this help\n");
             return 0;
         } else
-            fname = argv[1];        /* explicit input file */
+            filename = argv[1];     /* explicit input file */
     }
 
     printf("attn/11 - paper tape is all you need\n");
@@ -1117,24 +1207,26 @@ int main(int argc, char *argv[])
 
     if (train) {
         printf("training...\n");
-        rseed = 887;
-        initw();
-        zerog();
-        thit = 0;
-        ttot = 0;
+        random_seed = 887;
+        initialize_weights();
+        zero_gradients();
+        training_hits = 0;
+        training_total = 0;
         for (step = 1; step <= NSTEP; step++) {
-            tstep = step;
+            training_step = step;
             putchar('.');       /* heartbeat: one dot per completed step */
-            gensm();
-            trseq();
+            generate_sample();
+            train_sequence();
             if ((step % FSTEP) == 0)
-                filrun(IFILE, true);
+                run_training_file(IFILE, true);
             if ((step % RPRT) == 0) {
-                report();
-                vs = filrun(IFILE, false);
-                if (vs != ERROR) {
-                    printf(" validation %2d/%d on %s\n", vhits, vs, IFILE);
-                    if (vhits == vs && vs > 0) {
+                report_training();
+                  validation_count = run_training_file(IFILE, false);
+                  if (validation_count != ERROR) {
+                      printf(" validation %2d/%d on %s\n", validation_hits,
+                          validation_count, IFILE);
+                      if (validation_hits == validation_count &&
+                       validation_count > 0) {
                         printf("validation passed; stopping early\n");
                         break;
                     }
@@ -1142,40 +1234,41 @@ int main(int argc, char *argv[])
             }
         }
         printf("\nsaving weights to %s ...\n", WFILE);
-        if (savew() != 0)
+        if (save_weights() != 0)
             printf("WARNING: could not save weights\n");
         printf("\n");
-        test();
-        ns = runfil(IFILE);
-        if (ns != ERROR)
-            printf("\naccuracy  %2d/%d on %s\n", fhits, ns, IFILE);
+        test_random_samples();
+        sequence_count = run_inference_file(IFILE);
+        if (sequence_count != ERROR)
+            printf("\naccuracy  %2d/%d on %s\n", file_hits, sequence_count,
+                   IFILE);
         return 0;
     }
 
     /* inference */
     printf("loading weights from %s ...\n", WFILE);
-    if (loadw() != 0) {
+    if (load_weights() != 0) {
         printf("no weights file found - run 'attnc11 -t' first\n");
         return 1;
     }
-    cvt16();                        /* build Q8 weight copies once */
+    convert_weights_to_q8();        /* build Q8 weight copies once */
 
     outp(SWPORT, 0);                /* start host stopwatch 0 */
-    ns = runfil(fname);
-    if (ns == ERROR) {
-        if (argc > 1 && fname != IFILE) {
-            printf("cannot open input file %s\n", fname);
+    sequence_count = run_inference_file(filename);
+    if (sequence_count == ERROR) {
+        if (argc > 1) {
+            printf("cannot open input file %s\n", filename);
             return 1;
         }
         /* no input file present: fall back to a random demo */
         printf("no %s found - running random demo\n\n", IFILE);
-        rseed = 1;
-        test();
+        random_seed = 1;
+        test_random_samples();
         return 0;
     }
     outp(SWPORT, 1);                /* latch elapsed seconds */
 
-    printf("\naccuracy  %2d/%d\n", fhits, ns);
-    printf("run time  %u s\n", elapsed());
+    printf("\naccuracy  %2d/%d\n", file_hits, sequence_count);
+    printf("run time  %u s\n", elapsed_seconds());
     return 0;
 }
