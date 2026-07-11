@@ -25,7 +25,7 @@
 ; (default ATTN.IN), runs the forward pass, prints the reversed prediction
 ; for each line, and reports accuracy.
 ;
-; The weights are produced by ATTNC89.C, the dcc C89 trainer, which stores
+; The weights are produced by ATTNC11.C, the dcc C11 trainer, which stores
 ; them as native little-endian 32-bit `long`.  This port therefore reads the
 ; Q16 weights little-endian; the earlier big-endian BDS C LONG package layout
 ; (used by ATTNINF.ASM) is no longer the on-disk format.
@@ -230,7 +230,7 @@ LWFAIL: LD      A,1
 ; ==========================================================================
 ; CVT16 - convert 1216 little-endian Q16 weights in WBUF to Q8 ints in QBUF.
 ;         The weights are stored little-endian (dcc native `long`, written by
-;         ATTNC89.C), which is exactly the 4-byte layout LQ8 consumes, so each
+;         ATTNC11.C), which is exactly the 4-byte layout LQ8 consumes, so each
 ;         weight pointer is handed straight to LQ8 with no byte swap.
 ;         Each weight = lq8(value) = signed value/256 toward zero, clamp16.
 ; ==========================================================================

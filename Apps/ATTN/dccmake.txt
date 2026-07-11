@@ -1,13 +1,13 @@
-# dccmake configuration for attnc99
+# dccmake configuration for attnc11
 # A 1-layer transformer trained to reverse an 8-digit sequence
-# Ported from BDS C to dcc C89 (CP/M 2.2 / Z80)
+# Ported from BDS C to dcc C11 (CP/M 2.2 / Z80)
 #
 # Prerequisites: Set DCC_DIR environment variable to the dcc repository path
 # e.g., export DCC_DIR=$HOME/GitHub/dcc
 # Note: dccmake.txt values are literal; ${...} is not expanded here.
 
-dcc-input=attnc99.c
-dcc-output=ATTNC99
+dcc-input=attnc11.c
+dcc-output=ATTNC11
 dcc-floatio=false
 dcc-flongio=false
 dcc-peep=true

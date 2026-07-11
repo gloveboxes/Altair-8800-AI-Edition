@@ -1,4 +1,4 @@
 ; Apps/ATTN/ATTN.SUB - driver for the ATTN apps
 ; attn/11 transformer, ported from PDP-11 attn.s
 
-ft -gb attn/attnc99.com
+ft -gb attn/attnc11.com
