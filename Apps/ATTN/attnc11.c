@@ -52,12 +52,6 @@ typedef int32_t weight_value_t;
 #define NPARAM (V*D + S*D + D*D + D*D + D*D + D*V)
 #define WBYTES (NPARAM * (int)sizeof(weight_value_t))
 
-#ifdef _DCC_
-#define SA_CAT2(a, b) a##b
-#define SA_CAT(a, b) SA_CAT2(a, b)
-#define _Static_assert(e, msg) typedef char SA_CAT(static_assertion_, __LINE__)[(e) ? 1 : -1]
-#endif
-
 #define NSTEP 700       /* max training steps  */
 #define RPRT 50         /* report interval     */
 #define FSTEP 10        /* mix in IFILE every n steps */
