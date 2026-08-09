@@ -1,42 +1,25 @@
-/* ============================================================
- * Chat JSON Handler for Altair 8800 - BDS C
- * Simple JSON parsing and generation for OpenAI API
- * ============================================================
- */
+#ifndef CHATJSON_H
+#define CHATJSON_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+/* Chat JSON request and response support for dcc C11. */
 
 /* Message types */
-#define MSG_SYS 0
-#define MSG_USR 1
-#define MSG_AST 2
+enum message_type {
+	MSG_SYS = 0,
+	MSG_USR = 1,
+	MSG_AST = 2
+};
 
 /* Message length limits */
 #define USR_LEN 256
 #define AST_LEN 8192
 #define MSG_LEN AST_LEN  /* History rows use assistant-length capacity */
 
-/* Forward declaration */
-struct msg_s;
+int j_genr(const char *system_message, const uint8_t *types, char *const *texts,
+		   size_t message_count, const char *model, const char *max_tokens,
+		   const char *temperature, char *output, size_t output_size);
 
-/* JSON token types */
-#define J_NULL 0
-#define J_STR 1
-#define J_NUM 2
-#define J_OBJ 3
-#define J_ARR 4
-#define J_BOOL 5
-
-/* JSON parsing functions */
-int j_parse();     /* Parse JSON reply and extract content */
-int j_genr();      /* Generate request JSON - takes separate arrays */
-int j_add();       /* Add string to JSON buffer */
-int j_ades();      /* Add escaped string to JSON buffer */
-int j_unesc();     /* Unescape JSON string in place */
-int j_mat2();      /* Match string at pointer */
-
-/* JSON utility functions */
-int j_skip();      /* Skip whitespace */
-
-/* Config access helpers */
-char *ch_gtok();
-char *ch_gtmp();
-char *ch_gmdl();
+#endif

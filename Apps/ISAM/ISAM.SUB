@@ -5,7 +5,7 @@ era dxfile.*
 era dxindex.*
 
 ft -g file://isam/dxisam.c
-ft -g file://isam/dxisam.h
+ft -g file://isam/isamdb.h
 ft -g file://isam/dxindex.c
 ft -g file://isam/dxfile.c
 

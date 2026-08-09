@@ -49,6 +49,11 @@
 typedef int16_t model_value_t;
 typedef int32_t weight_value_t;
 
+#define MODEL_VALUE_MAX 32767
+#define MODEL_VALUE_MIN (-32768)
+#define Q16_MODEL_MAX ((weight_value_t)MODEL_VALUE_MAX * 256L)
+#define Q16_MODEL_MIN ((weight_value_t)MODEL_VALUE_MIN * 256L)
+
 #define NPARAM (V*D + S*D + D*D + D*D + D*D + D*V)
 #define WBYTES (NPARAM * (int)sizeof(weight_value_t))
 
@@ -275,10 +280,10 @@ static uint16_t elapsed_seconds(void);
 /* clamp a 32-bit value to a signed 16-bit model value */
 static model_value_t clamp_to_model_value(weight_value_t value)
 {
-    if (value > 32767L)
-        return 32767;
-    if (value < -32768L)
-        return -32768;
+    if (value > MODEL_VALUE_MAX)
+        return MODEL_VALUE_MAX;
+    if (value < MODEL_VALUE_MIN)
+        return MODEL_VALUE_MIN;
     return (model_value_t)value;
 }
 
@@ -288,9 +293,13 @@ static model_value_t clamp_to_model_value(weight_value_t value)
  * shift (which would floor for negatives). */
 static inline model_value_t q16_to_q8(weight_value_t value)
 {
+    if (value > Q16_MODEL_MAX)
+        return MODEL_VALUE_MAX;
+    if (value < Q16_MODEL_MIN)
+        return MODEL_VALUE_MIN;
     if (value < 0)
-        return clamp_to_model_value(-((-value) >> 8));
-    return clamp_to_model_value(value >> 8);
+        return (model_value_t)-((-value) >> 8);
+    return (model_value_t)(value >> 8);
 }
 
 /* (a * b) >> 8 -> clamped Q8 int */
@@ -593,7 +602,8 @@ static void build_embeddings(void)
         tok = tokens[i];
         src = &token_weights_q8[tok * D];
         for (j = 0; j < D; j++)
-            *dst++ = *src++ + *pos++;
+            *dst++ = clamp_to_model_value(
+                (weight_value_t)*src++ + *pos++);
     }
 }
 
@@ -625,7 +635,7 @@ static void forward_attention(void)
                       &attention_output[i * D]);
     /* Step 7: residual Y += X */
     for (i = 0; i < S * D; i++)
-        attention_output[i] = attention_output[i] + embeddings[i];
+        add_clamped(&attention_output[i], embeddings[i]);
 }
 
 /* logits[i] = Wout^T . Y[i] */
@@ -750,7 +760,8 @@ static void backward_pass(void)
         softmax(logit_gradients, V);
         logit_gradients[targets[i]] = logit_gradients[targets[i]] - 256;
         for (k = 0; k < V; k++)
-            logit_gradients[k] = logit_gradients[k] << 7;
+            logit_gradients[k] = clamp_to_model_value(
+                (weight_value_t)logit_gradients[k] * 128L);
           add_outer_product(output_weight_gradients,
                       &attention_output[i * D], logit_gradients, D, V);
           matrix_vector_multiply(output_weights_q8, logit_gradients,
@@ -1002,26 +1013,26 @@ static void report_training(void)
 /* final test: 10 samples */
 static void test_random_samples(void)
 {
-    int sample, position, prediction, sample_correct, correct_samples;
+    int sample, pos, prediction, sample_correct, correct_samples;
 
     correct_samples = 0;
     convert_weights_to_q8();
     for (sample = 0; sample < 10; sample++) {
         generate_sample();
         forward_pass();
-        for (position = 0; position < S; position++) {
-            vector_maximum(&logits[position * V], V, &prediction);
-            test_predictions[position] = prediction;
+        for (pos = 0; pos < S; pos++) {
+            vector_maximum(&logits[pos * V], V, &prediction);
+            test_predictions[pos] = prediction;
         }
         printf(" ");
-        for (position = 0; position < S; position++)
-            printf("%d ", tokens[position]);
+        for (pos = 0; pos < S; pos++)
+            printf("%d ", tokens[pos]);
         printf("-> ");
-        for (position = 0; position < S; position++)
-            printf("%d ", test_predictions[position]);
+        for (pos = 0; pos < S; pos++)
+            printf("%d ", test_predictions[pos]);
         sample_correct = 1;
-        for (position = 0; position < S; position++)
-            if (test_predictions[position] != targets[position])
+        for (pos = 0; pos < S; pos++)
+            if (test_predictions[pos] != targets[pos])
                 sample_correct = 0;
         if (sample_correct) {
             correct_samples = correct_samples + 1;
@@ -1036,22 +1047,22 @@ static void test_random_samples(void)
  * The task is to reverse the sequence, so the expected output is the
  * input read backwards; score the prediction against it.
  * Assumes convert_weights_to_q8() has already built the Q8 weight copies.
- * Returns 1 if every position is correct, else 0. */
+ * Returns 1 if every pos is correct, else 0. */
 static bool infer_sequence(void)
 {
-    int position, prediction;
+    int pos, prediction;
     bool sequence_correct;
 
     forward_pass();
     printf(" ");
-    for (position = 0; position < S; position++)
-        printf("%d ", tokens[position]);
+    for (pos = 0; pos < S; pos++)
+        printf("%d ", tokens[pos]);
     printf("-> ");
     sequence_correct = true;
-    for (position = 0; position < S; position++) {
-        vector_maximum(&logits[position * V], V, &prediction);
+    for (pos = 0; pos < S; pos++) {
+        vector_maximum(&logits[pos * V], V, &prediction);
         printf("%d ", prediction);
-        if (prediction != tokens[S - 1 - position])
+        if (prediction != tokens[S - 1 - pos])
             sequence_correct = false;
     }
     if (sequence_correct)

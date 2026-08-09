@@ -1,5 +1,5 @@
 #include "stdio.h"
-#include "dxisam.h"
+#include "ISAMDB.H"
 
 #define I_IDXSZ (I_MXKEYLN + 2)
 
@@ -16,29 +16,17 @@ int value;
     *p = value;
 }
 
-int i_idxbld(tblnam, idxarr, maxent)
+int ixbld(tblnam, idxarr, maxent)
 char *tblnam;
 struct i_idxent idxarr[];
 int maxent;
 {
-    int i, j, k, tidx, slot, count, ksz, koff;
+    int i, k, tidx, slot, count, ksz, koff;
     int nextsample;
     int rc;
     char rec[I_RECSZ];
     
-    tidx = -1;
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            tidx = i;
-            break;
-        }
-    }
-    
+    tidx = find_table_index(tblnam);
     if (tidx < 0)
         return I_ENTBL;
     
@@ -60,10 +48,7 @@ int maxent;
         if (slot < nextsample)
             continue;
         if (count >= maxent)
-        {
-            printf("[i_idxbld] index capacity reached (%d entries)\r\n", maxent);
             break;
-        }
         
         idxarr[count].phys = slot;
         
@@ -79,17 +64,6 @@ int maxent;
         nextsample = slot + I_IDXSAMP;
     }
     
-    printf("[i_idxbld] built %d entries (sampling every %d records)\r\n", count, I_IDXSAMP);
-    if (count > 0)
-    {
-        printf("[i_idxbld] first entry phys=%d key=%.12s\r\n", 
-            idxarr[0].phys, idxarr[0].key);
-        printf("[i_idxbld] last entry phys=%d key=%.12s\r\n", 
-            idxarr[count - 1].phys, idxarr[count - 1].key);
-    }
-    else
-        printf("[i_idxbld] index is empty\r\n");
-    
     tbl_set_idxcnt(tidx, count);
     g_cfg.tbls[tidx].idxsamp = I_IDXSAMP;
     
@@ -97,7 +71,7 @@ int maxent;
 }
 
 /* Binary search index for key - return range [start, end) */
-int i_idxsrch(tblnam, srchkey, idxarr, idxcnt, startphys, endphys)
+int ixsrch(tblnam, srchkey, idxarr, idxcnt, startphys, endphys)
 char *tblnam;
 char *srchkey;
 struct i_idxent idxarr[];
@@ -105,24 +79,12 @@ int idxcnt;
 int *startphys;
 int *endphys;
 {
-    int i, j, tidx, ksz, cmp;
+    int i, tidx, ksz, cmp;
     int lo, hi, mid, best, slot;
     char *ekey;
     
     /* Find table */
-    tidx = -1;
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            tidx = i;
-            break;
-        }
-    }
-    
+    tidx = find_table_index(tblnam);
     if (tidx < 0)
         return I_ENTBL;
     
@@ -212,36 +174,22 @@ int *endphys;
 }
 
 /* High-level indexed lookup - returns physical slot or -1 */
-int i_idxlookup(tblnam, srchkey, idxarr, idxcnt, rec)
+int ixlook(tblnam, srchkey, idxarr, idxcnt, rec)
 char *tblnam;
 char *srchkey;
 struct i_idxent idxarr[];
 int idxcnt;
 char *rec;
 {
-    int i, j, tidx, ksz, koff;
+    int i, tidx, ksz, koff;
     int startphys, endphys, phys;
     int rc, cmp;
     int fd;
-    int tsz, nsecs, recno, total;
+    int tsz;
+    long offset;
     char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
     
-    /* Find table */
-    tidx = -1;
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            tidx = i;
-            break;
-        }
-    }
-    
+    tidx = find_table_index(tblnam);
     if (tidx < 0)
         return I_ENTBL;
     
@@ -252,57 +200,25 @@ char *rec;
     ksz = g_cfg.tbls[tidx].keysz[0];
     
     /* Use index to narrow search */
-    rc = i_idxsrch(tblnam, srchkey, idxarr, idxcnt, &startphys, &endphys);
+    rc = ixsrch(tblnam, srchkey, idxarr, idxcnt, &startphys, &endphys);
     if (rc != I_OK)
         return rc;
     
-    {
-        char dbgkey[I_MXKEYLN + 1];
-        for (i = 0; i < ksz && i < I_MXKEYLN; i++)
-            dbgkey[i] = srchkey[i];
-        dbgkey[i] = 0;
-        printf("[i_idxlookup] key=%s range=%d-%d\r\n", dbgkey, startphys, endphys);
-    }
-
     tsz = g_cfg.tbls[tidx].recsz;
-    tdisk = g_cfg.tbls[tidx].disk;
-    fname[0] = tdisk;
-    fname[1] = ':';
-    j = 0;
-    while (tblnam[j] && j < 8)
-    {
-        fname[j + 2] = tblnam[j];
-        j++;
-    }
-    fname[j + 2] = '.';
-    fname[j + 3] = 'D';
-    fname[j + 4] = 'A';
-    fname[j + 5] = 'T';
-    fname[j + 6] = 0;
+    build_table_filename(tidx, fname, "DAT");
     
-    fd = open(fname, 0);
+    fd = open(fname, O_RDONLY);
     if (fd == ERROR)
         return I_EOPEN;
     
-    nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-    if (nsecs > I_NSECTS)
-    {
-        close(fd);
-        return I_EREAD;
-    }
-    total = nsecs * I_SECSZ;
-
     /* Linear scan within range */
     for (phys = startphys; phys < endphys; phys++)
     {
-        recno = phys * nsecs;
-        if (seek(fd, recno, 0) == ERROR)
+        offset = (long)phys * tsz;
+        if (lseek(fd, offset, 0) < 0L)
             continue;
-        if (read(fd, sbuf, nsecs) < nsecs)
+        if (read(fd, rec, tsz) != tsz)
             continue;
-        
-        for (i = 0; i < tsz && i < total; i++)
-            rec[i] = sbuf[i];
         if (rec[0] == I_DELFLAG)
             continue;
         
@@ -328,7 +244,7 @@ char *rec;
     return I_ENREC;  /* Not found */
 }
 
-/* Flattened index entry helpers (avoid -> on BDS C) */
+/* Flattened index entry helpers */
 char *idxptr(idxarr, pos)
 struct i_idxent idxarr[];
 int pos;
@@ -396,12 +312,12 @@ int src;
  * and deleted, avoiding the need for full rebuilds. The index
  * remains in memory (for now) and will be disk-backed later.
  *
- * i_idxins: Insert/update a single index entry maintaining sort order
- * i_idxdel: Remove an index entry by physical slot number
+ * ixins: Insert/update a single index entry maintaining sort order
+ * ixdel: Remove an index entry by physical slot number
  */
 
 /* Insert or update a single index entry (maintains sorted order) */
-int i_idxins(tblnam, phys, rec, idxarr, idxcnt, maxent)
+int ixins(tblnam, phys, rec, idxarr, idxcnt, maxent)
 char *tblnam;
 int phys;
 char *rec;
@@ -417,19 +333,7 @@ int maxent;
     char newkey[I_MXKEYLN];
     
     /* Find table */
-    tidx = -1;
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            tidx = i;
-            break;
-        }
-    }
-    
+    tidx = find_table_index(tblnam);
     if (tidx < 0)
         return I_ENTBL;
 
@@ -515,29 +419,17 @@ int maxent;
 }
 
 /* Remove an index entry by physical slot number */
-int i_idxdel(tblnam, phys, idxarr, idxcnt)
+int ixdel(tblnam, phys, idxarr, idxcnt)
 char *tblnam;
 int phys;
 struct i_idxent idxarr[];
 int *idxcnt;
 {
-    int i, j, tidx;
+    int i, tidx;
     int found;
     
     /* Find table */
-    tidx = -1;
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            tidx = i;
-            break;
-        }
-    }
-    
+    tidx = find_table_index(tblnam);
     if (tidx < 0)
         return I_ENTBL;
 

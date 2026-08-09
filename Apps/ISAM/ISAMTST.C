@@ -1,12 +1,12 @@
 /* Test i_insrt - insert records */
 #include "stdio.h"
 #include "string.h"
-#include "dxisam.h"
+#include "ISAMDB.H"
 
 /* Number of initial records inserted during the test */
 #define I_RNUM 1000
 
-main()
+int main(void)
 {
     int i, j, rc, id, d0, d1, d2, d3, uidx, didx, count;
     int sample_slots[3];
@@ -23,7 +23,7 @@ main()
     strncpy(g_cfg.dbname, "ISAMTST", I_MXNM);
     g_cfg.ntbls = 1;
     
-    /* Table: NAMES on disk A, 32-byte records */
+    /* Table: NAMES on the current drive, 32-byte records */
     for (i = 0; i < I_MXNM; i++)
         g_cfg.tbls[0].name[i] = 0;
     
@@ -58,7 +58,7 @@ main()
         puts("Create table failed");
         return 1;
     }
-    puts("Created C:NAMES.DAT");
+    puts("Created NAMES.DAT on the current drive");
     
     /* Insert initial batch of records */
     for (i = 0; i < I_RNUM; i++)

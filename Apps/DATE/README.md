@@ -40,6 +40,20 @@ The staged string is formatted as `%a %m/%d/%Y %H:%M:%S`. `DATE.COM` does
 
 ## Build
 
+Build the C11 version with dcc:
+
+```
+export DCC_DIR=$HOME/GitHub/dcc
+export NTVCM_DIR=$HOME/GitHub/ntvcm
+./build-app.sh
+```
+
+The stripped, peephole-optimized C build is 640 bytes with the current dcc
+toolchain. Runtime stripping keeps only the small `putchar` output path; no
+formatting or buffered stdio code is linked.
+
+Alternatively, build the assembly version under CP/M:
+
 ```
 SUBMIT DATE
 ```

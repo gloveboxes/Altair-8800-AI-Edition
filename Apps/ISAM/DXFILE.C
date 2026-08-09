@@ -1,251 +1,220 @@
 #include "stdio.h"
-#include "dxisam.h"
+#include "ISAMDB.H"
 
-int i_mktbl(tblnam)
-char *tblnam;
+int i_mktbl(char *table_name)
 {
-    int fd;
-    int i, j;
-    char fname[20];
-    
-    printf("[i_mktbl] Looking for table: %s\r\n", tblnam);
-    printf("[i_mktbl] ntbls=%d\r\n", g_cfg.ntbls);
-    
-    /* Find table in config */
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        printf("[i_mktbl] Checking table %d: %s\r\n", i, g_cfg.tbls[i].name);
-        
-        /* Simple string compare */
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-            break;
-    }
-    
-    if (i >= g_cfg.ntbls)
-    {
-        puts("[i_mktbl] ERROR: Table not found in config");
-        return I_ENTBL;
-    }
-    
-    printf("[i_mktbl] Found table at index %d\r\n", i);
-    printf("[i_mktbl] disk=%c recsz=%d nkeys=%d\r\n",
-        g_cfg.tbls[i].disk, g_cfg.tbls[i].recsz, g_cfg.tbls[i].nkeys);
-    
-    /* Build filename: disk:name.DAT (e.g., A:CUSTOMER.DAT) */
-    fname[0] = g_cfg.tbls[i].disk;
-    fname[1] = ':';
-    j = 0;
-    while (tblnam[j] && j < 8)
-    {
-        fname[j + 2] = tblnam[j];
-        j++;
-    }
-    fname[j + 2] = '.';
-    fname[j + 3] = 'D';
-    fname[j + 4] = 'A';
-    fname[j + 5] = 'T';
-    fname[j + 6] = 0;
-    
-    printf("[i_mktbl] Creating file: %s\r\n", fname);
-    
-    /* Create empty file */
-    fd = creat(fname);
-    if (fd == ERROR)
-    {
-        printf("[i_mktbl] ERROR: creat failed for %s\r\n", fname);
+    int file_descriptor;
+    int rc;
+    int table_index;
+    char filename[20];
+
+    table_index = find_table_index(table_name);
+    if (table_index < 0)
+        return table_index;
+    invalidate_table_files();
+    remove_legacy_table_file(table_index, "DAT");
+    remove_legacy_table_file(table_index, "IDX");
+    remove_legacy_table_file(table_index, "JRN");
+    remove_legacy_table_file(table_index, "MAP");
+    build_table_filename(table_index, filename, "DAT");
+    file_descriptor = open(filename, O_CREAT | O_TRUNC | O_WRONLY, 0);
+    if (file_descriptor == ERROR)
         return I_EOPEN;
-    }
-    
-    close(fd);
-    puts("[i_mktbl] File created successfully");
-    return I_OK;
+    close(file_descriptor);
+    rc = pki_create(table_name);
+    if (rc != I_OK)
+        return rc;
+    return clear_journal(table_index);
 }
 
+#define close(file_descriptor) close_table_file(file_descriptor)
+
 /* Insert record - append to table data file */
-int i_insrt(tblnam, rec, rsiz)
-char *tblnam;
-char *rec;
-int rsiz;
+int i_insrt(char *tblnam, char *rec, int rsiz)
 {
     int fd;
-    int i, j, k, tsz, nsecs, total;
+    int i, tsz, nbytes;
+    int rc;
     int phys;
     int reuse;
     int reuse_phys;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
+    int next_free_slot;
+    long offset;
+    char *sbuf;
+    struct persistent_metadata metadata;
+    struct persistent_metadata new_metadata;
     
-    /* Find table in config */
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        /* Simple string compare */
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            /* Build filename first */
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
+    sbuf = record_workspace;
+    i = find_table_index(tblnam);
+    if (i < 0)
+        return i;
+    rc = load_table_metadata(i, &metadata);
+    if (rc != I_OK)
+        return rc;
             
             /* Verify record size matches table definition */
             tsz = g_cfg.tbls[i].recsz;
             if (rsiz != tsz)
-            {
-                printf("[i_insrt] ERROR: Size mismatch rsiz=%d tsz=%d\r\n", rsiz, tsz);
                 return I_ESIZE;
-            }
+
+            rc = key_find(tblnam,
+                &rec[g_cfg.tbls[i].keyoff[0]], 0);
+            if (rc >= 0)
+                return I_EDUP;
+            if (rc != I_ENREC)
+                return rc;
             
             /* Open for read/write */
-            fd = open(fname, 2);
+            fd = open_table_file(i, "DAT", O_RDWR);
             if (fd == ERROR)
-            {
-                printf("[i_insrt] ERROR: Cannot open %s for append\r\n", fname);
                 return I_EOPEN;
-            }
             
-            /* Convert record size to sectors */
-            nsecs = (rsiz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
+            nbytes = rsiz;
+            if (nbytes > I_RECSZ)
             {
                 close(fd);
-                printf("[i_insrt] ERROR: Record too large\r\n");
                 return I_EWRIT;
             }
-            total = nsecs * I_SECSZ;
-            
-            /* Check for deleted slot to reuse */
-            reuse = 0;
-            reuse_phys = -1;
-            if (g_cfg.tbls[i].nrecs < g_cfg.tbls[i].maxrec)
-            {
-                for (phys = 0; phys < g_cfg.tbls[i].maxrec; phys++)
-                {
-                    if (seek(fd, phys * nsecs, 0) == ERROR)
-                        break;
-                    if (read(fd, sbuf, nsecs) != nsecs)
-                        break;
-                    if (sbuf[0] == I_DELFLAG)
-                    {
-                        reuse = 1;
-                        reuse_phys = phys;
-                        break;
-                    }
-                }
-            }
-            
+            reuse = metadata.free_head >= 0;
+            reuse_phys = metadata.free_head;
+            next_free_slot = -1;
             if (reuse && reuse_phys >= 0)
             {
                 phys = reuse_phys;
-                if (seek(fd, phys * nsecs, 0) == ERROR)
+                offset = (long)phys * nbytes;
+                if (lseek(fd, offset, 0) < 0L)
                 {
                     close(fd);
-                    printf("[i_insrt] ERROR: Seek failed for reuse\r\n");
                     return I_EWRIT;
+                }
+                if (read(fd, sbuf, nbytes) != nbytes ||
+                    sbuf[0] != I_DELFLAG || lseek(fd, offset, 0) < 0L)
+                {
+                    close(fd);
+                    return I_EINDEX;
+                }
+                next_free_slot = read_free_link(sbuf);
+                if (next_free_slot == reuse_phys ||
+                    next_free_slot >= metadata.high_water_slot)
+                {
+                    close(fd);
+                    return I_EINDEX;
                 }
             }
             else
             {
-                phys = g_cfg.tbls[i].maxrec;
-                if (seek(fd, phys * nsecs, 0) == ERROR)
+                phys = metadata.high_water_slot;
+                offset = (long)phys * nbytes;
+                if (lseek(fd, offset, 0) < 0L)
                 {
                     close(fd);
-                    printf("[i_insrt] ERROR: Seek append failed\r\n");
                     return I_EWRIT;
                 }
+                memset(sbuf, 0, nbytes);
             }
-            
-            /* Write record to buffer, pad to sector boundary */
-            for (k = 0; k < rsiz && k < total; k++)
-                sbuf[k] = rec[k];
-            while (k < total)
-            {
-                sbuf[k] = 0;
-                k++;
-            }
-            
-            if (write(fd, sbuf, nsecs) != nsecs)
+
+            new_metadata = metadata;
+            new_metadata.index_count++;
+            new_metadata.active_count++;
+            new_metadata.generation++;
+            if (reuse)
+                new_metadata.free_head = next_free_slot;
+            else
+                new_metadata.high_water_slot = phys + 1;
+            rc = write_journal(i, JOURNAL_OPERATION_INSERT, phys, reuse,
+                sbuf, &metadata);
+            if (rc != I_OK)
             {
                 close(fd);
-                printf("[i_insrt] ERROR: Write failed\r\n");
+                return rc;
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_JOURNAL))
+            {
+                close(fd);
                 return I_EWRIT;
             }
             
+            if (write(fd, rec, nbytes) != nbytes)
+            {
+                close(fd);
+                return abort_journal(i, I_EWRIT);
+            }
+            if (fsync(fd) != 0)
+            {
+                close(fd);
+                return abort_journal(i, I_EWRIT);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_DATA))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+
+            defer_table_file_invalidation = 1;
+            rc = key_add(tblnam, rec, phys);
+            defer_table_file_invalidation = 0;
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            new_metadata.index_count = g_cfg.tbls[i].idxcnt;
+            if (simulate_crash_after(I_CRASH_AFTER_DERIVED))
+            {
+                invalidate_table_files();
+                close(fd);
+                return I_EWRIT;
+            }
+            rc = save_table_metadata(i, &new_metadata);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            rc = commit_journal(i);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_METADATA))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+            rc = clear_journal(i);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return rc;
+            }
+            
             close(fd);
-            
-            /* Update record counts */
-            g_cfg.tbls[i].nrecs++;
-            if (!reuse && g_cfg.tbls[i].nrecs > g_cfg.tbls[i].maxrec)
-                g_cfg.tbls[i].maxrec = g_cfg.tbls[i].nrecs;
-            
             return I_OK;
-        }
-    }
-    
-    return I_ENTBL;
 }
 
 /* Find physical index of Nth logical (non-deleted) record */
-int i_findlog(tblnam, logidx, physidx)
-char *tblnam;
-int logidx;
-int *physidx;
+int i_findlog(char *tblnam, int logidx, int *physidx)
 {
     int fd;
-    int i, j, tsz, nsecs;
+    int i, tsz, nbytes;
     int phys, logical;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
-    
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
+    long offset;
+    char *sbuf;
+
+    stats_add(&i_runtime_stats.table_scans, 1);
+    sbuf = record_workspace;
+    i = find_table_index(tblnam);
+    if (i < 0)
+        return i;
             tsz = g_cfg.tbls[i].recsz;
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
             
-            fd = open(fname, 0);
+            fd = open_table_file(i, "DAT", O_RDONLY);
             if (fd == ERROR)
                 return I_EOPEN;
             
-            nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
+            nbytes = tsz;
+            if (nbytes > I_RECSZ)
             {
                 close(fd);
                 return I_EREAD;
@@ -254,12 +223,14 @@ int *physidx;
             logical = 0;
             for (phys = 0; phys < g_cfg.tbls[i].maxrec; phys++)
             {
-                if (seek(fd, phys * nsecs, 0) == ERROR)
+                stats_add(&i_runtime_stats.scan_slots, 1);
+                offset = (long)phys * nbytes;
+                if (lseek(fd, offset, 0) < 0L)
                 {
                     close(fd);
                     return I_EREAD;
                 }
-                if (read(fd, sbuf, nsecs) < nsecs)
+                if (read(fd, sbuf, nbytes) != nbytes)
                 {
                     close(fd);
                     return I_EREAD;
@@ -279,84 +250,49 @@ int *physidx;
             
             close(fd);
             return I_ENREC;
-        }
-    }
-    
-    return I_ENTBL;
 }
 
 /* Read record by physical index (bypasses delete check for scanning) */
-int i_rdphys(tblnam, rec, rnum)
-char *tblnam;
-char *rec;
-int rnum;
+int i_rdphys(char *tblnam, char *rec, int rnum)
 {
     int fd;
-    int i, j, k, tsz, nsecs, recno, total;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
+    int i, tsz, nbytes;
+    long offset;
     
+    stats_add(&i_runtime_stats.physical_reads, 1);
     if (rnum < 0)
         return I_ENREC;
     
-    /* Locate table */
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
+    i = find_table_index(tblnam);
+    if (i < 0)
+        return i;
             tsz = g_cfg.tbls[i].recsz;
             if (rnum >= g_cfg.tbls[i].maxrec)
                 return I_ENREC;
             
-            /* Build filename */
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
-            
-            fd = open(fname, 0);
+            fd = open_table_file(i, "DAT", O_RDONLY);
             if (fd == ERROR)
                 return I_EOPEN;
             
-            /* Seek to physical record position */
-            nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
+            nbytes = tsz;
+            if (nbytes > I_RECSZ)
             {
                 close(fd);
                 return I_EREAD;
             }
-            recno = rnum * nsecs;
-            if (seek(fd, recno, 0) == ERROR)
+            offset = (long)rnum * nbytes;
+            if (lseek(fd, offset, 0) < 0L)
             {
                 close(fd);
                 return I_EREAD;
             }
             
             /* Read record */
-            if (read(fd, sbuf, nsecs) < nsecs)
+            if (read(fd, rec, nbytes) != nbytes)
             {
                 close(fd);
                 return I_EREAD;
             }
-            
-            total = nsecs * I_SECSZ;
-            for (k = 0; k < tsz && k < total; k++)
-                rec[k] = sbuf[k];
             
             close(fd);
             
@@ -365,157 +301,184 @@ int rnum;
                 return I_ENREC;
                 
             return I_OK;
-        }
-    }
-    
-    return I_ENTBL;
 }
 
 /* Write record by physical index (bypasses logical scan) */
-int i_wrphys(tblnam, rec, rsiz, phys)
-char *tblnam;
-char *rec;
-int rsiz;
-int phys;
+int i_wrphys(char *tblnam, char *rec, int rsiz, int phys)
 {
     int fd;
-    int i, j, k, tsz, nsecs, recno, total;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
+    int i, tsz, nbytes;
+    long offset;
+    char *oldrec;
+    int rc;
+    struct persistent_metadata metadata;
+    struct persistent_metadata new_metadata;
     
+    oldrec = record_workspace;
     if (phys < 0)
         return I_ENREC;
     
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
+    i = find_table_index(tblnam);
+    if (i < 0)
+        return i;
+            rc = load_table_metadata(i, &metadata);
+            if (rc != I_OK)
+                return rc;
             tsz = g_cfg.tbls[i].recsz;
             if (rsiz != tsz)
                 return I_ESIZE;
             if (phys >= g_cfg.tbls[i].maxrec)
                 return I_ENREC;
             
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
             
-            fd = open(fname, 2);
+            fd = open_table_file(i, "DAT", O_RDWR);
             if (fd == ERROR)
                 return I_EOPEN;
             
-            nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
+            nbytes = tsz;
+            if (nbytes > I_RECSZ)
             {
                 close(fd);
                 return I_EUPDT;
             }
-            total = nsecs * I_SECSZ;
-            for (k = 0; k < rsiz && k < total; k++)
-                sbuf[k] = rec[k];
-            while (k < total)
-            {
-                sbuf[k] = 0;
-                k++;
-            }
-            recno = phys * nsecs;
-            if (seek(fd, recno, 0) == ERROR)
+            offset = (long)phys * nbytes;
+            if (lseek(fd, offset, 0) < 0L)
             {
                 close(fd);
                 return I_EUPDT;
             }
-            if (write(fd, sbuf, nsecs) != nsecs)
+            if (read(fd, oldrec, nbytes) != nbytes)
+            {
+                close(fd);
+                return I_EREAD;
+            }
+            if (oldrec[0] == I_DELFLAG)
+            {
+                close(fd);
+                return I_ENREC;
+            }
+            if (lseek(fd, offset, 0) < 0L)
             {
                 close(fd);
                 return I_EUPDT;
+            }
+            new_metadata = metadata;
+            new_metadata.generation++;
+            rc = write_journal(i, JOURNAL_OPERATION_UPDATE, phys, 1,
+                oldrec, &metadata);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return rc;
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_JOURNAL))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+            if (write(fd, rec, nbytes) != nbytes)
+            {
+                close(fd);
+                return abort_journal(i, I_EUPDT);
+            }
+            if (fsync(fd) != 0)
+            {
+                close(fd);
+                return abort_journal(i, I_EUPDT);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_DATA))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+            defer_table_file_invalidation = 1;
+            rc = key_update(tblnam, oldrec, rec, phys);
+            defer_table_file_invalidation = 0;
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_DERIVED))
+            {
+                invalidate_table_files();
+                close(fd);
+                return I_EWRIT;
+            }
+            rc = save_table_metadata(i, &new_metadata);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            rc = commit_journal(i);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_METADATA))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+            rc = clear_journal(i);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return rc;
             }
             close(fd);
             return I_OK;
-        }
-    }
-    
-    return I_ENTBL;
 }
 
 /* Delete record by physical slot */
-int i_delphys(tblnam, phys)
-char *tblnam;
-int phys;
+int i_delphys(char *tblnam, int phys)
 {
     int fd;
-    int i, j, tsz, nsecs;
-    int recno;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
+    int i, tsz, nbytes;
+    int rc;
+    long offset;
+    char *sbuf;
+    struct persistent_metadata metadata;
+    struct persistent_metadata new_metadata;
     
+    sbuf = record_workspace;
     if (phys < 0)
         return I_ENREC;
     
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
+    i = find_table_index(tblnam);
+    if (i < 0)
+        return i;
+            rc = load_table_metadata(i, &metadata);
+            if (rc != I_OK)
+                return rc;
             if (g_cfg.tbls[i].nrecs == 0)
                 return I_ENREC;
             if (phys >= g_cfg.tbls[i].maxrec)
                 return I_ENREC;
             
             tsz = g_cfg.tbls[i].recsz;
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
             
-            fd = open(fname, 2);
+            fd = open_table_file(i, "DAT", O_RDWR);
             if (fd == ERROR)
                 return I_EOPEN;
             
-            nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
+            nbytes = tsz;
+            if (nbytes > I_RECSZ)
             {
                 close(fd);
                 return I_EUPDT;
             }
             
-            recno = phys * nsecs;
-            if (seek(fd, recno, 0) == ERROR)
+            offset = (long)phys * nbytes;
+            if (lseek(fd, offset, 0) < 0L)
             {
                 close(fd);
                 return I_EUPDT;
             }
             
-            if (read(fd, sbuf, nsecs) != nsecs)
+            if (read(fd, sbuf, nbytes) != nbytes)
             {
                 close(fd);
                 return I_EREAD;
@@ -525,42 +488,92 @@ int phys;
                 close(fd);
                 return I_ENREC;
             }
+
+            memcpy(key_record_workspace, sbuf, nbytes);
             
-            sbuf[0] = I_DELFLAG;
-            if (seek(fd, recno, 0) == ERROR)
+            new_metadata = metadata;
+            new_metadata.active_count--;
+            new_metadata.free_head = phys;
+            new_metadata.generation++;
+            rc = write_journal(i, JOURNAL_OPERATION_DELETE, phys, 1,
+                sbuf, &metadata);
+            if (rc != I_OK)
             {
                 close(fd);
-                return I_EUPDT;
+                return rc;
             }
-            if (write(fd, sbuf, nsecs) != nsecs)
+            if (simulate_crash_after(I_CRASH_AFTER_JOURNAL))
             {
                 close(fd);
-                return I_EUPDT;
+                return I_EWRIT;
+            }
+            sbuf[0] = I_DELFLAG;
+            set_free_link(sbuf, metadata.free_head);
+            if (lseek(fd, offset, 0) < 0L)
+            {
+                close(fd);
+                return abort_journal(i, I_EUPDT);
+            }
+            if (write(fd, sbuf, nbytes) != nbytes)
+            {
+                close(fd);
+                return abort_journal(i, I_EUPDT);
+            }
+            if (fsync(fd) != 0)
+            {
+                close(fd);
+                return abort_journal(i, I_EUPDT);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_DATA))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+            defer_table_file_invalidation = 1;
+            rc = key_tombstone(i, key_record_workspace, phys);
+            defer_table_file_invalidation = 0;
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_DERIVED))
+            {
+                invalidate_table_files();
+                close(fd);
+                return I_EWRIT;
+            }
+            rc = save_table_metadata(i, &new_metadata);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            rc = commit_journal(i);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return abort_journal(i, rc);
+            }
+            if (simulate_crash_after(I_CRASH_AFTER_METADATA))
+            {
+                close(fd);
+                return I_EWRIT;
+            }
+            rc = clear_journal(i);
+            if (rc != I_OK)
+            {
+                close(fd);
+                return rc;
             }
             close(fd);
-            
-            g_cfg.tbls[i].nrecs--;
-            if (g_cfg.tbls[i].nrecs < 0)
-                g_cfg.tbls[i].nrecs = 0;
             return I_OK;
-        }
-    }
-    
-    return I_ENTBL;
 }
 
 /* Read record by index (0-based) from table data file */
-int i_rdrec(tblnam, rec, rnum)
-char *tblnam;
-char *rec;
-int rnum;
+int i_rdrec(char *tblnam, char *rec, int rnum)
 {
-    int fd;
-    int i, j, k, tsz, nsecs, recno, total;
     int phys;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
     
     if (rnum < 0)
         return I_ENREC;
@@ -568,77 +581,11 @@ int rnum;
     /* Find physical index of logical record */
     if (i_findlog(tblnam, rnum, &phys) != I_OK)
         return I_ENREC;
-    
-    /* Locate table */
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            tsz = g_cfg.tbls[i].recsz;
-            
-            /* Build filename */
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
-            
-            fd = open(fname, 0);
-            if (fd == ERROR)
-                return I_EOPEN;
-            
-            /* Seek to physical record position */
-            nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
-            {
-                close(fd);
-                return I_EREAD;
-            }
-            recno = phys * nsecs;
-            if (seek(fd, recno, 0) == ERROR)
-            {
-                close(fd);
-                return I_EREAD;
-            }
-            
-            /* Read record */
-            if (read(fd, sbuf, nsecs) < nsecs)
-            {
-                close(fd);
-                return I_EREAD;
-            }
-            
-            total = nsecs * I_SECSZ;
-            for (k = 0; k < tsz && k < total; k++)
-                rec[k] = sbuf[k];
-            
-            close(fd);
-            return I_OK;
-        }
-    }
-    
-    return I_ENTBL;
+    return i_rdphys(tblnam, rec, phys);
 }
 
 /* Update record by index using temp file rewrite */
-int i_uprec(tblnam, rec, rsiz, rnum)
-char *tblnam;
-char *rec;
-int rsiz;
-int rnum;
+int i_uprec(char *tblnam, char *rec, int rsiz, int rnum)
 {
     int phys;
     
@@ -652,99 +599,18 @@ int rnum;
     return i_wrphys(tblnam, rec, rsiz, phys);
 }
 
-/* Delete record by index via lazy delete (mark as deleted) */
-int i_delrec(tblnam, rnum)
-char *tblnam;
-int rnum;
+/* Delete record by logical index via the indexed physical delete path. */
+int i_delrec(char *tblnam, int rnum)
 {
-    int fd;
-    int i, j, tsz, nsecs;
-    int recno;
     int phys;
-    char fname[20];
-    char tdisk;
-    char sbuf[I_BUFSZ];
-    
+
     if (rnum < 0)
         return I_ENREC;
-    
-    /* Find physical index of logical record */
+
     if (i_findlog(tblnam, rnum, &phys) != I_OK)
         return I_ENREC;
-    
-    for (i = 0; i < g_cfg.ntbls; i++)
-    {
-        for (j = 0; tblnam[j] && g_cfg.tbls[i].name[j]; j++)
-            if (tblnam[j] != g_cfg.tbls[i].name[j])
-                break;
-        
-        if (tblnam[j] == 0 && g_cfg.tbls[i].name[j] == 0)
-        {
-            if (g_cfg.tbls[i].nrecs == 0)
-                return I_ENREC;
-            
-            tsz = g_cfg.tbls[i].recsz;
-            tdisk = g_cfg.tbls[i].disk;
-            fname[0] = tdisk;
-            fname[1] = ':';
-            j = 0;
-            while (tblnam[j] && j < 8)
-            {
-                fname[j + 2] = tblnam[j];
-                j++;
-            }
-            fname[j + 2] = '.';
-            fname[j + 3] = 'D';
-            fname[j + 4] = 'A';
-            fname[j + 5] = 'T';
-            fname[j + 6] = 0;
-            
-            fd = open(fname, 2);
-            if (fd == ERROR)
-                return I_EOPEN;
-            
-            nsecs = (tsz + I_SECSZ - 1) / I_SECSZ;
-            if (nsecs > I_NSECTS)
-            {
-                close(fd);
-                return I_EUPDT;
-            }
-            recno = phys * nsecs;
-            if (seek(fd, recno, 0) == ERROR)
-            {
-                close(fd);
-                return I_EUPDT;
-            }
-            
-            if (read(fd, sbuf, nsecs) != nsecs)
-            {
-                close(fd);
-                return I_EREAD;
-            }
-            if (sbuf[0] == I_DELFLAG)
-            {
-                close(fd);
-                return I_ENREC;
-            }
-            sbuf[0] = I_DELFLAG;
-            if (seek(fd, recno, 0) == ERROR)
-            {
-                close(fd);
-                return I_EUPDT;
-            }
-            if (write(fd, sbuf, nsecs) != nsecs)
-            {
-                close(fd);
-                return I_EUPDT;
-            }
-            close(fd);
-            
-            g_cfg.tbls[i].nrecs--;
-            if (g_cfg.tbls[i].nrecs < 0)
-                g_cfg.tbls[i].nrecs = 0;
-            return I_OK;
-        }
-    }
-    
-    return I_ENTBL;
+
+    return i_delphys(tblnam, phys);
 }
+
+#undef close

@@ -1,349 +1,117 @@
-/* ============================================================
- * Chat JSON Handler for Altair 8800 - BDS C  
- * Simple JSON parsing and generation for OpenAI API
- * ============================================================
- */
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#include "stdio.h"
-#include "chatjson.h"
-
-/* String functions - BDS C style */
-int strlen();
-int strcpy();
-int strcat();
-int strcmp();
+#include "CHATJSON.H"
 
 /* Append plain string to buffer with bounds checking */
-int j_add(buf, pos, maxlen, text)
-char *buf;
-int *pos;
-int maxlen;
-char *text;
+static int json_append(char *buffer, size_t *position, size_t buffer_size, const char *text)
 {
-    int p;
-    p = *pos;
+    size_t write_position = *position;
 
-    while (*text) {
-        if (p >= maxlen - 1) {
-            buf[p] = 0;
+    while (*text != '\0') {
+        if (write_position >= buffer_size - 1) {
+            buffer[write_position] = '\0';
             return -1;
         }
-        buf[p++] = *text++;
+        buffer[write_position++] = *text++;
     }
 
-    buf[p] = 0;
-    *pos = p;
+    buffer[write_position] = '\0';
+    *position = write_position;
     return 0;
 }
 
 /* Append escaped string to buffer with bounds checking */
-int j_ades(buf, pos, maxlen, text)
-char *buf;
-int *pos;
-int maxlen;
-char *text;
+static int json_append_escaped(char *buffer, size_t *position, size_t buffer_size, const char *text)
 {
-    int p;
-    char ch;
+    size_t write_position = *position;
 
-    p = *pos;
+    while (*text != '\0') {
+        uint8_t character_value = (uint8_t)*text++ & 0x7f;
+        char escape = '\0';
 
-    while (*text) {
-        ch = *text++;
+        if (character_value == '"' || character_value == '\\')
+            escape = (char)character_value;
+        else if (character_value == '\n')
+            escape = 'n';
+        else if (character_value == '\r')
+            escape = 'r';
+        else if (character_value == '\t')
+            escape = 't';
 
-        if (ch == '"' || ch == '\\') {
-            if (p >= maxlen - 2) {
-                buf[p] = 0;
+        if (escape != '\0') {
+            if (write_position >= buffer_size - 2) {
+                buffer[write_position] = '\0';
                 return -1;
             }
-            buf[p++] = '\\';
-            buf[p++] = ch;
-        } else if (ch == '\n') {
-            if (p >= maxlen - 2) {
-                buf[p] = 0;
-                return -1;
-            }
-            buf[p++] = '\\';
-            buf[p++] = 'n';
-        } else if (ch == '\r') {
-            if (p >= maxlen - 2) {
-                buf[p] = 0;
-                return -1;
-            }
-            buf[p++] = '\\';
-            buf[p++] = 'r';
-        } else if (ch == '\t') {
-            if (p >= maxlen - 2) {
-                buf[p] = 0;
-                return -1;
-            }
-            buf[p++] = '\\';
-            buf[p++] = 't';
+            buffer[write_position++] = '\\';
+            buffer[write_position++] = escape;
         } else {
-            if (ch < ' ')
-                ch = ' ';
-            if (p >= maxlen - 1) {
-                buf[p] = 0;
+            if (character_value < ' ')
+                character_value = ' ';
+            if (write_position >= buffer_size - 1) {
+                buffer[write_position] = '\0';
                 return -1;
             }
-            buf[p++] = ch;
+            buffer[write_position++] = (char)character_value;
         }
     }
 
-    buf[p] = 0;
-    *pos = p;
+    buffer[write_position] = '\0';
+    *position = write_position;
     return 0;
 }
 
-/* Generate OpenAI chat completions request JSON - BDS C compatible */
-int j_genr(sysmsg, types, texts, msgcnt, outbuf, outsize)
-char *sysmsg;
-int *types;
-char **texts;  /* Pointer to array of message strings */
-int msgcnt;
-char *outbuf;
-int outsize;
+int j_genr(const char *system_message, const uint8_t *types, char *const *texts,
+           size_t message_count, const char *model, const char *max_tokens,
+           const char *temperature, char *output, size_t output_size)
 {
-    char *j_buf;
-    int j_pos;
-    int i;
-    int prev_pos;
-    char *msgtxt;
-    char *cfg_model;
-    char *cfg_tokens;
-    char *cfg_temp;
-    
-    j_pos = 0;
-    
-    /* Use output buffer directly */
-    j_buf = outbuf;
+    size_t position = 0;
 
-    cfg_model = ch_gmdl();
-    cfg_tokens = ch_gtok();
-    cfg_temp = ch_gtmp();
-    
-    /* Clear buffer first */
-    if (outsize > 0)
-        j_buf[0] = 0;
+    if (output_size == 0)
+        return -1;
+    output[0] = '\0';
     
     /* Build JSON using bounded append helpers */
-    if (j_add(j_buf, &j_pos, outsize, "{\"model\":\"") < 0)
+    if (json_append(output, &position, output_size, "{\"model\":\"") < 0)
         return -1;
-    if (j_add(j_buf, &j_pos, outsize, cfg_model) < 0)
+    if (json_append(output, &position, output_size, model) < 0)
         return -1;
-    if (j_add(j_buf, &j_pos, outsize, "\",\"messages\":[") < 0)
+    if (json_append(output, &position, output_size, "\",\"messages\":[") < 0)
         return -1;
-    if (j_add(j_buf, &j_pos, outsize, "{\"role\":\"system\",\"content\":\"") < 0)
+    if (json_append(output, &position, output_size, "{\"role\":\"system\",\"content\":\"") < 0)
         return -1;
-    
-    /* Manually escape and add system message */
-    /* printf("j_genr: About to add sysmsg: '%.100s...'\n", sysmsg); */
-    
-    /* Simple JSON escaping for system message */
-    if (j_ades(j_buf, &j_pos, outsize, sysmsg) < 0)
+    if (json_append_escaped(output, &position, output_size, system_message) < 0)
         return -1;
-    if (j_add(j_buf, &j_pos, outsize, "\"}") < 0)
+    if (json_append(output, &position, output_size, "\"}") < 0)
         return -1;
-    
-    /* Add conversation messages */
-    for (i = 0; i < msgcnt; i++) {
-        /* Locate message pointer */
-        msgtxt = *(texts + i);
-        if (msgtxt == 0)
-            msgtxt = "";
-        
-        /* Debug: show message being processed */
-        /* printf("j_genr: Processing message %d, type=%d, text='%s'\n", i, types[i], msgtxt); */
-        
-        prev_pos = j_pos;
-        if (j_add(j_buf, &j_pos, outsize, ",{\"role\":\"") < 0) {
-            j_pos = prev_pos;
-            j_buf[j_pos] = 0;
-            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-            continue;
-        }
-        
-        switch (types[i]) {
-        case MSG_USR:
-            if (j_add(j_buf, &j_pos, outsize, "user") < 0) {
-                j_pos = prev_pos;
-                j_buf[j_pos] = 0;
-                /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-                continue;
-            }
-            break;
-        case MSG_AST:
-            if (j_add(j_buf, &j_pos, outsize, "assistant") < 0) {
-                j_pos = prev_pos;
-                j_buf[j_pos] = 0;
-                /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-                continue;
-            }
-            break;
-        default:
-            if (j_add(j_buf, &j_pos, outsize, "user") < 0) {
-                j_pos = prev_pos;
-                j_buf[j_pos] = 0;
-                /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-                continue;
-            }
-            break;
-        }
-        
-        if (j_add(j_buf, &j_pos, outsize, "\",\"content\":\"") < 0) {
-            j_pos = prev_pos;
-            j_buf[j_pos] = 0;
-            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-            continue;
-        }
-        
-        /* Simple JSON escaping for message content */
-        if (j_ades(j_buf, &j_pos, outsize, msgtxt) < 0) {
-            j_pos = prev_pos;
-            j_buf[j_pos] = 0;
-            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-            continue;
-        }
-        if (j_add(j_buf, &j_pos, outsize, "\"}") < 0) {
-            j_pos = prev_pos;
-            j_buf[j_pos] = 0;
-            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
-            continue;
-        }
-    }
-    
-    /* Close JSON with streaming enabled and configured params */
-    if (j_add(j_buf, &j_pos, outsize, "],\"max_tokens\":") < 0)
-        return -1;
-    if (j_add(j_buf, &j_pos, outsize, cfg_tokens) < 0)
-        return -1;
-    if (j_add(j_buf, &j_pos, outsize, ",\"temperature\":") < 0)
-        return -1;
-    if (j_add(j_buf, &j_pos, outsize, cfg_temp) < 0)
-        return -1;
-    if (j_add(j_buf, &j_pos, outsize, ",\"stream\":true}") < 0)
-        return -1;
-    
-    /* Get final length */
-    j_pos = strlen(j_buf);
-    
-    /* Debug: show buffer usage */
-    /* printf("j_genr: Used %d/%d bytes in internal buffer\n", j_pos, outsize); */
-    /* printf("j_genr: Final JSON: '%.200s...'\n", j_buf); */
-    
-    return j_pos;
-}
 
-/* Parse OpenAI reply and extract message content */
-int j_parse(jsonstr, outbuf, outsize)
-char *jsonstr;
-char *outbuf;
-int outsize;
-{
-    char *ptr;
-    char *start;
-    int i, len;
-    
-    /* Look for "content":" in the reply */
-    ptr = jsonstr;
-    while (*ptr) {
-        if (j_mat2(ptr, "\"content\":\"")) {
-            ptr += 11; /* Skip past "content":" */
-            start = ptr;
-            
-            /* Find end of string */
-            while (*ptr && *ptr != '"') {
-                if (*ptr == '\\' && *(ptr + 1)) {
-                    ptr += 2; /* Skip escaped character */
-                } else {
-                    ptr++;
-                }
-            }
-            
-            /* Copy content to output buffer */
-            len = ptr - start;
-            if (len >= outsize)
-                len = outsize - 1;
-                
-            for (i = 0; i < len; i++) {
-                outbuf[i] = start[i];
-            }
-            outbuf[i] = 0;
-            
-            /* Unescape the content */
-            j_unesc(outbuf);
-            
-            return len;
-        }
-        ptr++;
-    }
-    
-    /* No content found */
-    strcpy(outbuf, "No reply found");
-    return -1;
-}
+    for (size_t index = 0; index < message_count; index++) {
+        size_t previous_position = position;
+        const char *message_text = texts[index] != NULL ? texts[index] : "";
+        const char *role = types[index] == MSG_AST ? "assistant" : "user";
 
-/* Match string at pointer */
-int j_mat2(ptr, match)
-char *ptr;
-char *match;
-{
-    while (*match) {
-        if (*ptr != *match)
-            return 0;
-        ptr++;
-        match++;
-    }
-    return 1;
-}
-
-/* Unescape JSON string in place */
-int j_unesc(str)
-char *str;
-{
-    char *src, *dst;
-    
-    src = dst = str;
-    
-    while (*src) {
-        if (*src == '\\' && *(src + 1)) {
-            src++; /* Skip backslash */
-            switch (*src) {
-            case '"':
-                *dst++ = '"';
-                break;
-            case '\\':
-                *dst++ = '\\';
-                break;
-            case 'n':
-                *dst++ = '\n';
-                break;
-            case 'r':
-                *dst++ = '\r';
-                break;
-            case 't':
-                *dst++ = '\t';
-                break;
-            default:
-                *dst++ = *src;
-                break;
-            }
-            src++;
-        } else {
-            *dst++ = *src++;
+        if (json_append(output, &position, output_size, ",{\"role\":\"") < 0 ||
+            json_append(output, &position, output_size, role) < 0 ||
+            json_append(output, &position, output_size, "\",\"content\":\"") < 0 ||
+            json_append_escaped(output, &position, output_size, message_text) < 0 ||
+            json_append(output, &position, output_size, "\"}") < 0) {
+            position = previous_position;
+            output[position] = '\0';
         }
     }
-    *dst = 0;
-    
-    return 0;
-}
 
-/* Skip whitespace */
-int j_skip(ptr)
-char **ptr;
-{
-    while (**ptr == ' ' || **ptr == '\t' || **ptr == '\n' || **ptr == '\r') {
-        (*ptr)++;
-    }
-    return 0;
+    if (json_append(output, &position, output_size, "],\"max_tokens\":") < 0)
+        return -1;
+    if (json_append(output, &position, output_size, max_tokens) < 0)
+        return -1;
+    if (json_append(output, &position, output_size, ",\"temperature\":") < 0)
+        return -1;
+    if (json_append(output, &position, output_size, temperature) < 0)
+        return -1;
+    if (json_append(output, &position, output_size, ",\"stream\":true}") < 0)
+        return -1;
+
+    return (int)position;
 }

@@ -1,27 +1,44 @@
 #include "stdio.h"
-#include "dxisam.h"
+#include "string.h"
+#include "ISAMDB.H"
 
-#ifndef DX_COMMON_LINKAGE
 struct i_db g_cfg;
-#endif
+static char config_buffer[I_CFGBUF];
+struct i_stats i_runtime_stats;
 
-int i_cfwr(fname)
-char *fname;
+static void stats_add(int *counter, int amount)
+{
+    if (amount > 32767 - *counter)
+        *counter = 32767;
+    else
+        *counter += amount;
+}
+
+void istat_reset(void)
+{
+    memset(&i_runtime_stats, 0, sizeof(i_runtime_stats));
+}
+
+void iget_stats(struct i_stats *stats)
+{
+    memcpy(stats, &i_runtime_stats, sizeof(i_runtime_stats));
+}
+
+char *i_wrint(char *p, int val);
+char *i_rdint(char *p, char *pend, int *val);
+
+int i_cfwr(char *fname)
 {
     int fd;
     int i, j, len;
-    char buf[I_BUFSZ];
+    char *buf;
     char num[10];
     char *p;
     
-    printf("[i_cfwr] Writing config to: %s\r\n", fname);
-    
-    fd = creat(fname);
+    buf = config_buffer;
+    fd = open(fname, O_CREAT | O_TRUNC | O_WRONLY, 0);
     if (fd == ERROR)
-    {
-        puts("[i_cfwr] ERROR: Cannot create config file");
         return I_EOPEN;
-    }
     
     p = buf;
     
@@ -49,13 +66,9 @@ char *fname;
     }
     *p++ = '\n';
     
-    printf("[i_cfwr] db=%s ntbls=%d\r\n", g_cfg.dbname, g_cfg.ntbls);
-    
     /* Write each table */
     for (i = 0; i < g_cfg.ntbls && i < I_MXTBL; i++)
     {
-        printf("[i_cfwr] Writing table %d: %s\r\n", i, g_cfg.tbls[i].name);
-        
         /* Table name */
         j = 0;
         while (g_cfg.tbls[i].name[j] && j < I_MXNM)
@@ -83,23 +96,18 @@ char *fname;
     
     /* Write buffer to file */
     len = p - buf;
-    i = (len + I_SECSZ - 1) / I_SECSZ;
-    if (write(fd, buf, i) != i)
+    if (write(fd, buf, len) != len)
     {
         close(fd);
-        puts("[i_cfwr] ERROR: Write failed");
         return I_EWRIT;
     }
     
     close(fd);
-    puts("[i_cfwr] Config written successfully");
     return I_OK;
 }
 
 /* Helper: write integer to buffer as decimal string with newline */
-char *i_wrint(p, val)
-char *p;
-int val;
+char *i_wrint(char *p, int val)
 {
     int i, len;
     char num[10];
@@ -125,21 +133,21 @@ int val;
     return p;
 }
 
-int i_cfrd(fname)
-char *fname;
+int i_cfrd(char *fname)
 {
-    int fd, i, t, nsecs;
+    int fd, i, t, nbytes, rc;
     char *p;
     char *pend;
-    char buf[I_BUFSZ];
+    char *buf;
     
-    fd = open(fname, 0);
+    buf = config_buffer;
+    fd = open(fname, O_RDONLY);
     if (fd == ERROR)
         return I_EOPEN;
     
     /* Read file into buffer */
-    nsecs = read(fd, buf, I_NSECTS);
-    if (nsecs <= 0)
+    nbytes = read(fd, buf, I_CFGBUF);
+    if (nbytes <= 0)
     {
         close(fd);
         return I_EOPEN;
@@ -148,7 +156,7 @@ char *fname;
     close(fd);
     
     p = buf;
-    pend = buf + (nsecs * I_SECSZ);
+    pend = buf + nbytes;
     
     /* Read dbname */
     i = 0;
@@ -208,15 +216,18 @@ char *fname;
         for (i = 0; i < g_cfg.tbls[t].nkeys && i < I_MXKEY; i++)
             p = i_rdint(p, pend, &g_cfg.tbls[t].keysz[i]);
     }
+
+    for (t = 0; t < g_cfg.ntbls && t < I_MXTBL; t++)
+    {
+        rc = pki_load(g_cfg.tbls[t].name);
+        if (rc != I_OK)
+            return rc;
+    }
     
-    printf("[i_cfrd] Loaded config: db=%s ntbls=%d\r\n", g_cfg.dbname, g_cfg.ntbls);
     return I_OK;
 }
 
-char *i_rdint(p, pend, val)
-char *p;
-char *pend;
-int *val;
+char *i_rdint(char *p, char *pend, int *val)
 {
     *val = 0;
     while (p < pend && *p >= '0' && *p <= '9')

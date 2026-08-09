@@ -1,0 +1,12 @@
+# dcc build directories
+/build*/
+
+# Host-side CP/M program and test state
+/*.COM
+/*.CFG
+/*.DAT
+/*.IDX
+/*.JRN
+/*.MAP
+/C:*
+/ntvcm.log
