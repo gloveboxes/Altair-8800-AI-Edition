@@ -383,10 +383,10 @@ void wifi_setup_run_config_shell(void)
  */
 static void start_websocket_terminal(void)
 {
-    const char *mdns_name = get_mdns_hostname();
-    if (mdns_name)
+    const char *hostname = config_get_hostname();
+    if (hostname)
     {
-        printf("Hostname: %s\n", mdns_name);
+        printf("Hostname: %s\n", hostname);
     }
 
     printf("Starting WebSocket terminal server...\n");

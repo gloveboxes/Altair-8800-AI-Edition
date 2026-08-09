@@ -190,13 +190,13 @@ bool altair_config_clear(void);
 bool config_get_device_id(char* buffer, size_t buffer_len);
 
 /**
- * @brief Get the mDNS hostname for this device
+ * @brief Get the DHCP/device hostname
  *
  * Format: "altair-XXXXXXXX" where XXXXXXXX is last 4 bytes of chip ID
  *
  * @return Pointer to hostname string (static buffer)
  */
-const char* get_mdns_hostname(void);
+const char* config_get_hostname(void);
 
 #ifdef __cplusplus
 }

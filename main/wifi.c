@@ -52,7 +52,10 @@ static const char* TAG = "WiFi";
 // State variables
 static bool s_wifi_initialized = false;
 static bool s_wifi_connected = false;
+static bool s_station_connected = false;
 static bool s_wifi_ap_mode = false;
+static bool s_reconnect_enabled = false;
+static bool s_has_connected = false;
 static char s_ip_address[16] = {0};
 static int s_retry_count = 0;
 static int s_connect_attempts = 0;
@@ -118,6 +121,15 @@ static void wifi_schedule_connect(uint32_t delay_ms)
     ESP_ERROR_CHECK(esp_timer_start_once(s_connect_timer, (uint64_t)delay_ms * 1000ULL));
 }
 
+static void wifi_update_display_ip(const char* ip_address)
+{
+#if CONFIG_ALTAIR_DISPLAY_AXS15231B
+    vt100_terminal_set_ip(ip_address, config_get_hostname());
+#else
+    altair_panel_show_ip(ip_address, config_get_hostname());
+#endif
+}
+
 /**
  * @brief WiFi event handler
  */
@@ -131,6 +143,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                 wifi_schedule_connect(WIFI_CONNECT_DELAY_MS);
                 break;
 
+            case WIFI_EVENT_STA_CONNECTED:
+                s_station_connected = true;
+                break;
+
             case WIFI_EVENT_STA_DISCONNECTED: {
                 wifi_event_sta_disconnected_t* event = 
                     (wifi_event_sta_disconnected_t*)event_data;
@@ -140,12 +156,23 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                          event->reason, wifi_disconnect_reason_name(event->reason));
                 
                 s_wifi_connected = false;
+                s_station_connected = false;
                 s_ip_address[0] = '\0';
+                wifi_update_display_ip(NULL);
                 
                 // Update status LED to show disconnected state
                 status_led_set_wifi_status(false);
 
-                if (s_retry_count < WIFI_MAX_RETRY) {
+                if (!s_reconnect_enabled) {
+                    break;
+                }
+
+                if (s_has_connected) {
+                    s_retry_count++;
+                    ESP_LOGI(TAG, "Reconnecting after established connection (attempt %d) in %u ms...",
+                             s_retry_count, (unsigned)WIFI_CONNECT_DELAY_MS);
+                    wifi_schedule_connect(WIFI_CONNECT_DELAY_MS);
+                } else if (s_retry_count < WIFI_MAX_RETRY) {
                     s_retry_count++;
                     ESP_LOGI(TAG, "Retrying connection (%d/%d) in %u ms...", 
                              s_retry_count, WIFI_MAX_RETRY, (unsigned)WIFI_CONNECT_DELAY_MS);
@@ -197,13 +224,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                 ESP_LOGI(TAG, "Got IP address: %s", s_ip_address);
                 
                 // Show network status on the active on-device display
-#if CONFIG_ALTAIR_DISPLAY_AXS15231B
-                vt100_terminal_set_ip(s_ip_address, get_mdns_hostname());
-#else
-                altair_panel_show_ip(s_ip_address, get_mdns_hostname());
-#endif
+                wifi_update_display_ip(s_ip_address);
                 
                 s_wifi_connected = true;
+                s_has_connected = true;
                 s_retry_count = 0;
                 wifi_stop_connect_timer();
                 
@@ -220,9 +244,19 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                 ESP_LOGW(TAG, "Lost IP address");
                 s_wifi_connected = false;
                 s_ip_address[0] = '\0';
+                wifi_update_display_ip(NULL);
                 
                 // Update status LED to show disconnected state
                 status_led_set_wifi_status(false);
+
+                if (s_reconnect_enabled && s_has_connected && s_station_connected) {
+                    ESP_LOGW(TAG, "IP lost while still associated; reconnecting to restart DHCP");
+                    esp_err_t err = esp_wifi_disconnect();
+                    if (err != ESP_OK) {
+                        ESP_LOGW(TAG, "esp_wifi_disconnect failed after IP loss: %s",
+                                 esp_err_to_name(err));
+                    }
+                }
                 break;
 
             default:
@@ -258,7 +292,7 @@ bool wifi_init(void)
 
     // Set DHCP hostname so the AP / router shows the device by name
     {
-        const char* hostname = get_mdns_hostname();
+        const char* hostname = config_get_hostname();
         if (hostname && *hostname) {
             esp_err_t herr = esp_netif_set_hostname(s_sta_netif, hostname);
             if (herr == ESP_OK) {
@@ -337,6 +371,9 @@ wifi_result_t wifi_connect(void)
     s_disconnect_count = 0;
     s_last_disconnect_reason = 0;
     s_wifi_connected = false;
+    s_station_connected = false;
+    s_reconnect_enabled = true;
+    s_has_connected = false;
     wifi_stop_connect_timer();
     xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
 
@@ -395,6 +432,7 @@ wifi_result_t wifi_connect(void)
         ESP_LOGE(TAG, "Failed to connect to %s after %d attempts; disconnects=%d, last_reason=%u (%s)",
                  ssid, s_connect_attempts, s_disconnect_count,
                  s_last_disconnect_reason, wifi_disconnect_reason_name(s_last_disconnect_reason));
+        s_reconnect_enabled = false;
         wifi_stop_connect_timer();
         esp_wifi_stop();
         return WIFI_RESULT_CONNECT_FAILED;
@@ -402,6 +440,7 @@ wifi_result_t wifi_connect(void)
         ESP_LOGE(TAG, "Connection timeout after %d attempts; disconnects=%d, last_reason=%u (%s)",
                  s_connect_attempts, s_disconnect_count,
                  s_last_disconnect_reason, wifi_disconnect_reason_name(s_last_disconnect_reason));
+        s_reconnect_enabled = false;
         wifi_stop_connect_timer();
         esp_wifi_stop();
         return WIFI_RESULT_TIMEOUT;
@@ -415,6 +454,7 @@ void wifi_disconnect(void)
     }
 
     ESP_LOGI(TAG, "Disconnecting...");
+    s_reconnect_enabled = false;
     wifi_stop_connect_timer();
     esp_wifi_disconnect();
     esp_wifi_stop();

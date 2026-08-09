@@ -53,7 +53,7 @@ static char s_chat_endpoint[CONFIG_CHAT_ENDPOINT_MAX_LEN + 1] = {0};
 static char s_chat_model[CONFIG_CHAT_MODEL_MAX_LEN + 1] = {0};
 static char s_chat_max_tokens[CONFIG_CHAT_MAX_TOKENS_MAX_LEN + 1] = {0};
 static char s_chat_temperature[CONFIG_CHAT_TEMPERATURE_MAX_LEN + 1] = {0};
-static char s_mdns_hostname[32] = {0};
+static char s_hostname[32] = {0};
 
 static bool s_initialized = false;
 static bool s_config_loaded = false;
@@ -311,10 +311,10 @@ bool altair_config_init(void)
     s_initialized = true;
     printf("[Config] NVS initialized\n");
 
-    // Generate mDNS hostname from chip ID
+    // Generate a stable DHCP/device hostname from the chip ID
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
-    snprintf(s_mdns_hostname, sizeof(s_mdns_hostname), 
+    snprintf(s_hostname, sizeof(s_hostname),
              "altair-%02x%02x%02x%02x", mac[2], mac[3], mac[4], mac[5]);
 
     // Try to load existing config
@@ -991,10 +991,10 @@ bool config_get_device_id(char* buffer, size_t buffer_len)
     return true;
 }
 
-const char* get_mdns_hostname(void)
+const char* config_get_hostname(void)
 {
     if (!s_initialized) {
         altair_config_init();
     }
-    return s_mdns_hostname;
+    return s_hostname;
 }

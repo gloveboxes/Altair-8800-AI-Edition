@@ -285,11 +285,11 @@ static void draw_all_leds(uint16_t status, uint16_t address, uint8_t data)
 
 static void draw_ip_line(void)
 {
+    panel_display_fill_rect(0, s_layout.y_ip_address, panel_display_width(), 15, s_theme.background);
+
     if (s_ip_addr[0] == '\0') {
         return;
     }
-
-    panel_display_fill_rect(0, s_layout.y_ip_address, panel_display_width(), 15, s_theme.background);
 
     char display_str[72];
     if (s_hostname[0] != '\0') {
@@ -471,14 +471,18 @@ void altair_panel_update(const intel8080_t *cpu)
 #define PANEL_TASK_PRIORITY     4    // Legacy value (panel update task is created in main)
 void altair_panel_show_ip(const char *ip_addr, const char *hostname)
 {
-    if (!panel_initialized || ip_addr == NULL) {
+    if (!panel_initialized) {
         return;
     }
 
-    // Bring panel to normal brightness once WiFi is connected and IP is known
-    panel_display_set_backlight(80);
+    if (ip_addr) {
+        // Bring panel to normal brightness once WiFi is connected and IP is known
+        panel_display_set_backlight(80);
+        snprintf(s_ip_addr, sizeof(s_ip_addr), "%s", ip_addr);
+    } else {
+        s_ip_addr[0] = '\0';
+    }
 
-    snprintf(s_ip_addr, sizeof(s_ip_addr), "%s", ip_addr);
     if (hostname) {
         snprintf(s_hostname, sizeof(s_hostname), "%s", hostname);
     } else {

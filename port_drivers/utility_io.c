@@ -52,7 +52,7 @@ size_t utility_output(int port, uint8_t data, char* buffer, size_t buffer_length
                 switch (data)
                 {
                     case 0: {
-                        const char *h = get_mdns_hostname();
+                        const char *h = config_get_hostname();
                         len = (size_t)snprintf(buffer, buffer_length, "%s",
                                                (h && *h) ? h : "unknown");
                         break;
