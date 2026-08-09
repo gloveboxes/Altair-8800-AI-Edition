@@ -150,7 +150,42 @@
         "panel": "dedicated",
         "clear": true
       }
+    },
+    {
+      "label": "Build active DCC C file for debugging",
+      "type": "shell",
+      "command": "${env:DCC_DIR}/dccmake",
+      "args": [
+        "-g",
+        "dcc-input=${file}",
+        "dcc-output=${fileBasenameNoExtension}",
+        "dcc-include-directory=${env:DCC_DIR}",
+        "l80-command=${env:DCC_DIR}/l80.com",
+        "dcc-runtime=${DCC_DIR}/DCCRTL.MAC",
+        "dcc-build-dir=build"
+      ],
+      "options": {
+        "cwd": "${fileDirname}",
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Copy debug outputs back to source folder",
+      "type": "shell",
+      "command": "output_base=$(printf '%s' \"${fileBasenameNoExtension}\" | tr '[:lower:]' '[:upper:]') && cp -f \"${fileDirname}/build/${output_base}.COM\" \"${fileDirname}/${fileBasenameNoExtension}.COM\" && cp -f \"${fileDirname}/build/${output_base}.DBG\" \"${fileDirname}/${fileBasenameNoExtension}.DBG\"",
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build and copy active DCC C file for debugging",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build active DCC C file for debugging",
+        "Copy debug outputs back to source folder"
+      ],
+      "problemMatcher": []
     }
   ]
-}
 }

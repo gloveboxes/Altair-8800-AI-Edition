@@ -10,6 +10,31 @@
       "type": "espidf",
       "name": "Launch",
       "request": "launch"
+    },
+    {
+      "name": "DCC CP/M: Debug active C file",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Build and copy active DCC C file for debugging",
+      "program": "${fileDirname}/${fileBasenameNoExtension}.COM",
+      "cwd": "${fileDirname}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/Users/dave/GitHub/ntvcm/ntvcm",
+      "miDebuggerArgs": "--interpreter=mi",
+      "targetArchitecture": "x86",
+      "sourceFileMap": {
+        "tests": "${workspaceFolder}/tests"
+      },
+      "customLaunchSetupCommands": [
+        {
+          "text": "-environment-cd \"${fileDirname}\""
+        },
+        {
+          "text": "-file-exec-and-symbols \"${fileDirname}/${fileBasenameNoExtension}.COM\""
+        }
+      ],
+      "launchCompleteCommand": "exec-continue",
+      "externalConsole": false
     }
   ]
 }

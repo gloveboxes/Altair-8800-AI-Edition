@@ -4,6 +4,7 @@ build-freenove/
 build-waveshare/
 build-host-tests/
 reference/
+*.[dD][bB][gG]
 
 # Generated config
 sdkconfig

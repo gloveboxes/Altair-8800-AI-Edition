@@ -195,11 +195,11 @@ static size_t build_device_info_json(char* out, size_t out_len)
     char id_hex[17];
     config_get_device_id(id_hex, sizeof(id_hex));
 
-    const char* mdns = get_mdns_hostname();
+    const char* hostname = config_get_hostname();
 
     return (size_t)snprintf(out, out_len,
-                            "{\"id\":\"%s\",\"mdns\":\"%s.local\"}",
-                            id_hex, mdns ? mdns : "altair-8800");
+                            "{\"id\":\"%s\",\"hostname\":\"%s\"}",
+                            id_hex, hostname ? hostname : "altair-8800");
 }
 
 // Handler: Serve config page (gzipped HTML)

@@ -27,6 +27,18 @@
       ],
       "cStandard": "c11",
       "intelliSenseMode": "${default}"
+    },
+    {
+      "name": "DCC Apps",
+      "includePath": [
+        "${workspaceFolder}/Apps/**",
+        "${env:DCC_DIR}"
+      ],
+      "defines": [
+        "_DCC_=1"
+      ],
+      "cStandard": "c11",
+      "intelliSenseMode": "${default}"
     }
   ],
   "version": 4

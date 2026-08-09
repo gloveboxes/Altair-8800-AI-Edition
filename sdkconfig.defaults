@@ -76,6 +76,9 @@ CONFIG_LWIP_MAX_SOCKETS=16
 CONFIG_LWIP_MAX_ACTIVE_TCP=16
 CONFIG_LWIP_MAX_LISTENING_TCP=8
 
+# The firmware uses a DHCP hostname but does not provide or consume mDNS.
+# CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES is not set
+
 # Socket recycling - keep aggressive settings for clean RST closes
 CONFIG_LWIP_TCP_MSL=100
 CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT=1000

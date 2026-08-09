@@ -108,55 +108,6 @@
             margin-top: 20px;
             display: none;
         }
-        .dns-box {
-            margin-top: 12px;
-            display: none;
-        }
-        .dns-box label {
-            margin-bottom: 6px;
-            color: #b0b0b0;
-        }
-        .dns-row {
-            display: flex;
-            gap: 8px;
-        }
-        .dns-row input {
-            flex: 1;
-        }
-        .copy-btn {
-            padding: 12px 14px;
-            border: none;
-            border-radius: 8px;
-            background: rgba(79, 195, 247, 0.15);
-            color: #4fc3f7;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-            width: auto;
-        }
-        .copy-btn:hover {
-            background: rgba(79, 195, 247, 0.25);
-        }
-        .open-btn {
-            padding: 12px 14px;
-            border: none;
-            border-radius: 8px;
-            background: rgba(76, 175, 80, 0.15);
-            color: #81c784;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-            width: auto;
-        }
-        .open-btn:hover {
-            background: rgba(76, 175, 80, 0.25);
-        }
-        .dns-warning {
-            margin-top: 8px;
-            color: #e0e0e0;
-            font-weight: 600;
-            font-size: 13px;
-        }
         .status.success {
             background: rgba(76, 175, 80, 0.2);
             color: #81c784;
@@ -227,16 +178,6 @@
         </form>
         
         <div class="status" id="status"></div>
-        <div class="dns-box" id="dnsBox">
-            <label for="dnsUrl">Device mDNS address</label>
-            <div class="dns-row">
-                <input type="text" id="dnsUrl" readonly>
-                <button type="button" class="copy-btn" id="copyBtn">Copy</button>
-                <button type="button" class="open-btn" id="openBtn">Open</button>
-            </div>
-            <div class="dns-warning">Make sure you're connected to the same Wi‑Fi network as the Altair before opening.</div>
-        </div>
-        
         <div class="footer">
             The device will reboot after saving configuration
         </div>
@@ -248,49 +189,6 @@
         const btnText = document.getElementById('btnText');
         const spinner = document.getElementById('spinner');
         const submitBtn = document.getElementById('submitBtn');
-        const dnsBox = document.getElementById('dnsBox');
-        const dnsUrl = document.getElementById('dnsUrl');
-        const copyBtn = document.getElementById('copyBtn');
-        const openBtn = document.getElementById('openBtn');
-
-        function normalizeMdns(value) {
-            return String(value || '')
-                .replace(/^.*mDNS:\s*/i, '')
-                .replace(/^.*DNS:\s*/i, '')
-                .trim();
-        }
-
-        copyBtn.addEventListener('click', async () => {
-            if (!dnsUrl.value) return;
-            const cleanValue = normalizeMdns(dnsUrl.value);
-            dnsUrl.value = cleanValue;
-
-            try {
-                await navigator.clipboard.writeText(cleanValue);
-                copyBtn.textContent = 'Copied';
-                setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
-            } catch (e) {
-                const temp = document.createElement('textarea');
-                temp.value = cleanValue;
-                temp.setAttribute('readonly', '');
-                temp.style.position = 'absolute';
-                temp.style.left = '-9999px';
-                document.body.appendChild(temp);
-                temp.select();
-                document.execCommand('copy');
-                document.body.removeChild(temp);
-                copyBtn.textContent = 'Copied';
-                setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
-            }
-        });
-
-        openBtn.addEventListener('click', () => {
-            if (!dnsUrl.value) return;
-            const cleanValue = normalizeMdns(dnsUrl.value);
-            dnsUrl.value = cleanValue;
-            window.open(cleanValue, '_blank');
-        });
-
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
 
@@ -322,14 +220,6 @@
                     btnText.textContent = 'Submitted';
                     btnText.style.display = 'block';
                     spinner.style.display = 'none';
-                    if (result && (result.mdns || result.mdns_url || result.mdnsUrl)) {
-                        let mdns = normalizeMdns(result.mdns || result.mdns_url || result.mdnsUrl);
-                        if (!mdns.startsWith('http://') && !mdns.startsWith('https://')) {
-                            mdns = 'http://' + mdns + ':8088/';
-                        }
-                        dnsUrl.value = mdns;
-                        dnsBox.style.display = 'block';
-                    }
                     setTimeout(() => {
                         status.textContent = 'Please reconnect to your WiFi network and access the Altair at its new IP address.';
                     }, 3000);
