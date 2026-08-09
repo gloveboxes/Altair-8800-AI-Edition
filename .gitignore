@@ -21,3 +21,4 @@ references/
 # Host runner runtime state
 altair_local/altair_env.txt
 docker/altair_env.txt
+altair_env.txt

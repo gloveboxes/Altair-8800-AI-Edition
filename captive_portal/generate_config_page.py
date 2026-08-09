@@ -34,12 +34,11 @@ def main():
                 f.write('  ')
             f.write(f'0x{byte:02x}')
             if i < len(compressed) - 1:
-                f.write(', ')
-            if i % 12 == 11:
+                f.write(',')
+            if i % 12 == 11 or i == len(compressed) - 1:
                 f.write('\n')
-        
-        if len(compressed) % 12 != 0:
-            f.write('\n')
+            else:
+                f.write(' ')
         
         f.write('};\n\n')
         f.write(f'static const size_t config_page_gz_len = {len(compressed)};\n\n')
