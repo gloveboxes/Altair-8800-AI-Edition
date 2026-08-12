@@ -1,0 +1,22 @@
+# dccmake configuration for SHEETS
+# C11 / CP/M 2.2 / Z80
+
+# Prerequisites:
+#   export DCC_DIR=$HOME/GitHub/dcc
+#   export NTVCM_DIR=$HOME/GitHub/ntvcm
+
+dcc-input=SHEETS.C, SHEETC.C
+dcc-output=SHEETS
+dcc-floatio=false
+dcc-flongio=false
+dcc-peep=true
+dcc-stack-bytes=4096
+dcc-build-dir=build
+dcc-runtime=${DCC_DIR}/DCCRTL.MAC
+dcc-include-directory=${DCC_DIR}
+dcc-tool=${DCC_DIR}/dcc
+dccpeep-tool=${DCC_DIR}/dccpeep
+dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
+ntvcm-tool=${NTVCM_DIR}/ntvcm
+m80-command=${DCC_DIR}/m80.com
+l80-command=${DCC_DIR}/l80.com

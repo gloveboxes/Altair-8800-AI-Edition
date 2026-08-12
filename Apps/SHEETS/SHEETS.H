@@ -1,110 +1,92 @@
-/*
- * SHEETS.H - shared defines, externals, and global state for the
- * SHEETS spreadsheet. The program is split across SHEETS.C (UI and
- * main) and SHEETC.C (formula engine) so each translation unit fits
- * the BDS C 1.6 compiler.
- *
- * MUST be included AFTER "stdio.h" (and "string.h") in every .c file
- * of the program. BDS C externals overlay by offset (FORTRAN COMMON
- * style), so the include order has to be identical in both modules.
- * No data declarations may precede stdio.h, so this header is never
- * the first include.
- */
+#ifndef SHEETS_H
+#define SHEETS_H
 
-#define MAXCOL 26
-#define MAXROW 99
-#define CWID   10
-#define VCOLS  7
-#define VROWS  26
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
-/* Max formula nesting / eval-stack depth (also the cycle-check
- * window). evrow[]/evcol[] below are sized to this. */
-#define EDMAX  25
+#define MAX_COLUMNS 26
+#define MAX_ROWS 99
+#define CELL_WIDTH 10
+#define VISIBLE_COLUMNS 7
+#define VISIBLE_ROWS 26
 
-#define TITR   1
-#define HDRR   2
-#define DATR   3
-#define EDR    29
-#define STR    29
-#define HLPR   30
+/* Compatibility names retained while the UI module is migrated. */
+#define MAXCOL MAX_COLUMNS
+#define MAXROW MAX_ROWS
+#define CWID CELL_WIDTH
+#define VCOLS VISIBLE_COLUMNS
+#define VROWS VISIBLE_ROWS
 
-#define ESC    27
-#define CR     13
-#define LF     10
-#define BKSP   8
-#define CTLH   8
-#define DEL    127
-#define KUP    5
-#define KDN    24
-#define KRT    4
-#define KLT    19
-#define CTLC   3
-#define CTLG   7
-#define CTLK   11
-#define CTLN   14
-#define CTLO   15
-#define CTLP   16
-#define CTLQ   17
-#define CTLR   18
-#define CTLT   20
-#define CTLV   22
-#define CTLW   23
-#define CTLU   21
-#define CTLY   25
+#define TITLE_ROW 1
+#define HEADER_ROW 2
+#define DATA_ROW 3
+#define EDIT_ROW 29
+#define STATUS_ROW 29
+#define HELP_ROW 30
 
-/* ---- Externals ---- */
+#define TITR TITLE_ROW
+#define HDRR HEADER_ROW
+#define DATR DATA_ROW
+#define EDR EDIT_ROW
+#define STR STATUS_ROW
+#define HLPR HELP_ROW
 
-int bdos();
-int bios();
-int fclose();
-int fgetc();
-int fputc();
-FILE *fopen();
-char *alloc();
-int free();
-int inp();
-int outp();
+#define ESC 27
+#define CPMEOF 26
+#define CR 13
+#define LF 10
+#define BKSP 8
+#define CTLH 8
+#define DEL 127
+#define KUP 5
+#define KDN 24
+#define KRT 4
+#define KLT 19
+#define CTLC 3
+#define CTLG 7
+#define CTLK 11
+#define CTLN 14
+#define CTLO 15
+#define CTLP 16
+#define CTLQ 17
+#define CTLR 18
+#define CTLT 20
+#define CTLV 22
+#define CTLW 23
+#define CTLU 21
+#define CTLY 25
 
-/* From SDK/LONG.C (32-bit signed long math; longs are char[4]) */
-char *itol();
-int ltoi();
-int lcomp();
-char *ladd();
-char *lsub();
-char *lmul();
-char *ldiv();
-char *lmod();
-char *atol();
-char *ltoa();
+char **cell_slot(int row, int column);
 
-/* ---- Grid state (shared across SHEETS.C and SHEETC.C) ---- */
+#define CELL_AT(row, column) (*cell_slot((row), (column)))
+extern int crow;
+extern int ccol;
+extern int trow;
+extern int tcol;
+extern char ebuf[80];
+extern char ename[16];
+extern char mesg[64];
+extern char clip[80];
+extern int hasclip;
+extern int cliprow;
+extern int clipcol;
+extern int dirty;
+extern int rall;
 
-char *cells[MAXROW][MAXCOL];
-int crow, ccol;
-int trow, tcol;
-char ebuf[80];
-char ename[16];
-char mesg[64];
-char clip[80];
-int hasclip;
-int cliprow;
-int clipcol;
-int dirty;
-int rall;
+bool is_ascii_digit(int character);
+bool is_ascii_letter(int character);
+int uppercase_ascii(int character);
 
-/* Eval globals */
-char *epos;
-int eok;
-int edepth;
+int set_cell(int row, int column, const char *text);
+void clear_cell(int row, int column);
+void render_cell(int row, int column, char *buffer);
 
-/* Cell-evaluation stack for circular-reference detection: evrow[k]/
- * evcol[k] hold the cell being evaluated at nesting level k (k <
- * edepth). ecirc is set when a cell already on the stack is re-
- * entered, so rndcel can render #CIRC instead of a plain #ERR. */
-int evrow[EDMAX];
-int evcol[EDMAX];
-int ecirc;
+#define isdig is_ascii_digit
+#define isal is_ascii_letter
+#define upr uppercase_ascii
+#define setcel set_cell
+#define clrcel clear_cell
+#define rndcel render_cell
 
-/* Constant long buffers used by the evaluator; initialized in main(). */
-char lzro[4];
-char lten[4];
+#endif
