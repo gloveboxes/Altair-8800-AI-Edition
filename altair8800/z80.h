@@ -1,5 +1,5 @@
-#ifndef _INTEL8080_H_
-#define _INTEL8080_H_
+#ifndef ALTAIR_Z80_H
+#define ALTAIR_Z80_H
 
 #include "types.h"
 
@@ -99,20 +99,21 @@ typedef struct
 	bool iff;	// Interrupt enable flip-flop (EI/DI). Not part of PSW.
 
 	disk_controller_t disk_controller;
-} intel8080_t;
+} z80_t;
 
-void i8080_reset(intel8080_t *cpu, port_in in, port_out out, read_sense_switches sense,
+void z80_reset(z80_t *cpu, port_in in, port_out out, read_sense_switches sense,
 		 disk_controller_t *disk_controller, io_port_in_fn io_in, io_port_out_fn io_out);
-void i8080_deposit(intel8080_t *cpu, uint8_t data);
-void i8080_deposit_next(intel8080_t *cpu, uint8_t data);
+void z80_deposit(z80_t *cpu, uint8_t data);
+void z80_deposit_next(z80_t *cpu, uint8_t data);
 
-void i8080_examine(intel8080_t *cpu, uint16_t address);
-void i8080_examine_next(intel8080_t *cpu);
+void z80_examine(z80_t *cpu, uint16_t address);
+void z80_examine_next(z80_t *cpu);
 
 /* Resume execution after a HLT. Clears the halted latch and the HLTA
    status bit so the front panel reflects the new state immediately. */
-void i8080_resume(intel8080_t *cpu);
+void z80_resume(z80_t *cpu);
 
-void i8080_cycle(intel8080_t *cpu);
+void z80_cycle(z80_t *cpu);
+void z80_execute_instructions(z80_t *cpu, uint16_t instruction_count);
 
 #endif

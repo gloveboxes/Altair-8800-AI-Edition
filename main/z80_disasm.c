@@ -3,9 +3,7 @@
 
 #include "cpu_disasm.h"
 
-// Z80 disassembler. Active only when the firmware is built for the Z80 CPU.
-// When built for the 8080, i8080_disasm.c provides these symbols instead.
-#if defined(ALTAIR_CPU_Z80)
+// Z80 disassembler.
 
 #include "websocket_console.h"
 #include "sdkconfig.h"
@@ -123,11 +121,8 @@ static const uint8_t z80_instruction_length[256] = {
 };
 
 const char* get_cpu_instruction_name(uint8_t opcode, uint8_t* instruction_length) {
-    if (instruction_length != NULL) {
-        *instruction_length = z80_instruction_length[opcode];
-    }
-    return z80_instruction[opcode];
+        if (instruction_length != NULL) {
+                *instruction_length = z80_instruction_length[opcode];
+        }
+        return z80_instruction[opcode];
 }
-
-#endif // ALTAIR_CPU_Z80
-

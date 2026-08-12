@@ -2,7 +2,7 @@
 #define CPU_STATE_H
 
 #include <stdint.h>
-#include "intel8080.h"
+#include "z80.h"
 
 typedef enum
 {
@@ -12,7 +12,7 @@ typedef enum
 } CPU_OPERATING_MODE;
 
 // Global CPU instance
-extern intel8080_t cpu;
+extern z80_t cpu;
 
 // Bus switches state
 extern uint16_t bus_switches;

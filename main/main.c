@@ -33,7 +33,7 @@
 #include "websocket_console.h"
 
 // Altair 8800 emulator includes - MUST be before FatFs includes due to naming conflicts
-#include "intel8080.h"
+#include "z80.h"
 #include "memory.h"
 #include "esp_heap_caps.h"
 
@@ -241,9 +241,9 @@ void altair_reset(void)
     {
         memset(memory, 0x00, 64 * 1024); // Clear Altair memory
         loadDiskLoader(0xFF00);          // Load disk boot loader at 0xFF00
-        i8080_reset(&cpu, terminal_read, terminal_write, sense,
+        z80_reset(&cpu, terminal_read, terminal_write, sense,
                     g_disk_controller, io_port_in, io_port_out);
-        i8080_examine(&cpu, 0xFF00); // Reset to boot loader address
+        z80_examine(&cpu, 0xFF00); // Reset to boot loader address
         bus_switches = cpu.address_bus;
     }
 }
@@ -416,12 +416,12 @@ static void emulator_task(void *pvParameters)
 
     // Initialize CPU
     printf("Initializing Intel 8080 CPU...\n");
-    i8080_reset(&cpu, terminal_read, terminal_write, sense,
+    z80_reset(&cpu, terminal_read, terminal_write, sense,
                 &disk_controller, io_port_in, io_port_out);
 
     // Set CPU to boot from disk loader at 0xFF00
     printf("Setting PC to 0xFF00 (disk boot loader)\n");
-    i8080_examine(&cpu, 0xFF00);
+    z80_examine(&cpu, 0xFF00);
     bus_switches = cpu.address_bus;
 
     // Set CPU to running mode
@@ -447,11 +447,9 @@ static void emulator_task(void *pvParameters)
         switch (mode)
         {
         case CPU_RUNNING:
-            // Hot path - execute 4000 cycles before checking state again
-            for (int i = 0; i < 4000; ++i)
-            {
-                i8080_cycle(&cpu);
-            }
+            // Execute one production batch and publish a single sampled panel
+            // state. Monitor single-step continues to use z80_cycle().
+            z80_execute_instructions(&cpu, 4000);
             // Drain input sources so Ctrl+M is honoured even if the running
             // 8080 program never executes IN on the 2SIO ports.
             terminal_poll_input();
@@ -542,7 +540,7 @@ void app_main(void)
     printf("Initializing configuration...\n");
     altair_config_init();
 
-    // Shared terminal input queue. Must exist before any producer (BLE
+    // Shared terminal input ring buffer. Must exist before any producer (BLE
     // keyboard, WebSocket server) is started.
     terminal_input_init();
 

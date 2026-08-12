@@ -1,0 +1,22 @@
+# dccmake configuration for calc
+# A simple CLI calculator supporting float and int maths
+# Ported from BDS C to dcc C89 (CP/M 2.2 / Z80)
+#
+# Prerequisites: Set DCC_DIR environment variable to the dcc repository path
+# e.g., export DCC_DIR=$HOME/GitHub/dcc
+# Note: dccmake.txt values are literal; ${...} is not expanded here.
+
+dcc-input=calc.c
+dcc-output=CALC
+dcc-floatio=true
+dcc-flongio=false
+dcc-peep=true
+dcc-build-dir=build
+dcc-runtime=${DCC_DIR}/DCCRTL.MAC
+dcc-include-directory=${DCC_DIR}
+dcc-tool=${DCC_DIR}/dcc
+dccpeep-tool=${DCC_DIR}/dccpeep
+dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
+ntvcm-tool=${NTVCM_DIR}/ntvcm
+m80-command=${DCC_DIR}/m80.com
+l80-command=${DCC_DIR}/l80.com

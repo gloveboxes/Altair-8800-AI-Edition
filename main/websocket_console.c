@@ -3,7 +3,7 @@
  * @brief WebSocket console implementation for Altair 8800
  *
  * Provides cross-core communication between WebSocket server (Core 0)
- * and Altair emulator (Core 1) using FreeRTOS queues.
+ * and Altair emulator (Core 1) using a FreeRTOS ring buffer.
  * Uses a dedicated low-priority task for TX to avoid blocking esp_timer.
  */
 
@@ -14,7 +14,7 @@
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/ringbuf.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_heap_caps.h"
@@ -23,8 +23,8 @@
 
 static const char* TAG = "WS_Console";
 
-// Queue depth - sized for burst terminal output (e.g., screen clears, listings)
-#define WS_TX_QUEUE_DEPTH   4096   // Output to WebSocket client - large for fast output
+// Ring-buffer capacity - sized for burst terminal output (e.g., screen clears, listings)
+#define WS_TX_BUFFER_SIZE   4096   // Output to WebSocket client - large for fast output
 
 // Maximum bytes to batch in a single WebSocket send
 // Under heavy output (WSPERF) the avg batch pinned at 1024 with 0 drops, so the
@@ -36,7 +36,7 @@ static const char* TAG = "WS_Console";
 // carries more payload relative to its fixed header/round-trip overhead.
 #define WS_TX_TIMER_INTERVAL_US  (100 * 1000)  // 100ms
 
-// How long the emulator's terminal_write may block when the TX queue is full
+// How long the emulator's terminal_write may block when the TX buffer is full
 // before falling back to dropping the oldest byte. This applies backpressure
 // to the 8080 loop during heavy output bursts instead of silently dropping
 // characters. Kept close to the batch timer (WS_TX_TIMER_INTERVAL_US) so a
@@ -55,10 +55,10 @@ static const char* TAG = "WS_Console";
 #define WS_TX_TASK_PRIORITY 11     // Keep below esp_timer (22)
 #define WS_TX_TASK_CORE     0      // Pin to Core 0 to avoid emulator core
 
-// FreeRTOS queue for emulator -> WebSocket output (input is routed through the
-// shared terminal_input queue so BLE keyboard and WebSocket clients share a
+// FreeRTOS byte ring buffer for emulator -> WebSocket output (input is routed
+// through the shared terminal_input buffer so BLE keyboard and WebSocket clients share a
 // single consumer in the emulator loop).
-static QueueHandle_t s_tx_queue = NULL;  // Emulator -> WebSocket
+static RingbufHandle_t s_tx_buffer = NULL;  // Emulator -> WebSocket
 
 // Semaphore to wake TX task
 static SemaphoreHandle_t s_tx_sem = NULL;
@@ -85,14 +85,15 @@ static bool s_initialized = false;
 static volatile bool s_ping_pending = false;
 
 /**
- * @brief Clear the TX queue
+ * @brief Clear the TX ring buffer
  */
-static void clear_tx_queue(void)
+static void clear_tx_buffer(void)
 {
-    if (s_tx_queue) {
-        uint8_t discard;
-        while (xQueueReceive(s_tx_queue, &discard, 0) == pdTRUE) {
-            // Drain queue
+    if (s_tx_buffer) {
+        size_t count;
+        void *item;
+        while ((item = xRingbufferReceive(s_tx_buffer, &count, 0)) != NULL) {
+            vRingbufferReturnItem(s_tx_buffer, item);
         }
     }
 }
@@ -112,13 +113,13 @@ static void tx_task(void* arg)
         // Wait for timer signal or timeout (for periodic check)
         xSemaphoreTake(s_tx_sem, pdMS_TO_TICKS(WS_TX_TIMER_INTERVAL_US / 1000));
         
-        if (!s_initialized || !s_tx_queue) {
+        if (!s_initialized || !s_tx_buffer) {
             continue;
         }
 
         // Don't bother if no client
         if (!websocket_console_has_clients()) {
-            clear_tx_queue();
+            clear_tx_buffer();
             s_ping_pending = false;
             continue;
         }
@@ -130,24 +131,31 @@ static void tx_task(void* arg)
             websocket_server_send_ping();
         }
 
-        // Batch output for efficiency
-        size_t count = 0;
-        while (count < WS_TX_BATCH_SIZE) {
-            if (xQueueReceive(s_tx_queue, &buffer[count], 0) == pdTRUE) {
-                count++;
+        // Drain every full batch already waiting instead of imposing another
+        // 100ms timer delay between frames. websocket_server_broadcast() waits
+        // for the previous async send buffer to become free, which naturally
+        // gives the higher-priority httpd task time to transmit each frame.
+        size_t count;
+        do {
+            void *item = xRingbufferReceiveUpTo(s_tx_buffer, &count, 0,
+                                                WS_TX_BATCH_SIZE);
+            if (item != NULL) {
+                memcpy(buffer, item, count);
+                vRingbufferReturnItem(s_tx_buffer, item);
             } else {
-                break;
+                count = 0;
             }
-        }
 
-        if (count > 0) {
-            websocket_server_broadcast(buffer, count);
+            if (count > 0) {
+                if (!websocket_server_broadcast(buffer, count)) {
+                    break;
+                }
 
-            // Yield to let other tasks run if we sent a full batch
-            if (count == WS_TX_BATCH_SIZE) {
-                taskYIELD();
+                if (count == WS_TX_BATCH_SIZE) {
+                    taskYIELD();
+                }
             }
-        }
+        } while (count == WS_TX_BATCH_SIZE && websocket_console_has_clients());
     }
 }
 
@@ -191,11 +199,11 @@ void websocket_console_init(void)
         return;
     }
 
-    // Create TX queue
-    s_tx_queue = xQueueCreate(WS_TX_QUEUE_DEPTH, sizeof(uint8_t));
+    // Byte mode coalesces individual terminal writes into contiguous batches.
+    s_tx_buffer = xRingbufferCreate(WS_TX_BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF);
 
-    if (!s_tx_queue) {
-        ESP_LOGE(TAG, "Failed to create TX queue");
+    if (!s_tx_buffer) {
+        ESP_LOGE(TAG, "Failed to create TX ring buffer");
         return;
     }
 
@@ -203,8 +211,8 @@ void websocket_console_init(void)
     s_tx_sem = xSemaphoreCreateBinary();
     if (!s_tx_sem) {
         ESP_LOGE(TAG, "Failed to create TX semaphore");
-        vQueueDelete(s_tx_queue);
-        s_tx_queue = NULL;
+        vRingbufferDelete(s_tx_buffer);
+        s_tx_buffer = NULL;
         return;
     }
 
@@ -227,9 +235,9 @@ void websocket_console_init(void)
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         vSemaphoreDelete(s_tx_sem);
-        vQueueDelete(s_tx_queue);
+        vRingbufferDelete(s_tx_buffer);
         s_tx_sem = NULL;
-        s_tx_queue = NULL;
+        s_tx_buffer = NULL;
         return;
     }
 
@@ -246,10 +254,10 @@ void websocket_console_init(void)
         ESP_LOGE(TAG, "Failed to create TX timer: %s", esp_err_to_name(err));
         vTaskDelete(s_tx_task);
         vSemaphoreDelete(s_tx_sem);
-        vQueueDelete(s_tx_queue);
+        vRingbufferDelete(s_tx_buffer);
         s_tx_task = NULL;
         s_tx_sem = NULL;
-        s_tx_queue = NULL;
+        s_tx_buffer = NULL;
         return;
     }
 
@@ -267,17 +275,17 @@ void websocket_console_init(void)
         esp_timer_delete(s_tx_timer);
         vTaskDelete(s_tx_task);
         vSemaphoreDelete(s_tx_sem);
-        vQueueDelete(s_tx_queue);
+        vRingbufferDelete(s_tx_buffer);
         s_tx_timer = NULL;
         s_tx_task = NULL;
         s_tx_sem = NULL;
-        s_tx_queue = NULL;
+        s_tx_buffer = NULL;
         return;
     }
 
     s_initialized = true;
     ESP_LOGI(TAG, "Console initialized (TX=%d, timer=%dms, task_prio=%d)",
-             WS_TX_QUEUE_DEPTH, WS_TX_TIMER_INTERVAL_US / 1000,
+             WS_TX_BUFFER_SIZE, WS_TX_TIMER_INTERVAL_US / 1000,
              WS_TX_TASK_PRIORITY);
 }
 
@@ -326,7 +334,7 @@ void websocket_console_enqueue_output(uint8_t value)
 {
     bool queued;
 
-    if (!s_initialized || !s_tx_queue) {
+    if (!s_initialized || !s_tx_buffer) {
         return;
     }
 
@@ -340,13 +348,16 @@ void websocket_console_enqueue_output(uint8_t value)
     // (e.g. WSPERF flooding the terminal) applies backpressure to the 8080
     // loop instead of silently dropping characters. Only after the timeout
     // do we give up and drop the oldest byte to make room for the newest.
-    queued = xQueueSend(s_tx_queue, &value,
-                        pdMS_TO_TICKS(WS_TX_ENQUEUE_TIMEOUT_MS)) == pdTRUE;
+    queued = xRingbufferSend(s_tx_buffer, &value, sizeof(value),
+                             pdMS_TO_TICKS(WS_TX_ENQUEUE_TIMEOUT_MS)) == pdTRUE;
     if (!queued) {
         // Still full after waiting - drop oldest and try again immediately.
-        uint8_t discard;
-        xQueueReceive(s_tx_queue, &discard, 0);
-        queued = xQueueSend(s_tx_queue, &value, 0) == pdTRUE;
+        size_t count;
+        void *item = xRingbufferReceiveUpTo(s_tx_buffer, &count, 0, 1);
+        if (item != NULL) {
+            vRingbufferReturnItem(s_tx_buffer, item);
+        }
+        queued = xRingbufferSend(s_tx_buffer, &value, sizeof(value), 0) == pdTRUE;
     }
 
     (void)queued;
@@ -354,17 +365,17 @@ void websocket_console_enqueue_output(uint8_t value)
 
 void websocket_console_clear_queues(void)
 {
-    // Only the TX queue is owned by this module; input is queued into the
-    // shared terminal_input queue and must not be flushed here (doing so
+    // Only the TX buffer is owned by this module; input is stored in the shared
+    // terminal_input buffer and must not be flushed here (doing so
     // would drop bytes typed on the BLE keyboard).
-    clear_tx_queue();
+    clear_tx_buffer();
 }
 
 /**
  * @brief Handle incoming WebSocket data (called from WebSocket server)
  *
  * This function is called by the WebSocket server when data is received
- * from a client. Bytes are pushed into the shared terminal_input queue so
+ * from a client. Bytes are pushed into the shared terminal_input buffer so
  * the emulator on Core 1 sees them alongside BLE keyboard input.
  *
  * @param data Pointer to received data
@@ -415,7 +426,7 @@ void websocket_console_wait_for_first_client(void)
 void websocket_console_on_connect(void)
 {
     // Clear any stale data when client connects
-    clear_tx_queue();
+    clear_tx_buffer();
 
     // Unblock the emulator task if it is waiting for the first client.
     if (s_first_client_sem != NULL) {
@@ -429,6 +440,6 @@ void websocket_console_on_connect(void)
 void websocket_console_on_disconnect(void)
 {
     // Drain any stale outbound data; inbound bytes are owned by the shared
-    // terminal_input queue and are intentionally left alone.
+    // terminal_input buffer and are intentionally left alone.
     websocket_console_clear_queues();
 }

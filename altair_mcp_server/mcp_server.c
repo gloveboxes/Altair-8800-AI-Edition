@@ -10,7 +10,7 @@
 #include "universal_88dcdd.h"
 #include "weather_io.h"
 
-#include "intel8080.h"
+#include "z80.h"
 #include "memory.h"
 
 #include <ctype.h>
@@ -155,7 +155,7 @@ static const char *tools_list_result =
     "]"
     "}";
 
-static intel8080_t g_cpu;
+static z80_t g_cpu;
 static const char *g_drive_a;
 static const char *g_drive_b;
 static const char *g_drive_c;
@@ -251,7 +251,7 @@ static void run_cycles(size_t cycles)
     size_t i;
 
     for (i = 0; i < cycles; i++) {
-        i8080_cycle(&g_cpu);
+        z80_cycle(&g_cpu);
     }
 }
 
@@ -260,7 +260,7 @@ static bool run_until_prompt(size_t max_cycles, char boot_only)
     size_t i;
 
     for (i = 0; i < max_cycles; i++) {
-        i8080_cycle(&g_cpu);
+        z80_cycle(&g_cpu);
         if ((i & 0x3fff) == 0 && input_empty() && output_has_prompt(boot_only)) {
             return true;
         }
@@ -288,8 +288,8 @@ static bool emulator_boot(const char *drive_a, const char *drive_b, const char *
     controller = host_disk_controller();
     memset(memory, 0, 64 * 1024);
     loadDiskLoader(0xff00);
-    i8080_reset(&g_cpu, terminal_read, terminal_write, sense_switches, &controller, io_port_in, io_port_out);
-    i8080_examine(&g_cpu, 0xff00);
+    z80_reset(&g_cpu, terminal_read, terminal_write, sense_switches, &controller, io_port_in, io_port_out);
+    z80_examine(&g_cpu, 0xff00);
 
     if (!run_until_prompt(BOOT_CYCLES, 1)) {
         fprintf(stderr, "CP/M boot prompt was not seen\n");

@@ -65,17 +65,17 @@ void websocket_console_wait_for_first_client(void);
  * @brief Enqueue a byte for transmission to WebSocket client
  *
  * Called from the emulator (Core 1) to send terminal output.
- * Non-blocking - drops data if no client connected or queue full.
+ * Applies bounded backpressure, then drops the oldest byte if the buffer stays full.
  *
  * @param value Byte to transmit
  */
 void websocket_console_enqueue_output(uint8_t value);
 
 /**
- * @brief Clear the WebSocket TX queue
+ * @brief Clear the WebSocket TX buffer
  *
  * Removes all pending outbound data. Input is owned by the shared
- * terminal_input queue and is not affected.
+ * terminal_input buffer and is not affected.
  */
 void websocket_console_clear_queues(void);
 

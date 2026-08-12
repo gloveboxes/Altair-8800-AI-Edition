@@ -101,7 +101,6 @@ set(ALTAIR_LOCAL_COMMON_SOURCES
     # Shared monitor / disassembler sources reused from the ESP32 firmware.
     # The host build provides a stub sdkconfig.h (no CONFIG_ALTAIR_DISPLAY_*)
     # and a stub websocket_console.{h,c}, so these files compile unchanged.
-    ${MAIN_DIR}/i8080_disasm.c
     ${MAIN_DIR}/z80_disasm.c
     ${MAIN_DIR}/cpu_state.c
     ${FRONT_PANEL_DIR}/virtual_monitor.c
@@ -163,12 +162,9 @@ function(configure_altair_local target)
 endfunction()
 
 # --- Local runner --------------------------------------------------------
-# The CPU core is the ntvcm 8080/Z80 core (x80.cxx) driven in Z80 mode through
-# cpu_x80_adapter.cpp, which implements the i8080_* API the rest of the
-# emulator expects. x80_compat/ supplies minimal djl_os/djltrace shims so
-# x80.cxx builds without the full ntvcm utility library. X80_FORCE_Z80 fixes
-# the core to the Z80 instruction set at compile time, so the optimizer folds
-# away every fZ80Mode check and drops the 8080-only paths.
+# The CPU core is the Z80 core (x80.cxx) driven through cpu_x80_adapter.cpp.
+# x80_compat/ supplies minimal djl_os/djltrace shims so x80.cxx builds without
+# the full ntvcm utility library.
 add_executable(altair-local
     ${ALTAIR_LOCAL_COMMON_SOURCES}
     ${ALTAIR_DIR}/x80.cxx
@@ -176,7 +172,6 @@ add_executable(altair-local
 )
 configure_altair_local(altair-local)
 target_include_directories(altair-local PRIVATE ${ALTAIR_DIR}/x80_compat)
-target_compile_definitions(altair-local PRIVATE ALTAIR_CPU_Z80=1 X80_FORCE_Z80=1)
 # The upstream x80 core trips format/fall-through/type-limits warnings; keep them
 # non-fatal for the third-party sources rather than patching the core.
 set_source_files_properties(

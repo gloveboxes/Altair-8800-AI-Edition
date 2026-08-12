@@ -5,6 +5,7 @@ build-waveshare/
 build-host-tests/
 reference/
 *.[dD][bB][gG]
+*.[cC][oO][mM]
 
 # Generated config
 sdkconfig

@@ -1,4 +1,4 @@
-#include "intel8080.h"
+#include "z80.h"
 #include "memory.h"
 #include "universal_88dcdd.h"
 #include "PortDrivers/chat_io.h"
@@ -161,9 +161,9 @@ void altair_reset(void)
     }
     memset(memory, 0x00, 64 * 1024);
     loadDiskLoader(0xff00);
-    i8080_reset(&cpu, terminal_read, terminal_write, sense_switches,
+    z80_reset(&cpu, terminal_read, terminal_write, sense_switches,
                 &g_disk_controller, io_port_in, io_port_out);
-    i8080_examine(&cpu, 0xff00);
+    z80_examine(&cpu, 0xff00);
     bus_switches = cpu.address_bus;
 }
 
@@ -399,9 +399,9 @@ int main(int argc, char **argv)
     memset(memory, 0x00, 64 * 1024);
     loadDiskLoader(0xff00);
     time_reset();
-    i8080_reset(&cpu, terminal_read, terminal_write, sense_switches,
+    z80_reset(&cpu, terminal_read, terminal_write, sense_switches,
                 &g_disk_controller, io_port_in, io_port_out);
-    i8080_examine(&cpu, 0xff00);
+    z80_examine(&cpu, 0xff00);
     bus_switches = cpu.address_bus;
 
     if (g_sense_hat_requested || env_flag_enabled("ALTAIR_SENSE_HAT"))
@@ -445,14 +445,14 @@ int main(int argc, char **argv)
                (a local user is always "connected"). */
             if (g_web_mode && !web_terminal_has_clients())
             {
-                i8080_cycle(&cpu);
+                z80_cycle(&cpu);
                 wait_ns(IDLE_THROTTLE_NS);
                 continue;
             }
 
             for (int i = 0; i < 4000 && keep_running; ++i)
             {
-                i8080_cycle(&cpu);
+                z80_cycle(&cpu);
             }
         }
         else

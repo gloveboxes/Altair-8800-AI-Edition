@@ -40,7 +40,7 @@ static bool validate_input_data(const char* command)
 
 static void publish_virtual_input_data(uint16_t switches)
 {
-    uint8_t i8080_instruction_size = 0;
+    uint8_t instruction_size = 0;
     char address_bus_high_byte[9];
     char address_bus_low_byte[9];
 
@@ -48,8 +48,8 @@ static void publish_virtual_input_data(uint16_t switches)
     uint8_to_binary((uint8_t)(switches), address_bus_low_byte, sizeof(address_bus_low_byte));
 
     snprintf(panel_info, sizeof(panel_info), "\r\n%14s: %s %s (0x%04x), %s %dB", "Input", address_bus_high_byte,
-             address_bus_low_byte, switches, get_cpu_instruction_name((uint8_t)switches, &i8080_instruction_size),
-             i8080_instruction_size);
+             address_bus_low_byte, switches, get_cpu_instruction_name((uint8_t)switches, &instruction_size),
+             instruction_size);
     publish_message(panel_info, strlen(panel_info));
 }
 
@@ -142,7 +142,7 @@ void process_virtual_input(const char* command, size_t len)
     }
 }
 
-void disassemble(intel8080_t* cpu)
+void disassemble(z80_t* cpu)
 {
     char address_bus_high_byte[9];
     char address_bus_low_byte[9];
@@ -164,7 +164,7 @@ void disassemble(intel8080_t* cpu)
 
         for (size_t i = 1; i < instruction_length; i++)
         {
-            i8080_examine_next(cpu);
+            z80_examine_next(cpu);
 
             uint8_to_binary((uint8_t)(cpu->address_bus >> 8), address_bus_high_byte, sizeof(address_bus_high_byte));
             uint8_to_binary((uint8_t)(cpu->address_bus), address_bus_low_byte, sizeof(address_bus_low_byte));
@@ -176,14 +176,14 @@ void disassemble(intel8080_t* cpu)
 
             publish_message(panel_info, msg_length);
         }
-        i8080_examine_next(cpu);
+        z80_examine_next(cpu);
     }
-    i8080_examine(cpu, bus_switches);
+    z80_examine(cpu, bus_switches);
     bus_switches = cpu->address_bus;
     publish_message("\n\rCPU MONITOR> ", 15);
 }
 
-void trace(intel8080_t* cpu)
+void trace(z80_t* cpu)
 {
     char address_bus_high_byte[9];
     char address_bus_low_byte[9];
@@ -192,7 +192,7 @@ void trace(intel8080_t* cpu)
     // uint16_t old_address_bus;
 
     // Note: Pico SDK stdio is already unbuffered by default
-    i8080_cycle(cpu);
+    z80_cycle(cpu);
 
     for (size_t instruction_count = 0; instruction_count < 20; instruction_count++)
     {
@@ -211,7 +211,7 @@ void trace(intel8080_t* cpu)
 
         for (size_t i = 1; i < instruction_length; i++)
         {
-            i8080_examine_next(cpu);
+            z80_examine_next(cpu);
 
             uint8_to_binary((uint8_t)(cpu->address_bus >> 8), address_bus_high_byte, sizeof(address_bus_high_byte));
             uint8_to_binary((uint8_t)(cpu->address_bus), address_bus_low_byte, sizeof(address_bus_low_byte));
@@ -223,9 +223,9 @@ void trace(intel8080_t* cpu)
 
             publish_message(panel_info, msg_length);
         }
-        // i8080_examine(cpu, old_address_bus);
-        i8080_examine_next(cpu);
-        i8080_cycle(cpu);
+        // z80_examine(cpu, old_address_bus);
+        z80_examine_next(cpu);
+        z80_cycle(cpu);
     }
     bus_switches = cpu->address_bus;
     publish_message("\n\rCPU MONITOR> ", 15);
@@ -259,35 +259,35 @@ void altair_panel_command_handler(void)
     switch (deferred_command)
     {
         case SINGLE_STEP:
-            i8080_cycle(&cpu);
+            z80_cycle(&cpu);
             publish_cpu_state("Step", cpu.display_address_bus, cpu.display_data_bus);
             bus_switches = cpu.display_address_bus;
             break;
         case EXAMINE:
-            i8080_examine(&cpu, bus_switches);
+            z80_examine(&cpu, bus_switches);
             publish_cpu_state("Exam", cpu.address_bus, cpu.data_bus);
             bus_switches = cpu.address_bus;
             break;
         case EXAMINE_NEXT:
-            i8080_examine_next(&cpu);
+            z80_examine_next(&cpu);
             publish_cpu_state("ExamN", cpu.address_bus, cpu.data_bus);
             bus_switches = cpu.address_bus;
             break;
         case DEPOSIT:
-            i8080_deposit(&cpu, (uint8_t)(bus_switches & 0xff));
+            z80_deposit(&cpu, (uint8_t)(bus_switches & 0xff));
             publish_cpu_state("Dep", cpu.address_bus, cpu.data_bus);
             break;
         case DEPOSIT_NEXT:
-            i8080_deposit_next(&cpu, (uint8_t)(bus_switches & 0xff));
+            z80_deposit_next(&cpu, (uint8_t)(bus_switches & 0xff));
             publish_cpu_state("DepN", cpu.address_bus, cpu.data_bus);
             bus_switches = cpu.address_bus;
             break;
         case DISASSEMBLE:
-            i8080_examine(&cpu, bus_switches);
+            z80_examine(&cpu, bus_switches);
             disassemble(&cpu);
             break;
         case TRACE:
-            i8080_examine(&cpu, bus_switches);
+            z80_examine(&cpu, bus_switches);
             trace(&cpu);
             break;
         case RESET:
@@ -305,7 +305,7 @@ void altair_panel_command_handler(void)
             memset(memory, 0x00, 64 * 1024); // clear altair memory
             load8kRom(0x0000);               // load Altair BASIC at 0x0000
             publish_message("\r\n*** Altair BASIC Loaded ***\r\n", 32);
-            i8080_examine(&cpu, 0x0000); // 0x0000 loads Altair BASIC
+            z80_examine(&cpu, 0x0000); // 0x0000 loads Altair BASIC
             cpu_state_set_mode(CPU_RUNNING);
             break;
         default:
@@ -324,7 +324,7 @@ void process_control_panel_commands(void)
                 break;
             case STOP_CMD:
                 cpu_state_set_mode(CPU_STOPPED);
-                i8080_examine(&cpu, cpu.registers.pc);
+                z80_examine(&cpu, cpu.registers.pc);
                 bus_switches = cpu.address_bus;
                 break;
             default:

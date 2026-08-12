@@ -6,13 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// CPU disassembler + shared monitor utilities.
-//
-// The concrete instruction-name table is chosen at compile time:
-//   * ALTAIR_CPU_Z80 defined  -> Zilog Z80 mnemonics  (z80_disasm.c)
-//   * ALTAIR_CPU_Z80 undefined -> Intel 8080 mnemonics (i8080_disasm.c)
-// Both files are compiled; each guards its body on ALTAIR_CPU_Z80 so exactly
-// one provides the symbols below.
+// Z80 disassembler + shared monitor utilities.
 
 // Convert uint8 to an 8-character binary string (buffer must be >= 9 bytes).
 void uint8_to_binary(uint8_t value, char* buffer, size_t buffer_size);

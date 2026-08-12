@@ -19,7 +19,7 @@
 #endif
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/ringbuf.h"
 #include "freertos/semphr.h"
 
 #include "esp_timer.h"
@@ -49,11 +49,11 @@
 #define STATUS_INFO_Y (STATUS_Y + 5)
 #define PRESENT_ROWS_PER_BAND 10
 #define STATUS_ONLY_PRESENT_INTERVAL_US (PANEL_UPDATE_INTERVAL_MS * 1000)
-#define VT100_RX_QUEUE_DEPTH 4096
-// Drain the full queue per flush to mirror the web terminal, which empties its
-// entire TX queue on each 100ms timer tick.
+#define VT100_RX_BUFFER_SIZE 4096
+// Drain the full buffer per flush to mirror the web terminal, which empties its
+// entire TX buffer on each 100ms timer tick.
 #define VT100_RX_BATCH_SIZE 4096
-// How long terminal_write may block when the RX queue is full before dropping
+// How long terminal_write may block when the RX buffer is full before dropping
 // the oldest byte. Mirrors the WebSocket console (WS_TX_ENQUEUE_TIMEOUT_MS) so
 // both displays apply the same backpressure to the 8080 loop under heavy
 // output and therefore stay in sync instead of diverging.
@@ -202,7 +202,7 @@ static uint8_t          s_cur_bg;
 static bool             s_bold;
 static bool             s_cursor_visible;
 static bool             s_initialized;
-static QueueHandle_t    s_rx_queue;
+static RingbufHandle_t  s_rx_buffer;
 static SemaphoreHandle_t s_mutex;
 static bool             s_status_draw_partial;
 
@@ -628,16 +628,23 @@ static bool update_status_time_locked(void)
     return true;
 }
 
-static void drain_rx_queue_locked(void)
+static void drain_rx_buffer_locked(void)
 {
-    if (!s_rx_queue) return;
+    if (!s_rx_buffer) return;
 
-    uint8_t c = 0;
-    size_t count = 0;
-    while (count < VT100_RX_BATCH_SIZE &&
-           xQueueReceive(s_rx_queue, &c, 0) == pdTRUE) {
-        process_byte_locked(c);
-        count++;
+    size_t total = 0;
+    while (total < VT100_RX_BATCH_SIZE) {
+        size_t count;
+        uint8_t *item = xRingbufferReceiveUpTo(s_rx_buffer, &count, 0,
+                                               VT100_RX_BATCH_SIZE - total);
+        if (item == NULL) {
+            break;
+        }
+        for (size_t i = 0; i < count; i++) {
+            process_byte_locked(item[i]);
+        }
+        total += count;
+        vRingbufferReturnItem(s_rx_buffer, item);
     }
 }
 
@@ -781,17 +788,21 @@ static void process_byte_locked(uint8_t c)
 
 void vt100_terminal_init(void)
 {
-    if (!s_rx_queue) {
-        s_rx_queue = xQueueCreate(VT100_RX_QUEUE_DEPTH, sizeof(uint8_t));
+    if (!s_rx_buffer) {
+        s_rx_buffer = xRingbufferCreate(VT100_RX_BUFFER_SIZE, RINGBUF_TYPE_BYTEBUF);
     }
     if (!s_mutex) {
         s_mutex = xSemaphoreCreateMutex();
     }
-    if (!s_rx_queue || !s_mutex) {
+    if (!s_rx_buffer || !s_mutex) {
         return;
     }
 
-    xQueueReset(s_rx_queue);
+    size_t count;
+    void *item;
+    while ((item = xRingbufferReceive(s_rx_buffer, &count, 0)) != NULL) {
+        vRingbufferReturnItem(s_rx_buffer, item);
+    }
     reset_terminal_state(false);
     format_status_time(s_status_time, sizeof(s_status_time));
     s_initialized = true;
@@ -813,19 +824,22 @@ void vt100_terminal_putchar(uint8_t c)
 {
     bool queued;
 
-    if (!s_initialized || !s_rx_queue) return;
+    if (!s_initialized || !s_rx_buffer) return;
 
     // Block for up to VT100_RX_ENQUEUE_TIMEOUT_MS so a burst of emulator output
     // applies backpressure to the 8080 loop instead of silently dropping
     // characters. Only after the timeout do we give up and drop the oldest
     // byte to make room for the newest. Matches the WebSocket console policy.
-    queued = xQueueSend(s_rx_queue, &c,
-                        pdMS_TO_TICKS(VT100_RX_ENQUEUE_TIMEOUT_MS)) == pdTRUE;
+    queued = xRingbufferSend(s_rx_buffer, &c, sizeof(c),
+                             pdMS_TO_TICKS(VT100_RX_ENQUEUE_TIMEOUT_MS)) == pdTRUE;
     if (!queued) {
         // Still full after waiting - drop oldest and try again immediately.
-        uint8_t discard;
-        xQueueReceive(s_rx_queue, &discard, 0);
-        queued = xQueueSend(s_rx_queue, &c, 0) == pdTRUE;
+        size_t count;
+        void *item = xRingbufferReceiveUpTo(s_rx_buffer, &count, 0, 1);
+        if (item != NULL) {
+            vRingbufferReturnItem(s_rx_buffer, item);
+        }
+        queued = xRingbufferSend(s_rx_buffer, &c, sizeof(c), 0) == pdTRUE;
     }
 
     (void)queued;
@@ -841,7 +855,7 @@ void vt100_terminal_flush(void)
         printf("[vt100] flush: mutex take TIMEOUT (held by set_ip/update_status)\n");
         return;
     }
-    drain_rx_queue_locked();
+    drain_rx_buffer_locked();
     uint32_t dirty_rows = s_dirty_rows;
     s_dirty_rows = 0;
     bool status_dirty = s_status_dirty;

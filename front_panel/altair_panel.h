@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "intel8080.h"
+#include "z80.h"
 
 // Status bit definitions as laid out on the panel, with bit 9 drawn at left.
 #define STATUS_INT   (1 << 0)   // Interrupt request
@@ -62,7 +62,7 @@ void altair_panel_run_startup_test(uint32_t duration_ms);
  * 
  * @param cpu Pointer to the Intel 8080 CPU struct
  */
-void altair_panel_update(const intel8080_t *cpu);
+void altair_panel_update(const z80_t *cpu);
 
 /**
  * @brief Display IP address and hostname on the panel

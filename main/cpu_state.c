@@ -1,5 +1,5 @@
 #include "cpu_state.h"
-#include "intel8080.h"
+#include "z80.h"
 #include "altair_panel.h"
 #include "cpu_disasm.h"
 #include "virtual_monitor.h"
@@ -16,7 +16,7 @@ static char command_buffer[COMMAND_BUFFER_SIZE] = {0};
 static size_t command_buffer_length = 0;
 
 // Global CPU instance
-intel8080_t cpu;
+z80_t cpu;
 
 volatile CPU_OPERATING_MODE g_cpu_mode = CPU_STOPPED;
 uint16_t bus_switches = 0x00;
@@ -30,7 +30,7 @@ void cpu_state_set_mode(CPU_OPERATING_MODE mode)
        LOAD BASIC, boot) gets consistent HLTA-clear behavior. */
     if (mode == CPU_RUNNING)
     {
-        i8080_resume(&cpu);
+        z80_resume(&cpu);
     }
 
     g_cpu_mode = mode;
@@ -81,11 +81,7 @@ CPU_OPERATING_MODE cpu_state_toggle_mode(void)
     if (g_cpu_mode == CPU_STOPPED)
     {
         // Prompt for CPU monitor
-#if defined(ALTAIR_CPU_Z80)
         const char* prompt = "\r\n*** CPU STOPPED (Z80) ***\r\nCPU MONITOR> ";
-#else
-        const char* prompt = "\r\n*** CPU STOPPED (8080) ***\r\nCPU MONITOR> ";
-#endif
         publish_message(prompt, strlen(prompt));
     }
 

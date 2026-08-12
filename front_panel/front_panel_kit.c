@@ -291,7 +291,7 @@ bool front_panel_kit_init(void)
     return true;
 }
 
-void front_panel_kit_update(const intel8080_t *cpu)
+void front_panel_kit_update(const z80_t *cpu)
 {
     if (!s_initialized || cpu == NULL) {
         return;
@@ -336,7 +336,7 @@ bool front_panel_kit_init(void)
     return true;
 }
 
-void front_panel_kit_update(const intel8080_t *cpu)
+void front_panel_kit_update(const z80_t *cpu)
 {
     (void)cpu;
 }

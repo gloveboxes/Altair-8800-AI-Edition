@@ -1,5 +1,4 @@
 set(app_sources
-    "i8080_disasm.c"
     "z80_disasm.c"
     "cpu_state.c"
     "main.c"
@@ -37,9 +36,7 @@ set(app_sources
     "../front_panel/altair_splash.c"
 )
 
-# CPU core: the ntvcm 8080/Z80 core (x80.cxx) driven in Z80 mode through
-# cpu_x80_adapter.cpp, which implements the i8080_* C API the rest of the
-# firmware uses.
+# CPU core: the Z80 core (x80.cxx) driven through cpu_x80_adapter.cpp.
 list(APPEND app_sources
     "../altair8800/x80.cxx"
     "../altair8800/cpu_x80_adapter.cpp"
@@ -69,6 +66,7 @@ idf_component_register(SRCS ${app_sources}
                                 esp_driver_usb_serial_jtag
                                 esp_driver_ledc
                                 esp_driver_rmt
+                                esp_ringbuf
                                 esp_timer
                                 bt
                                 esp_hid
@@ -93,9 +91,6 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ESP_LCD_AXS15231B_VER_MAJOR=2
     ESP_LCD_AXS15231B_VER_MINOR=1
     ESP_LCD_AXS15231B_VER_PATCH=0
-    # Selects the Z80 mnemonic table in the disassembler (cpu_disasm.h). The
-    # core is also forced to Z80 below, so the two stay consistent.
-    ALTAIR_CPU_Z80=1
 )
 
 # The upstream ntvcm x80 core emits a handful of warnings (printf width on a
@@ -103,15 +98,11 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 # check in the disassembler) that this project promotes to errors. Silence
 # them for the Z80 core sources rather than patching the third-party core.
 #
-# X80_FORCE_Z80 fixes the core's instruction set to Z80 at compile time so the
-# optimizer constant-folds every fZ80Mode check and deletes the 8080-only code
-# paths -- a dedicated, branch-free Z80 core.
 set_source_files_properties(
     "../altair8800/x80.cxx"
     "../altair8800/cpu_x80_adapter.cpp"
     PROPERTIES
     COMPILE_OPTIONS "-w"
-    COMPILE_DEFINITIONS "X80_FORCE_Z80=1"
 )
 
 fatfs_create_spiflash_image(storage ../disks)

@@ -40,16 +40,13 @@ target_include_directories(altair-cpm-mcp PRIVATE
     ${LOCAL_DIR}/../port_drivers
 )
 
-# CPU core is the ntvcm 8080/Z80 core (x80.cxx) in Z80 mode via the adapter.
-# X80_FORCE_Z80 fixes the instruction set at compile time so the optimizer
-# folds away every fZ80Mode check; -w keeps the third-party core's warnings
-# non-fatal rather than patching it.
+# CPU core is the Z80 core (x80.cxx) via the adapter. -w keeps the upstream
+# core's warnings non-fatal rather than patching it.
 set_source_files_properties(
     ${ALTAIR_DIR}/x80.cxx
     ${ALTAIR_DIR}/cpu_x80_adapter.cpp
     PROPERTIES
     COMPILE_OPTIONS "-w"
-    COMPILE_DEFINITIONS "X80_FORCE_Z80=1"
 )
 
 target_link_libraries(altair-cpm-mcp PRIVATE Threads::Threads)

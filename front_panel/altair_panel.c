@@ -421,7 +421,7 @@ void altair_panel_run_startup_test(uint32_t duration_ms)
 #define RAW_STATUS_WRITE_OUTPUT  0x02
 #define RAW_STATUS_INTERRUPT     0x01
 
-static uint16_t translate_cpu_status(const intel8080_t *cpu)
+static uint16_t translate_cpu_status(const z80_t *cpu)
 {
     uint8_t raw = cpu->display_cpuStatus;
     uint16_t out = 0;
@@ -438,7 +438,7 @@ static uint16_t translate_cpu_status(const intel8080_t *cpu)
     return out;
 }
 
-void altair_panel_update(const intel8080_t *cpu)
+void altair_panel_update(const z80_t *cpu)
 {
     if (!panel_initialized || cpu == NULL) {
         return;

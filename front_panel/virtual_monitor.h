@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "intel8080.h"
+#include "z80.h"
 #include "cpu_state.h"
 #include "websocket_console.h"
 #include <stdbool.h>
@@ -27,13 +27,13 @@ typedef enum
     RUN_CMD = 11
 } ALTAIR_COMMAND;
 
-extern intel8080_t cpu;
+extern z80_t cpu;
 extern uint8_t memory[64 * 1024];
 extern ALTAIR_COMMAND cmd_switches;
 
-void disassemble(intel8080_t* cpu);
+void disassemble(z80_t* cpu);
 void process_control_panel_commands(void);
 void process_virtual_input(const char* command, size_t len);
 void publish_cpu_state(char* command, uint16_t address_bus, uint8_t data_bus);
-void trace(intel8080_t* cpu);
+void trace(z80_t* cpu);
 void altair_reset(void);

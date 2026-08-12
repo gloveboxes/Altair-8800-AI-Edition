@@ -1,22 +1,22 @@
 // Z80 CPU adapter.
 //
 // The rest of the Altair emulator (front panel, main loop, host tests) talks to
-// the CPU through the C API declared in intel8080.h: i8080_reset, i8080_cycle,
-// i8080_examine/deposit, etc., reading register/bus state back out of an
-// intel8080_t struct.
+// the CPU through the C API declared in z80.h: z80_reset, z80_cycle,
+// z80_examine/deposit, etc., reading register/bus state back out of an
+// z80_t struct.
 //
-// This file implements that exact API on top of the ntvcm 8080/Z80 core in
-// x80.cxx, running it in Z80 mode. The core keeps its CPU state in the global
+// This file implements that exact API on top of the ntvcm-derived Z80 core in
+// x80.cxx. The core keeps its CPU state in the global
 // `reg` and shares the global `memory[]` with memory.c, so the adapter syncs
-// `reg` back into the caller's intel8080_t after each step and supplies the
+// `reg` back into the caller's z80_t after each step and supplies the
 // I/O / halt / hook callbacks the core calls out to.
 //
 // This adapter (plus x80.cxx) is the project's single CPU core; the front
-// panel and main loop talk only to the i8080_* API declared in intel8080.h.
+// panel and main loop talk only to the z80_* API declared in z80.h.
 
 extern "C"
 {
-#include "intel8080.h"
+#include "z80.h"
 }
 
 #include <cstddef>
@@ -45,11 +45,11 @@ CDJLTrace tracer;
 // The x80 core uses a single global CPU state, so the adapter likewise tracks a
 // single active CPU instance. Its term/disk/sense/io callbacks are read back
 // out of this struct from the I/O callbacks below.
-static intel8080_t *g_cpu = NULL;
+static z80_t *g_cpu = NULL;
 
 // Copy the x80 core's live registers (global `reg`) into the caller's struct so
 // the front panel and host tests observe up-to-date register and flag state.
-static void sync_regs_out(intel8080_t *cpu)
+static void sync_regs_out(z80_t *cpu)
 {
     cpu->registers.a = reg.a;
     cpu->registers.flags = reg.materializeFlags();
@@ -65,11 +65,11 @@ static void sync_regs_out(intel8080_t *cpu)
 
 #ifdef ALTAIR_X80_HOST_TEST
 // Host-test builds drive the CPU through a CP/M BDOS trap that pokes pc/sp (and
-// occasionally other registers) straight into the intel8080_t between steps.
+// occasionally other registers) straight into the z80_t between steps.
 // Mirror those edits back into the core's global `reg` before each instruction.
 // The production emulator never needs this (front-panel edits go through
-// i8080_examine, which updates `reg` directly), so it stays out of the hot path.
-static void sync_regs_in(intel8080_t *cpu)
+// z80_examine, which updates `reg` directly), so it stays out of the hot path.
+static void sync_regs_in(z80_t *cpu)
 {
     reg.a = cpu->registers.a;
     reg.b = cpu->registers.b;
@@ -85,17 +85,17 @@ static void sync_regs_in(intel8080_t *cpu)
 }
 #endif
 
-static void update_display_bus(intel8080_t *cpu)
+static void update_display_bus(z80_t *cpu)
 {
     cpu->display_address_bus = cpu->address_bus;
     cpu->display_data_bus = cpu->data_bus;
     cpu->display_cpuStatus = cpu->cpuStatus;
 }
 
-extern "C" void i8080_reset(intel8080_t *cpu, port_in in, port_out out, read_sense_switches sense,
+extern "C" void z80_reset(z80_t *cpu, port_in in, port_out out, read_sense_switches sense,
                             disk_controller_t *disk_controller, io_port_in_fn io_in, io_port_out_fn io_out)
 {
-    memset(cpu, 0, sizeof(intel8080_t));
+    memset(cpu, 0, sizeof(z80_t));
     cpu->term_in = in;
     cpu->term_out = out;
     cpu->io_port_in_handler = io_in;
@@ -108,41 +108,30 @@ extern "C" void i8080_reset(intel8080_t *cpu, port_in in, port_out out, read_sen
 
     g_cpu = cpu;
 
-    // Zero-initialize the core's registers, then select the instruction set.
-    // Host-test builds run the 8080 instruction set so the standard 8080
-    // diagnostic ROMs exercise the same core the firmware ships; the emulator
-    // itself defaults to Z80. The boot loader address is loaded subsequently
-    // via i8080_examine().
+    // Zero-initialize the core's registers. The boot loader address is loaded
+    // subsequently via z80_examine().
     reg = registers();
-#if !defined( X80_FORCE_Z80 ) && !defined( X80_FORCE_8080 )
-    // Mode is not fixed at compile time, so choose the instruction set now.
-    // (When X80_FORCE_Z80/X80_FORCE_8080 is defined, reg.fZ80Mode is a static
-    // constexpr and must not be assigned -- the constant already selects the
-    // core, and every mode check folds away.)
-#ifdef ALTAIR_X80_HOST_TEST
-    reg.fZ80Mode = false;
-#else
-    reg.fZ80Mode = true;
-#endif
-#endif
     reg.pc = 0;
 
     sync_regs_out(cpu);
 }
 
-void i8080_resume(intel8080_t *cpu)
+void z80_resume(z80_t *cpu)
 {
     cpu->halted = false;
     cpu->cpuStatus &= ~STATUS_HALT;
 }
 
-void i8080_cycle(intel8080_t *cpu)
+void z80_execute_instructions(z80_t *cpu, uint16_t instruction_count)
 {
-    if (cpu->halted)
+    if (cpu->halted || instruction_count == 0)
     {
         // Keep HLTA asserted while halted, matching real-8080 behavior.
-        cpu->cpuStatus = STATUS_HALT;
-        cpu->display_cpuStatus = STATUS_HALT;
+        if (cpu->halted)
+        {
+            cpu->cpuStatus = STATUS_HALT;
+            cpu->display_cpuStatus = STATUS_HALT;
+        }
         return;
     }
 
@@ -152,23 +141,45 @@ void i8080_cycle(intel8080_t *cpu)
     sync_regs_in(cpu);
 #endif
 
-    // Run a single instruction. Every opcode costs at least 4 cycles, so a
-    // budget of 1 executes exactly one instruction.
-    x80_emulate(1);
+    cpu->cpuStatus = STATUS_MEMORY_READ | STATUS_OP_CODE_FETCH;
+
+    x80_emulate_instructions(instruction_count);
+
+    // RUN mode samples only the final instruction in a batch. The core keeps
+    // the sample local while executing and publishes it once at batch exit, so
+    // transient LED activity is not accumulated across the whole batch.
+    cpu->cpuStatus = STATUS_MEMORY_READ | STATUS_OP_CODE_FETCH;
+    if (x80_last_io_status & X80_IO_INPUT)
+        cpu->cpuStatus |= STATUS_PORT_INPUT;
+    if (x80_last_io_status & X80_IO_OUTPUT)
+        cpu->cpuStatus |= STATUS_PORT_OUTPUT | STATUS_WRITE_OUTPUT;
+
+    // push/pop/call/ret/rst are the only ops that move SP, always by 2;
+    // cheaper than decoding the opcode to detect a stack access.
+    uint16_t sp_delta = reg.sp - x80_last_sp_before;
+    if (sp_delta == 2 || sp_delta == (uint16_t)-2)
+        cpu->cpuStatus |= STATUS_STACK;
+
+    if (cpu->halted)
+        cpu->cpuStatus = STATUS_HALT;
 
     sync_regs_out(cpu);
 
     // Present the next fetch on the bus for the front panel.
     cpu->address_bus = reg.pc;
     cpu->data_bus = memory[reg.pc];
-    cpu->cpuStatus = STATUS_MEMORY_READ | STATUS_OP_CODE_FETCH;
     update_display_bus(cpu);
 }
 
-void i8080_examine(intel8080_t *cpu, uint16_t address)
+void z80_cycle(z80_t *cpu)
+{
+    z80_execute_instructions(cpu, 1);
+}
+
+void z80_examine(z80_t *cpu, uint16_t address)
 {
     // Jumping to a new PC from the front panel also resumes a halted CPU.
-    i8080_resume(cpu);
+    z80_resume(cpu);
     reg.pc = address;
     cpu->registers.pc = address;
     cpu->address_bus = address;
@@ -177,7 +188,7 @@ void i8080_examine(intel8080_t *cpu, uint16_t address)
     update_display_bus(cpu);
 }
 
-void i8080_examine_next(intel8080_t *cpu)
+void z80_examine_next(z80_t *cpu)
 {
     cpu->address_bus++;
     cpu->cpuStatus = STATUS_MEMORY_READ;
@@ -185,7 +196,7 @@ void i8080_examine_next(intel8080_t *cpu)
     update_display_bus(cpu);
 }
 
-void i8080_deposit(intel8080_t *cpu, uint8_t data)
+void z80_deposit(z80_t *cpu, uint8_t data)
 {
     cpu->data_bus = data;
     cpu->cpuStatus &= ~STATUS_MEMORY_READ;
@@ -194,9 +205,9 @@ void i8080_deposit(intel8080_t *cpu, uint8_t data)
     update_display_bus(cpu);
 }
 
-void i8080_deposit_next(intel8080_t *cpu, uint8_t data)
+void z80_deposit_next(z80_t *cpu, uint8_t data)
 {
-    i8080_examine_next(cpu);
+    z80_examine_next(cpu);
     cpu->data_bus = data;
     cpu->cpuStatus &= ~STATUS_MEMORY_READ;
     cpu->cpuStatus |= STATUS_WRITE_OUTPUT;
@@ -225,7 +236,8 @@ void x80_invoke_halt(void)
 void x80_invoke_in(uint8_t port)
 {
     static uint8_t character = 0;
-    intel8080_t *cpu = g_cpu;
+    z80_t *cpu = g_cpu;
+    cpu->cpuStatus |= STATUS_PORT_INPUT;
 
     switch (port)
     {
@@ -275,7 +287,8 @@ void x80_invoke_in(uint8_t port)
 // byte from the accumulator (reg.a).
 void x80_invoke_out(uint8_t port)
 {
-    intel8080_t *cpu = g_cpu;
+    z80_t *cpu = g_cpu;
+    cpu->cpuStatus |= STATUS_PORT_OUTPUT | STATUS_WRITE_OUTPUT;
 
     switch (port)
     {
