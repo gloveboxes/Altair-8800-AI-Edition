@@ -211,7 +211,7 @@ force_inlined void op_cmp( uint8_t x )
     reg.z80_assignYX( x ); // done on operand, not the result or reg.a
 } //op_cmp
 
-void op_ana( uint8_t x )
+force_inlined void op_ana( uint8_t x )
 {
     reg.fCarry = false;
     reg.a &= x;
@@ -221,7 +221,7 @@ void op_ana( uint8_t x )
     reg.z80_assignYX( reg.a );
 } //op_ana
 
-void op_ora( uint8_t x )
+force_inlined void op_ora( uint8_t x )
 {
     reg.a |= x;
     reg.fAuxCarry = false;
@@ -232,7 +232,7 @@ void op_ora( uint8_t x )
     reg.z80_assignYX( reg.a );
 } //op_ora
 
-void op_xra( uint8_t x )
+force_inlined void op_xra( uint8_t x )
 {
     reg.a ^= x;
     reg.fAuxCarry = false;
@@ -1115,13 +1115,17 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             else if ( 0xa0 == op2 ) // ldi
             {
                 cycles = 4;
-                memory[ reg.D() ] = memory[ reg.H() ];
-                reg.fY = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x02 ) );
-                reg.fX = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x08 ) );
-                reg.SetH( reg.H() + 1 );
-                reg.SetD( reg.D() + 1 );
-                reg.SetB( reg.B() - 1 );
-                reg.fParityEven_Overflow = ( 0 != reg.B() );
+                uint16_t hl = reg.H();
+                uint16_t de = reg.D();
+                uint16_t bc = reg.B() - 1;
+                uint8_t value = memory[ hl ];
+                memory[ de ] = value;
+                reg.fY = ( 0 != ( ( value + reg.a ) & 0x02 ) );
+                reg.fX = ( 0 != ( ( value + reg.a ) & 0x08 ) );
+                reg.SetH( hl + 1 );
+                reg.SetD( de + 1 );
+                reg.SetB( bc );
+                reg.fParityEven_Overflow = ( 0 != bc );
                 reg.fAuxCarry = 0;
                 reg.fWasSubtract = 0;
             }
@@ -1129,11 +1133,13 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             {
                 bool oldCarry = reg.fCarry;
                 cycles = 4;
-                uint8_t memval = memory[ reg.H() ];
+                uint16_t hl = reg.H();
+                uint16_t bc = reg.B() - 1;
+                uint8_t memval = memory[ hl ];
                 op_cmp( memval );
-                reg.SetH( reg.H() + 1 );
-                reg.SetB( reg.B() - 1 );
-                reg.fParityEven_Overflow = ( 0 != reg.B() );
+                reg.SetH( hl + 1 );
+                reg.SetB( bc );
+                reg.fParityEven_Overflow = ( 0 != bc );
                 uint8_t n = reg.a - memval - ( reg.fAuxCarry ? 1 : 0 ); // n = A - (HL) - HF
                 reg.fY = ( 0 != ( n & 0x02 ) );
                 reg.fX = ( 0 != ( n & 0x08 ) );
@@ -1142,24 +1148,30 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             else if ( 0xa8 == op2 ) // ldd
             {
                 cycles = 4;
-                memory[ reg.D() ] = memory[ reg.H() ];
-                reg.fY = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x02 ) );
-                reg.fX = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x08 ) );
-                reg.SetH( reg.H() - 1 );
-                reg.SetD( reg.D() - 1 );
-                reg.SetB( reg.B() - 1 );
-                reg.fParityEven_Overflow = ( 0 != reg.B() );
+                uint16_t hl = reg.H();
+                uint16_t de = reg.D();
+                uint16_t bc = reg.B() - 1;
+                uint8_t value = memory[ hl ];
+                memory[ de ] = value;
+                reg.fY = ( 0 != ( ( value + reg.a ) & 0x02 ) );
+                reg.fX = ( 0 != ( ( value + reg.a ) & 0x08 ) );
+                reg.SetH( hl - 1 );
+                reg.SetD( de - 1 );
+                reg.SetB( bc );
+                reg.fParityEven_Overflow = ( 0 != bc );
                 reg.clearHN();
             }
             else if ( 0xa9 == op2 ) // cpd
             {
                 bool oldCarry = reg.fCarry;
                 cycles = 4;
-                uint8_t memval = memory[ reg.H() ];
+                uint16_t hl = reg.H();
+                uint16_t bc = reg.B() - 1;
+                uint8_t memval = memory[ hl ];
                 op_cmp( memval );
-                reg.SetH( reg.H() - 1 );
-                reg.SetB( reg.B() - 1 );
-                reg.fParityEven_Overflow = ( 0 != reg.B() );
+                reg.SetH( hl - 1 );
+                reg.SetB( bc );
+                reg.fParityEven_Overflow = ( 0 != bc );
                 uint8_t n = reg.a - memval - ( reg.fAuxCarry ? 1 : 0 ); // n = A - (HL) - HF
                 reg.fY = ( 0 != ( n & 0x02 ) );
                 reg.fX = ( 0 != ( n & 0x08 ) );
@@ -1168,18 +1180,22 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             else if ( 0xb0 == op2 ) // ldir
             {
                 cycles = 0;
+                uint16_t hl = reg.H();
+                uint16_t de = reg.D();
+                uint16_t bc = reg.B();
                 do
                 {
                     cycles += 5;
-                    memory[ reg.D() ] = memory[ reg.H() ];
-                    reg.fY = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x02 ) );
-                    reg.fX = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x08 ) );
-                    reg.SetH( reg.H() + 1 );
-                    reg.SetD( reg.D() + 1 );
-                    reg.SetB( reg.B() - 1 );
-                } while ( 0 != reg.B() );
+                    uint8_t value = memory[ hl++ ];
+                    memory[ de++ ] = value;
+                    reg.fY = ( 0 != ( ( value + reg.a ) & 0x02 ) );
+                    reg.fX = ( 0 != ( ( value + reg.a ) & 0x08 ) );
+                } while ( 0 != --bc );
 
                 cycles--; // the last iteration is cheaper
+                reg.SetH( hl );
+                reg.SetD( de );
+                reg.SetB( bc );
                 reg.fParityEven_Overflow = false;
                 reg.fAuxCarry = 0;
                 reg.fWasSubtract = 0;
@@ -1188,37 +1204,44 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             {
                 bool oldCarry = reg.fCarry;
                 cycles = 0;
+                uint16_t hl = reg.H();
+                uint16_t bc = reg.B();
                 do
                 {
                     cycles += 5;
-                    uint8_t memval = memory[ reg.H() ];
+                    uint8_t memval = memory[ hl++ ];
                     op_cmp( memval );
                     uint8_t n = reg.a - memval - ( reg.fAuxCarry ? 1 : 0 ); // n = A - (HL) - HF
                     reg.fY = ( 0 != ( n & 0x02 ) );
                     reg.fX = ( 0 != ( n & 0x08 ) );
-                    reg.SetH( reg.H() + 1 );
-                    reg.SetB( reg.B() - 1 );
-                } while ( !reg.fZero && ( 0 != reg.B() ) );
+                    bc--;
+                } while ( !reg.fZero && ( 0 != bc ) );
 
                 cycles--; // the last iteration is cheaper
-                reg.fParityEven_Overflow = ( 0 != reg.B() ); // not what the Zilog doc says, but it's what works
+                reg.SetH( hl );
+                reg.SetB( bc );
+                reg.fParityEven_Overflow = ( 0 != bc ); // not what the Zilog doc says, but it's what works
                 reg.fCarry = oldCarry; // carry is not affected
             }
             else if ( 0xb8 == op2 ) // lddr
             {
                 cycles = 0;
+                uint16_t hl = reg.H();
+                uint16_t de = reg.D();
+                uint16_t bc = reg.B();
                 do
                 {
                     cycles += 5;
-                    memory[ reg.D() ] = memory[ reg.H() ];
-                    reg.fY = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x02 ) );
-                    reg.fX = ( 0 != ( ( memory[ reg.H() ] + reg.a ) & 0x08 ) );
-                    reg.SetH( reg.H() - 1 );
-                    reg.SetD( reg.D() - 1 );
-                    reg.SetB( reg.B() - 1 );
-                } while ( 0 != reg.B() );
+                    uint8_t value = memory[ hl-- ];
+                    memory[ de-- ] = value;
+                    reg.fY = ( 0 != ( ( value + reg.a ) & 0x02 ) );
+                    reg.fX = ( 0 != ( ( value + reg.a ) & 0x08 ) );
+                } while ( 0 != --bc );
 
                 cycles--; // the last iteration is cheaper
+                reg.SetH( hl );
+                reg.SetD( de );
+                reg.SetB( bc );
                 reg.fParityEven_Overflow = false; // unlike similar functions
                 reg.clearHN();
             }
@@ -1226,20 +1249,23 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             {
                 bool oldCarry = reg.fCarry;
                 cycles = 0;
+                uint16_t hl = reg.H();
+                uint16_t bc = reg.B();
                 do
                 {
                     cycles += 5;
-                    uint8_t memval = memory[ reg.H() ];
+                    uint8_t memval = memory[ hl-- ];
                     op_cmp( memval );
                     uint8_t n = reg.a - memval - ( reg.fAuxCarry ? 1 : 0 ); // n = A - (HL) - HF
                     reg.fY = ( 0 != ( n & 0x02 ) );
                     reg.fX = ( 0 != ( n & 0x08 ) );
-                    reg.SetH( reg.H() - 1 );
-                    reg.SetB( reg.B() - 1 );
-                } while ( !reg.fZero && ( 0 != reg.B() ) );
+                    bc--;
+                } while ( !reg.fZero && ( 0 != bc ) );
 
                 cycles--; // the last iteration is cheaper
-                reg.fParityEven_Overflow = ( 0 != reg.B() );
+                reg.SetH( hl );
+                reg.SetB( bc );
+                reg.fParityEven_Overflow = ( 0 != bc );
                 reg.fCarry = oldCarry; // carry is not affected
             }
             else if ( 0x02 == ( op2 & 0x8f ) ) // sbc hl, rp AKA sbc hl, ss

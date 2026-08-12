@@ -1,6 +1,0 @@
-ft -g file://tetris/tetris.c
-
-cc tetris
-
-clink tetris
-mcpdone tetris

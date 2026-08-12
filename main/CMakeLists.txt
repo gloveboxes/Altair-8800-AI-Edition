@@ -100,6 +100,10 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 #
 set_source_files_properties(
     "../altair8800/x80.cxx"
+    PROPERTIES
+    COMPILE_OPTIONS "-w;-fjump-tables;-ftree-switch-conversion"
+)
+set_source_files_properties(
     "../altair8800/cpu_x80_adapter.cpp"
     PROPERTIES
     COMPILE_OPTIONS "-w"

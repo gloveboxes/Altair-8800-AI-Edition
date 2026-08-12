@@ -47,5 +47,6 @@ inline uint8_t bit_count8( uint8_t x )
 
 inline bool is_parity_even8( uint8_t x )
 {
-    return ( ! ( bit_count8( x ) & 1 ) );
+    uint8_t folded = ( x ^ ( x >> 4 ) ) & 0x0f;
+    return ( 0 == ( ( 0x6996u >> folded ) & 1u ) );
 }
