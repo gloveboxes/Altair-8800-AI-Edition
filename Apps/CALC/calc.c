@@ -1,16 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+#include "CALCDOUB.H"
 
-#define MAX_LINE 80
+#define MAX_LINE 640
+#define MAX_NUMBER 320
 
 extern int bdos(int function, int argument);
 
 struct Value {
-    int is_float;
-    int int_value;
-    float float_value;
+    int is_double;
+    struct CalcInt1024 int_value;
+    struct CalcDouble double_value;
 };
 
 struct Parser {
@@ -34,10 +35,33 @@ static int is_space(char ch)
 
 static char *skip_spaces(char *text)
 {
-    while (*text != '\0' && is_space(*text)) {
-        ++text;
-    }
+    while (*text != '\0' && is_space(*text)) ++text;
     return text;
+}
+
+static int parse_minimum_integer(char **text, struct CalcInt1024 *value)
+{
+    const char *minimum;
+    char *current;
+
+    minimum = "89884656743115795386465259539451236680898848947115"
+              "32863671504057886633790275048156635423866120376801"
+              "05600569399356966788293948844072083112464237153197"
+              "37062188883946712432742638151109800623047059726541"
+              "47604250288441907534117123144073695655527041361858"
+              "16752553422931491199736229692398581524176781648121"
+              "12068608";
+    current = skip_spaces(*text);
+    while (*minimum != '\0' && *current == *minimum) {
+        ++current;
+        ++minimum;
+    }
+    if (*minimum != '\0' || is_digit(*current) || *current == '.' ||
+        *current == 'e' || *current == 'E') return 0;
+    xzero(value);
+    value->word[CALC_INT_WORDS - 1] = 0x80000000UL;
+    *text = current;
+    return 1;
 }
 
 static int same_command(char *text, const char *command)
@@ -57,47 +81,33 @@ static int same_command(char *text, const char *command)
     return *text == '\0';
 }
 
-static int parse_int(const char *text)
-{
-    int sign;
-    int value;
-
-    sign = 1;
-    value = 0;
-    if (*text == '-') {
-        sign = -1;
-        ++text;
-    } else if (*text == '+') {
-        ++text;
-    }
-
-    while (*text >= '0' && *text <= '9') {
-        value = (value * 10) + (*text - '0');
-        ++text;
-    }
-    return value * sign;
-}
-
 static void set_int(struct Value *value, int int_value)
 {
-    value->is_float = 0;
-    value->int_value = int_value;
-    value->float_value = (float)int_value;
+    value->is_double = 0;
+    xfrom(&value->int_value, int_value);
+    dzero(&value->double_value);
 }
 
-static void set_float(struct Value *value, float float_value)
+static void set_integer(struct Value *value, const struct CalcInt1024 *int_value)
 {
-    value->is_float = 1;
-    value->int_value = (int)float_value;
-    value->float_value = float_value;
+    value->is_double = 0;
+    value->int_value = *int_value;
+    dzero(&value->double_value);
 }
 
-static float value_as_float(const struct Value *value)
+static void set_double(struct Value *value,
+                       const struct CalcDouble *double_value)
 {
-    if (value->is_float) {
-        return value->float_value;
-    }
-    return (float)value->int_value;
+    value->is_double = 1;
+    xzero(&value->int_value);
+    value->double_value = *double_value;
+}
+
+static void value_as_double(const struct Value *value,
+                            struct CalcDouble *double_value)
+{
+    if (value->is_double) *double_value = value->double_value;
+    else dfromi(&value->int_value, double_value);
 }
 
 static void parser_error(struct Parser *parser, const char *message)
@@ -111,7 +121,7 @@ static void parser_error(struct Parser *parser, const char *message)
 
 static void token_add(struct Parser *parser, char *token, int *index, char ch)
 {
-    if (*index >= 31) {
+    if (*index >= MAX_NUMBER - 1) {
         parser_error(parser, "Number too long");
         return;
     }
@@ -121,15 +131,15 @@ static void token_add(struct Parser *parser, char *token, int *index, char ch)
 
 static void parse_number(struct Parser *parser, struct Value *result)
 {
-    char token[32];
+    char token[MAX_NUMBER];
     int index;
     int saw_digit;
-    int is_float;
+    int is_double;
 
     parser->text = skip_spaces(parser->text);
     index = 0;
     saw_digit = 0;
-    is_float = 0;
+    is_double = 0;
 
     while (is_digit(*parser->text) && parser->error == 0) {
         saw_digit = 1;
@@ -138,7 +148,7 @@ static void parse_number(struct Parser *parser, struct Value *result)
     }
 
     if (*parser->text == '.' && parser->error == 0) {
-        is_float = 1;
+        is_double = 1;
         token_add(parser, token, &index, *parser->text);
         ++parser->text;
         while (is_digit(*parser->text) && parser->error == 0) {
@@ -149,7 +159,7 @@ static void parse_number(struct Parser *parser, struct Value *result)
     }
 
     if ((*parser->text == 'e' || *parser->text == 'E') && parser->error == 0) {
-        is_float = 1;
+        is_double = 1;
         token_add(parser, token, &index, *parser->text);
         ++parser->text;
         if (*parser->text == '+' || *parser->text == '-') {
@@ -174,10 +184,21 @@ static void parse_number(struct Parser *parser, struct Value *result)
     }
 
     token[index] = '\0';
-    if (is_float) {
-        set_float(result, atof(token));
+    if (is_double) {
+        if (dparse(token, &result->double_value)) {
+            parser_error(parser, "Double out of range");
+            set_int(result, 0);
+            return;
+        }
+        result->is_double = 1;
+        xzero(&result->int_value);
     } else {
-        set_int(result, parse_int(token));
+        if (xparse(token, &result->int_value)) {
+            parser_error(parser, "Integer out of range");
+            set_int(result, 0);
+            return;
+        }
+        set_integer(result, &result->int_value);
     }
 }
 
@@ -205,8 +226,17 @@ static void parse_primary(struct Parser *parser, struct Value *result)
 static void parse_power(struct Parser *parser, struct Value *result)
 {
     struct Value exponent;
+    struct CalcDouble base_double;
+    struct CalcDouble exponent_double;
+    struct CalcDouble power_double;
+    struct CalcInt1024 product;
+    struct CalcInt1024 next_product;
+    struct CalcInt1024 zero;
+    struct CalcInt1024 one;
+    struct CalcInt1024 minus_one;
     int count;
-    int product;
+    int exponent_count;
+    int power_status;
 
     parse_primary(parser, result);
     parser->text = skip_spaces(parser->text);
@@ -219,20 +249,52 @@ static void parse_power(struct Parser *parser, struct Value *result)
     if (parser->error != 0) {
         return;
     }
-    if (!result->is_float && !exponent.is_float && exponent.int_value >= 0) {
-        product = 1;
-        for (count = 0; count < exponent.int_value; ++count) {
-            product *= result->int_value;
+    xfrom(&zero, 0);
+    xfrom(&one, 1);
+    xfrom(&minus_one, -1);
+    if (!result->is_double && !exponent.is_double &&
+        !xisneg(&exponent.int_value)) {
+        count = 1;
+        while (count < CALC_INT_WORDS &&
+               exponent.int_value.word[count] == 0UL) ++count;
+        if (count < CALC_INT_WORDS ||
+            exponent.int_value.word[0] > 32767UL) {
+            if (xcomp(&result->int_value, &zero) == 0 ||
+                xcomp(&result->int_value, &one) == 0) return;
+            if (xcomp(&result->int_value, &minus_one) == 0) {
+                if ((exponent.int_value.word[0] & 1UL) == 0UL)
+                    set_integer(result, &one);
+                return;
+            }
+            parser_error(parser, "Integer overflow");
+            set_int(result, 0);
+            return;
         }
-        set_int(result, product);
+        exponent_count = (int)exponent.int_value.word[0];
+        product = one;
+        for (count = 0; count < exponent_count; ++count) {
+            if (xmul(&product, &result->int_value, &next_product)) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            product = next_product;
+        }
+        set_integer(result, &product);
         return;
     }
-    if (value_as_float(result) == 0.0f && value_as_float(&exponent) < 0.0f) {
-        parser_error(parser, "Division by zero");
+    value_as_double(result, &base_double);
+    value_as_double(&exponent, &exponent_double);
+    power_status = dpow(&base_double, &exponent_double, &power_double);
+    if (power_status != 0) {
+        if (power_status == 2) parser_error(parser, "Division by zero");
+        else if (power_status == 3)
+            parser_error(parser, "Double exponent must be an integer");
+        else parser_error(parser, "Double out of range");
         set_int(result, 0);
         return;
     }
-    set_float(result, powf(value_as_float(result), value_as_float(&exponent)));
+    set_double(result, &power_double);
 }
 
 static void parse_unary(struct Parser *parser, struct Value *result)
@@ -245,24 +307,40 @@ static void parse_unary(struct Parser *parser, struct Value *result)
     }
     if (*parser->text == '-') {
         ++parser->text;
+        if (parse_minimum_integer(&parser->text, &result->int_value)) {
+            result->is_double = 0;
+            dzero(&result->double_value);
+            return;
+        }
         parse_unary(parser, result);
-        if (result->is_float) {
-            result->float_value = -result->float_value;
-            result->int_value = (int)result->float_value;
+        if (result->is_double) {
+            struct CalcDouble negated_double;
+
+            dneg(&result->double_value, &negated_double);
+            set_double(result, &negated_double);
         } else {
-            result->int_value = -result->int_value;
-            result->float_value = (float)result->int_value;
+            struct CalcInt1024 negated;
+
+            if (xnegate(&result->int_value, &negated)) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+            } else {
+                set_integer(result, &negated);
+            }
         }
         return;
     }
     if (*parser->text == '~') {
         ++parser->text;
         parse_unary(parser, result);
-        if (result->is_float) {
+        if (result->is_double) {
             parser_error(parser, "~ is for integers only");
             set_int(result, 0);
         } else {
-            set_int(result, ~result->int_value);
+            struct CalcInt1024 inverted;
+
+            xnot(&result->int_value, &inverted);
+            set_integer(result, &inverted);
         }
         return;
     }
@@ -273,10 +351,15 @@ static void parse_unary(struct Parser *parser, struct Value *result)
 static void parse_multiply(struct Parser *parser, struct Value *result)
 {
     struct Value right;
+    struct CalcDouble left_double;
+    struct CalcDouble right_double;
+    struct CalcDouble double_result;
+    struct CalcInt1024 integer_result;
+    struct CalcInt1024 remainder;
     char op;
     int integer_divide;
-    float left_value;
-    float right_value;
+    int divide_status;
+    int double_status;
 
     parse_unary(parser, result);
     while (parser->error == 0) {
@@ -294,51 +377,82 @@ static void parse_multiply(struct Parser *parser, struct Value *result)
         parse_unary(parser, &right);
 
         if (integer_divide) {
-            if (result->is_float || right.is_float) {
+            if (result->is_double || right.is_double) {
                 parser_error(parser, "// is for integers only");
                 set_int(result, 0);
                 return;
             }
-            if (right.int_value == 0) {
+            if (xiszero(&right.int_value)) {
                 parser_error(parser, "Division by zero");
                 set_int(result, 0);
                 return;
             }
-            set_int(result, result->int_value / right.int_value);
+            divide_status = xdiv(&result->int_value, &right.int_value,
+                                  &integer_result, &remainder);
+            if (divide_status == 2) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            set_integer(result, &integer_result);
         } else if (op == '%') {
-            if (result->is_float || right.is_float) {
+            if (result->is_double || right.is_double) {
                 parser_error(parser, "% is for integers only");
                 set_int(result, 0);
                 return;
             }
-            if (right.int_value == 0) {
+            if (xiszero(&right.int_value)) {
                 parser_error(parser, "Division by zero");
                 set_int(result, 0);
                 return;
             }
-            set_int(result, result->int_value % right.int_value);
-        } else if (result->is_float || right.is_float) {
-            left_value = value_as_float(result);
-            right_value = value_as_float(&right);
-            if (op == '*') {
-                set_float(result, left_value * right_value);
-            } else {
-                if (right_value == 0.0f) {
+            divide_status = xdiv(&result->int_value, &right.int_value,
+                                  &integer_result, &remainder);
+            if (divide_status == 2) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            set_integer(result, &remainder);
+        } else if (result->is_double || right.is_double) {
+            value_as_double(result, &left_double);
+            value_as_double(&right, &right_double);
+            if (op == '*')
+                double_status = dmul(&left_double, &right_double,
+                                     &double_result);
+            else
+                double_status = ddiv(&left_double, &right_double,
+                                     &double_result);
+            if (double_status != 0) {
+                if (double_status == 2)
                     parser_error(parser, "Division by zero");
-                    set_int(result, 0);
-                    return;
-                }
-                set_float(result, left_value / right_value);
+                else
+                    parser_error(parser, "Double out of range");
+                set_int(result, 0);
+                return;
             }
+            set_double(result, &double_result);
         } else if (op == '*') {
-            set_int(result, result->int_value * right.int_value);
+            if (xmul(&result->int_value, &right.int_value, &integer_result)) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            set_integer(result, &integer_result);
         } else {
-            if (right.int_value == 0) {
+            if (xiszero(&right.int_value)) {
                 parser_error(parser, "Division by zero");
                 set_int(result, 0);
                 return;
             }
-            set_int(result, result->int_value / right.int_value);
+            divide_status = xdiv(&result->int_value, &right.int_value,
+                                  &integer_result, &remainder);
+            if (divide_status == 2) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            set_integer(result, &integer_result);
         }
     }
 }
@@ -346,9 +460,12 @@ static void parse_multiply(struct Parser *parser, struct Value *result)
 static void parse_add(struct Parser *parser, struct Value *result)
 {
     struct Value right;
+    struct CalcDouble left_double;
+    struct CalcDouble right_double;
+    struct CalcDouble double_result;
+    struct CalcInt1024 integer_result;
     char op;
-    float left_value;
-    float right_value;
+    int double_status;
 
     parse_multiply(parser, result);
     while (parser->error == 0) {
@@ -360,18 +477,35 @@ static void parse_add(struct Parser *parser, struct Value *result)
         ++parser->text;
         parse_multiply(parser, &right);
 
-        if (result->is_float || right.is_float) {
-            left_value = value_as_float(result);
-            right_value = value_as_float(&right);
-            if (op == '+') {
-                set_float(result, left_value + right_value);
-            } else {
-                set_float(result, left_value - right_value);
+        if (result->is_double || right.is_double) {
+            value_as_double(result, &left_double);
+            value_as_double(&right, &right_double);
+            if (op == '+')
+                double_status = dadd(&left_double, &right_double,
+                                     &double_result);
+            else
+                double_status = dsub(&left_double, &right_double,
+                                     &double_result);
+            if (double_status != 0) {
+                parser_error(parser, "Double out of range");
+                set_int(result, 0);
+                return;
             }
+            set_double(result, &double_result);
         } else if (op == '+') {
-            set_int(result, result->int_value + right.int_value);
+            if (xadd(&result->int_value, &right.int_value, &integer_result)) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            set_integer(result, &integer_result);
         } else {
-            set_int(result, result->int_value - right.int_value);
+            if (xsub(&result->int_value, &right.int_value, &integer_result)) {
+                parser_error(parser, "Integer overflow");
+                set_int(result, 0);
+                return;
+            }
+            set_integer(result, &integer_result);
         }
     }
 }
@@ -379,8 +513,8 @@ static void parse_add(struct Parser *parser, struct Value *result)
 static void parse_expression(struct Parser *parser, struct Value *result)
 {
     struct Value right;
-    float left_value;
-    float right_value;
+    struct CalcDouble left_double;
+    struct CalcDouble right_double;
 
     parse_add(parser, result);
     while (parser->error == 0) {
@@ -390,49 +524,13 @@ static void parse_expression(struct Parser *parser, struct Value *result)
         }
         ++parser->text;
         parse_add(parser, &right);
-        if (result->is_float || right.is_float) {
-            left_value = value_as_float(result);
-            right_value = value_as_float(&right);
-            set_int(result, left_value == right_value);
+        if (result->is_double || right.is_double) {
+            value_as_double(result, &left_double);
+            value_as_double(&right, &right_double);
+            set_int(result, dcomp(&left_double, &right_double) == 0);
         } else {
-            set_int(result, result->int_value == right.int_value);
+            set_int(result, xcomp(&result->int_value, &right.int_value) == 0);
         }
-    }
-}
-
-static void format_float(char *outbuf, float value)
-{
-    float magnitude;
-    int precision;
-    int length;
-    char format[5];
-
-    magnitude = value < 0.0f ? -value : value;
-    if (magnitude >= 100000.0f) precision = 0;
-    else if (magnitude >= 10000.0f) precision = 1;
-    else if (magnitude >= 1000.0f) precision = 2;
-    else if (magnitude >= 100.0f) precision = 3;
-    else if (magnitude >= 10.0f) precision = 4;
-    else if (magnitude >= 1.0f) precision = 5;
-    else precision = 6;
-
-    format[0] = '%';
-    format[1] = '.';
-    format[2] = (char)('0' + precision);
-    format[3] = 'f';
-    format[4] = '\0';
-    sprintf(outbuf, format, value);
-
-    length = strlen(outbuf);
-    while (length > 0 && outbuf[length - 1] == '0') {
-        outbuf[--length] = '\0';
-    }
-    if (length > 0 && outbuf[length - 1] == '.') {
-        outbuf[--length] = '\0';
-    }
-    if (strcmp(outbuf, "-0") == 0) {
-        outbuf[0] = '0';
-        outbuf[1] = '\0';
     }
 }
 
@@ -458,10 +556,10 @@ static int evaluate_expression(char *line, char *outbuf, int outsize)
     }
 
     if (outbuf != NULL && outsize > 0) {
-        if (result.is_float) {
-            format_float(outbuf, result.float_value);
+        if (result.is_double) {
+            dfmt(&result.double_value, outbuf);
         } else {
-            sprintf(outbuf, "%d", result.int_value);
+            xfmt(&result.int_value, outbuf);
         }
     }
     return 0;
@@ -807,6 +905,8 @@ static void print_help(void)
     printf("Available commands:\n");
     printf("  /help   Show this help text\n");
     printf("  /bye    Exit the calculator\n");
+    printf("\n");
+    printf("Integers are signed 1024-bit values.\n");
     printf("\n");
     printf("Operators:\n");
     printf("  +   add\n");

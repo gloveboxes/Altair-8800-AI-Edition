@@ -1,63 +1,69 @@
 # SHEETS
 
-A tiny VT100 spreadsheet for BDS C 1.6 running under CP/M on the
-Altair 8800 emulator. Patterned after `EDIT` and `CLOCK` for keyboard
-and screen handling.
+A VT100 spreadsheet written in dcc C11 for CP/M 2.2 on the Z80.
+
+## Implementation
+
+- `sheets_ui_c11.c`: display, keyboard handling, file I/O, grid operations,
+  structural edits, and copy/paste relocation
+- `sheets_calc_c11.c`: cell ownership, formula normalization, native 32-bit
+  evaluation, range functions, cycle detection, and rendering
+- `SHEETS.C` and `SHEETC.C`: CP/M 8.3-compatible dccmake entry points
+- `SHEETS.H`: shared C11 interface and constants
+
+Console output uses a static 4 KiB fully buffered `stdout` stream. The buffer is
+flushed before blocking for keyboard input, reducing BDOS console calls during
+screen redraws.
 
 ## Grid
 
-- 26 columns (`A`..`Z`) by 99 rows
-- 7 columns x 20 rows visible, scrolls with the cursor
-- Cells hold text, an integer, or a formula
-- 32-bit signed integer arithmetic (-2147483648..2147483647) via the
-  BDS C long library (`SDK/LONG.C`)
-
-## Keys
-
-| Key            | Action                                |
-|----------------|---------------------------------------|
-| Arrow keys     | Move cursor                           |
-| Enter          | Edit current cell (keep contents)     |
-| Any printable  | Start a fresh edit with that char     |
-| Backspace      | (in edit) delete left                 |
-| ESC            | (in edit) cancel; (in nav) quit       |
-| Ctrl-K         | Clear current cell                    |
-| Ctrl-O         | Write file                            |
-| Ctrl-L         | Reload file                           |
-| Ctrl-G         | Go to cell (e.g. `C12`)               |
-| Ctrl-W         | Help                                  |
-| Ctrl-Q         | Quit                                  |
+- 26 columns (`A` through `Z`) by 99 rows
+- 7 columns by 26 rows visible, scrolling with the cursor
+- Sparse heap-allocated cell text
+- Native signed 32-bit `long` formula arithmetic
 
 ## Formulas
 
-Cells whose content starts with `=` are formulas. Supported:
+Cells beginning with `=` support:
 
-- Integers and unary minus: `=-42`
-- Binary `+ - * /` with normal precedence
-- Parentheses: `=(A1+A2)/2`
-- Cell references: `=A1+B2*3`
-- Range functions over a rectangular block:
-  - `=SUM(A1:B5)`   sum of all cells in the range
-  - `=AVG(A1:B5)`   integer average (truncated)
-  - `=MIN(A1:B5)`   smallest value
-  - `=MAX(A1:B5)`   largest value
-  - `=COUNT(A1:B5)` number of non-empty cells
+- Integer arithmetic with `+`, `-`, `*`, `/`, unary signs, and parentheses
+- Relative and absolute references such as `A1`, `$A$1`, `$A1`, and `A$1`
+- `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` rectangular ranges
+- `RAND()` and `RAND(n)`, frozen to a value when entered
+- Circular-reference and invalid-reference reporting
 
-Cycles and other errors render as `#ERR` in the cell.
+Examples:
 
-## File format
-
-Plain text, one non-empty cell per line:
-
-    A1=42
-    B1=Hello
-    C1==SUM(A1:A5)
+```text
+=A1+B2*3
+=(A1+A2)/2
+=SUM(A1:B5)
+=RAND(6)
+```
 
 ## Build
 
-```
-SUBMIT SHEETS
+Set the dcc and ntvcm locations, then run:
+
+```sh
+export DCC_DIR="$HOME/GitHub/dcc"
+export NTVCM_DIR="$HOME/GitHub/ntvcm"
+./build-app.sh
 ```
 
-`SHEETS.SUB` fetches `SDK/STRING.C` for `strncpy`, then compiles and
-links `SHEETS` against it.
+The optimized build produces `SHEETS.COM`; intermediate files are removed.
+From the repository root, run it with a CP/M filename argument:
+
+```sh
+ntvcm Apps/SHEETS/SHEETS.COM TEST
+```
+
+## File format
+
+One non-empty cell is stored per line:
+
+```text
+A1=42
+B1=Hello
+C1==SUM(A1:A5)
+```

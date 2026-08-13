@@ -82,11 +82,4 @@ int set_cell(int row, int column, const char *text);
 void clear_cell(int row, int column);
 void render_cell(int row, int column, char *buffer);
 
-#define isdig is_ascii_digit
-#define isal is_ascii_letter
-#define upr uppercase_ascii
-#define setcel set_cell
-#define clrcel clear_cell
-#define rndcel render_cell
-
 #endif

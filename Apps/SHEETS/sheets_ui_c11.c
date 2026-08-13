@@ -1,5 +1,5 @@
 /*
- * SHEETS.C - Simple spreadsheet for BDS C 1.6 on CP/M / Altair 8800.
+ * SHEETS - dcc C11 spreadsheet for CP/M 2.2 on the Z80.
  *
  * Inspired by EDIT.C and CLOCK.C - same VT100 helpers, same
  * key-translation conventions (emulator maps arrow keys to the
@@ -37,11 +37,8 @@
  *   Ctrl-G        Go to cell (e.g. "C12")
  *   Ctrl-Q        Quit
  *
- * Build (CP/M): compiled as two units (SHEETS.C + SHEETC.C) so
- * each fits the BDS C 1.6 parser; shared state lives in SHEETS.H.
- *      cc sheets
- *      cc sheetc
- *      clink sheets sheetc string long
+ * Build on the host with dccmake; SHEETS.C and SHEETC.C are the CP/M
+ * 8.3-compatible entry points for this UI and the C11 calculator module.
  */
 
 #include <stdio.h>
@@ -191,8 +188,8 @@ int keywt()
     return c;
 }
 
-/* ---- Cell storage, formula engine, and rendering live in
- * SHEETC.C (split out so each unit fits the BDS C compiler). ---- */
+/* Cell storage, formula evaluation, and rendering live in the calculator
+ * module behind the API declared in SHEETS.H. */
 
 /* ---- Drawing ---- */
 
@@ -294,7 +291,7 @@ int vr;
             cput("          ");
             continue;
         }
-        rndcel(r, c, buf);
+        render_cell(r, c, buf);
         is_cur = (r == crow && c == ccol);
         if (is_cur)
             /* bright white on LED red */
@@ -488,7 +485,7 @@ int init;
 
     if (prompt(ebuf, "Cell:", 79))
     {
-        setcel(crow, ccol, ebuf);
+        set_cell(crow, ccol, ebuf);
         dirty = 1;
         msg("");
         if (crow < MAXROW - 1)
@@ -623,9 +620,9 @@ int dc;
     while (*p && i < 150)
     {
         isref = 0;
-        if (*p == '$' && isal(p[1]))
+        if (*p == '$' && is_ascii_letter(p[1]))
             isref = 1;
-        else if (isal(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+        else if (is_ascii_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
             isref = 1;
 
         if (!isref)
@@ -641,7 +638,7 @@ int dc;
             colabs = 1;
             p++;
         }
-        col = upr(*p) - 'A';
+        col = uppercase_ascii(*p) - 'A';
         p++;
         if (*p == '$')
         {
@@ -809,9 +806,9 @@ int dc;
     while (*p && i < 150)
     {
         isref = 0;
-        if (*p == '$' && isal(p[1]))
+        if (*p == '$' && is_ascii_letter(p[1]))
             isref = 1;
-        else if (isal(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+        else if (is_ascii_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
             isref = 1;
 
         if (!isref)
@@ -827,7 +824,7 @@ int dc;
             colabs = 1;
             p++;
         }
-        col = upr(*p) - 'A';
+        col = uppercase_ascii(*p) - 'A';
         p++;
         if (*p == '$')
         {
@@ -1005,18 +1002,18 @@ int loadf()
         } else if (character == LF) {
             ln[position] = 0;
             position = 0;
-            if (ln[0] != 0 && isal(ln[0])) {
-                col = upr(ln[0]) - 'A';
+            if (ln[0] != 0 && is_ascii_letter(ln[0])) {
+                col = uppercase_ascii(ln[0]) - 'A';
                 i = 1;
                 row = 0;
-                while (isdig(ln[i]))
+                while (is_ascii_digit(ln[i]))
                     row = row * 10 + (ln[i++] - '0');
                 row--;
                 if (ln[i] == '=') {
                     eq = &ln[i + 1];
                     if (row >= 0 && row < MAXROW &&
                         col >= 0 && col < MAXCOL)
-                        setcel(row, col, eq);
+                        set_cell(row, col, eq);
                 }
             }
         }
@@ -1035,7 +1032,7 @@ int helpsc()
 {
     cls();
     curmv(2, 4);
-    cput("SHEETS - simple BDS C spreadsheet");
+    cput("SHEETS - dcc C11 spreadsheet");
     curmv(4, 4);
     cput("Grid: A..Z columns by 1..99 rows.");
     curmv(5, 4);
@@ -1134,9 +1131,9 @@ int dc;
     while (*p && i < 150)
     {
         isref = 0;
-        if (*p == '$' && isal(p[1]))
+        if (*p == '$' && is_ascii_letter(p[1]))
             isref = 1;
-        else if (isal(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+        else if (is_ascii_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
             isref = 1;
 
         if (!isref)
@@ -1152,7 +1149,7 @@ int dc;
             colabs = 1;
             p++;
         }
-        col = upr(*p) - 'A';
+        col = uppercase_ascii(*p) - 'A';
         p++;
         if (*p == '$')
         {
@@ -1225,12 +1222,12 @@ int pastcl()
             msg("Out of memory");
             return 0;
         }
-        setcel(crow, ccol, nw);
+        set_cell(crow, ccol, nw);
         free(nw);
     }
     else
     {
-        setcel(crow, ccol, clip);
+        set_cell(crow, ccol, clip);
     }
     dirty = 1;
     msg("Pasted");
@@ -1251,15 +1248,15 @@ int gotocl()
         msg("");
         return 0;
     }
-    if (!isal(buf[0]))
+    if (!is_ascii_letter(buf[0]))
     {
         msg("Bad cell");
         return 0;
     }
-    c = upr(buf[0]) - 'A';
+    c = uppercase_ascii(buf[0]) - 'A';
     i = 1;
     r = 0;
-    while (isdig(buf[i]))
+    while (is_ascii_digit(buf[i]))
     {
         r = r * 10 + (buf[i] - '0');
         i++;
@@ -1323,7 +1320,7 @@ int main()
 
     if (!getfcb(ename))
     {
-        cput("\r\nSHEETS - simple BDS C spreadsheet\r\n");
+        cput("\r\nSHEETS - dcc C11 spreadsheet\r\n");
         cput("Usage: SHEETS filename\r\n");
         cput("A filename is required so Ctrl-O can save.\r\n");
         return 0;
@@ -1379,7 +1376,7 @@ int main()
         }
         else if (k == CTLK || k == BKSP || k == DEL)
         {
-            clrcel(crow, ccol);
+            clear_cell(crow, ccol);
             msg("Cleared");
             rall = 1;
         }
