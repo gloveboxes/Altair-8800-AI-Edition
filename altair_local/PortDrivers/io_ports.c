@@ -22,6 +22,7 @@
 #include "PortDrivers/chat_io.h"
 #include "PortDrivers/environment_io.h"
 #include "PortDrivers/host_files_io.h"
+#include "interrupt_timer.h"
 #include "PortDrivers/time_io.h"
 #include "PortDrivers/utility_io.h"
 #include "PortDrivers/weather_io.h"
@@ -100,6 +101,10 @@ void io_port_out(uint8_t port, uint8_t data)
             request_unit.len = environment_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
 
+        case INTERRUPT_TIMER_PORT:
+            interrupt_timer_output(data);
+            break;
+
         // Raspberry Pi Sense HAT front panel + sensors (host-only addition, not
         // in the ESP32 firmware mirror). Inert when the panel is not active.
         case 63:  // onboard sensors (temperature/pressure/light/humidity)
@@ -168,6 +173,9 @@ uint8_t io_port_in(uint8_t port)
         // Environment status port
         case ENVIRONMENT_PORT_COMMAND:
             return environment_input(port);
+
+        case INTERRUPT_TIMER_PORT:
+            return interrupt_timer_input();
 
         default:
             return 0x00;

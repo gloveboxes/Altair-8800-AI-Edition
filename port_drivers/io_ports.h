@@ -6,6 +6,7 @@
  * - Ports 24-30, 41-43: Time/timer operations (time_io)
  * - Ports 50-51: Statistics (stats_io) - disabled on ESP32
  * - Ports 45, 70: Utility functions (utility_io)
+ * - Port 52: Periodic Z80 maskable interrupt rate in Hz (interrupt_timer)
  * - Ports 109, 110, 114, 33, 201: HTTP file transfer (http_io) - disabled on ESP32
  * - Ports 60, 61: File transfer (files_io)
  * - Ports 71, 72: Environment variables (environment_io)

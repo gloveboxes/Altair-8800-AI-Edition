@@ -61,6 +61,9 @@ static void sync_regs_out(z80_t *cpu)
     cpu->registers.l = reg.l;
     cpu->registers.sp = reg.sp;
     cpu->registers.pc = reg.pc;
+    cpu->iff = reg.fINTE;
+    cpu->iff2 = reg.fINTE2;
+    cpu->interrupt_mode = reg.interruptMode;
 }
 
 #ifdef ALTAIR_X80_HOST_TEST
@@ -120,6 +123,45 @@ void z80_resume(z80_t *cpu)
 {
     cpu->halted = false;
     cpu->cpuStatus &= ~STATUS_HALT;
+}
+
+extern "C" bool z80_interrupt(z80_t *cpu, uint8_t data_bus)
+{
+    // A Z80 does not accept a maskable interrupt until the instruction after
+    // EI. The core already publishes the final opcode in each execution batch,
+    // avoiding an always-zero delay check in the per-instruction hot path.
+    if (!reg.fINTE || x80_last_opcode == 0xfb)
+        return false;
+    if (reg.interruptMode == 0 && (data_bus & 0xc7) != 0xc7)
+        return false;
+
+    g_cpu = cpu;
+    z80_resume(cpu);
+    reg.fINTE = false;
+    reg.fINTE2 = false;
+    reg.sp -= 2;
+    memory[reg.sp] = (uint8_t)reg.pc;
+    memory[(uint16_t)(reg.sp + 1)] = (uint8_t)(reg.pc >> 8);
+
+    if (reg.interruptMode == 2)
+    {
+        uint16_t vector = ((uint16_t)reg.i << 8) | data_bus;
+        reg.pc = memory[vector] | ((uint16_t)memory[(uint16_t)(vector + 1)] << 8);
+    }
+    else
+    {
+        // Mode 1 always executes RST 38h. In mode 0 this emulator accepts the
+        // RST opcode normally supplied by an Altair-compatible interrupt board.
+        uint8_t rst = reg.interruptMode == 1 ? 0xff : data_bus;
+        reg.pc = rst & 0x38;
+    }
+
+    cpu->cpuStatus = STATUS_INTERRUPT | STATUS_STACK;
+    sync_regs_out(cpu);
+    cpu->address_bus = reg.pc;
+    cpu->data_bus = memory[reg.pc];
+    update_display_bus(cpu);
+    return true;
 }
 
 void z80_execute_instructions(z80_t *cpu, uint16_t instruction_count)

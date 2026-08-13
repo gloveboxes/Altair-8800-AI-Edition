@@ -22,6 +22,7 @@ using namespace std;
 registers reg;
 uint8_t x80_last_io_status = X80_IO_NONE;
 uint16_t x80_last_sp_before = 0;
+uint8_t x80_last_opcode = OPCODE_NOP;
 static const char * reg_strings[ 8 ] = { "b", "c", "d", "e", "h", "l", "m", "a" };
 static const char * rp_strings[ 4 ] = { "bc", "de", "hl", "sp" };
 static const char * z80_math_strings[ 8 ] = { "add", "adc", "sub", "sbb", "and", "xor", "or", "cp" };
@@ -1037,7 +1038,18 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             reg.r++;
             pcbyte();  // consume op2
 
-            if ( 0x3 == ( op2 & 0xf ) ) // ld (mw), rp AKA ld (nn), dd
+            if ( 0x46 == op2 || 0x4e == op2 || 0x66 == op2 || 0x6e == op2 ) // im 0
+                reg.interruptMode = 0;
+            else if ( 0x56 == op2 || 0x76 == op2 ) // im 1
+                reg.interruptMode = 1;
+            else if ( 0x5e == op2 || 0x7e == op2 ) // im 2
+                reg.interruptMode = 2;
+            else if ( 0x45 == op2 || 0x4d == op2 ) // retn / reti
+            {
+                reg.pc = popword();
+                reg.fINTE = reg.fINTE2;
+            }
+            else if ( 0x3 == ( op2 & 0xf ) ) // ld (mw), rp AKA ld (nn), dd
             {
                 cycles = 8;
                 setmword( pcword(), reg.rpValueFromOp( op2 ) );
@@ -1067,7 +1079,7 @@ uint16_t z80_emulate( uint8_t op )    // this is just for instructions that aren
             {
                 reg.a = reg.i;
                 set_sign_zero( reg.a );
-                reg.fParityEven_Overflow = false; // no iff2
+                reg.fParityEven_Overflow = reg.fINTE2;
                 reg.fWasSubtract = false;
                 reg.fAuxCarry = false;
                 reg.z80_assignYX( reg.a );
@@ -1847,11 +1859,11 @@ static uint32_t x80_emulate_budget( uint32_t maxcycles, uint16_t maxinstructions
             case 0xeb: { uint16_t t = reg.H(); reg.SetH( reg.D() ); reg.SetD( t ); break; } // xchg
             case 0xee: { op_xra( pcbyte() ); break; } // xri
             case 0xf1: { reg.SetPSW( popword() ); break; } // pop psw
-            case 0xf3: { reg.fINTE = false; break; } // di
+            case 0xf3: { reg.fINTE = false; reg.fINTE2 = false; break; } // di
             case 0xf5: { pushword( reg.PSW() ); break; } // push psw
             case 0xf6: { op_ora( pcbyte() ); break; } // ori
             case 0xf9: { reg.sp = reg.H(); break; } // sphl
-            case 0xfb: { reg.fINTE = true; break; } // ei
+            case 0xfb: { reg.fINTE = true; reg.fINTE2 = true; break; } // ei
             case 0xfe: { op_cmp( pcbyte() ); break; } // cpi
             default:
             {
@@ -1863,6 +1875,7 @@ static uint32_t x80_emulate_budget( uint32_t maxcycles, uint16_t maxinstructions
     } //while
 _all_done:
     x80_last_sp_before = last_sp_before;
+    x80_last_opcode = op;
     x80_last_io_status = op == 0xdb ? X80_IO_INPUT
                        : op == 0xd3 ? X80_IO_OUTPUT
                        : X80_IO_NONE;

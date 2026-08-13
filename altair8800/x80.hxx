@@ -56,7 +56,9 @@ struct registers
     bool fY;                   // defined to be 0, but physical Z80s and 8085s sometimes set to 1
     bool fX;                   // defined to be 0, but physical Z80s and 8085s sometimes set to 1
 
-    bool fINTE;                // Not a cpu flag. true if hardware interrupts are enabled. set/reset with ei and di
+    bool fINTE;                // IFF1: maskable interrupt enable
+    bool fINTE2;               // IFF2: saved interrupt enable state
+    uint8_t interruptMode;     // Z80 interrupt mode 0, 1, or 2
 
     uint8_t materializeFlags()
     {
@@ -252,6 +254,7 @@ enum x80_io_status : uint8_t
 
 extern uint8_t x80_last_io_status;
 extern uint16_t x80_last_sp_before;
+extern uint8_t x80_last_opcode;
 
 // callbacks when instructions are executed
 

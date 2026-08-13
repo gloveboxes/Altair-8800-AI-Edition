@@ -9,6 +9,7 @@
 #include "port_drivers/chat_io.h"
 #include "port_drivers/environment_io.h"
 #include "port_drivers/files_io.h"
+#include "port_drivers/interrupt_timer.h"
 #include "port_drivers/time_io.h"
 #include "port_drivers/utility_io.h"
 #include "port_drivers/weather_io.h"
@@ -86,6 +87,10 @@ void io_port_out(uint8_t port, uint8_t data)
             request_unit.len = environment_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
 
+        case INTERRUPT_TIMER_PORT:
+            interrupt_timer_output(data);
+            break;
+
         default:
             break;
     }
@@ -131,6 +136,9 @@ uint8_t io_port_in(uint8_t port)
         // Environment status port
         case ENVIRONMENT_PORT_COMMAND:
             return environment_input(port);
+
+        case INTERRUPT_TIMER_PORT:
+            return interrupt_timer_input();
 
         default:
             return 0x00;

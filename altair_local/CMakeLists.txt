@@ -92,12 +92,14 @@ set(ALTAIR_LOCAL_COMMON_SOURCES
     PortDrivers/time_io.c
     PortDrivers/utility_io.c
     PortDrivers/weather_io.c
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/interrupt_timer.c
     # Sense HAT integration glue. Always compiled; the body is an inert stub
     # unless ALTAIR_LOCAL_ENABLE_SENSE_HAT is set on a Linux target below.
     drivers/sense_hat/sense_hat_panel.c
     ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/json_scan.c
     ${ALTAIR_DIR}/universal_88dcdd.c
     ${ALTAIR_DIR}/memory.c
+    ${ALTAIR_DIR}/interrupt_controller.c
     # Shared monitor / disassembler sources reused from the ESP32 firmware.
     # The host build provides a stub sdkconfig.h (no CONFIG_ALTAIR_DISPLAY_*)
     # and a stub websocket_console.{h,c}, so these files compile unchanged.
@@ -174,6 +176,26 @@ configure_altair_local(altair-local)
 target_include_directories(altair-local PRIVATE ${ALTAIR_DIR}/x80_compat)
 # The upstream x80 core trips format/fall-through/type-limits warnings; keep them
 # non-fatal for the third-party sources rather than patching the core.
+set_source_files_properties(
+    ${ALTAIR_DIR}/x80.cxx
+    ${ALTAIR_DIR}/cpu_x80_adapter.cpp
+    PROPERTIES COMPILE_OPTIONS "-w"
+)
+
+add_executable(x80-interrupt-test
+    x80_interrupt_test.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/interrupt_timer.c
+    ${ALTAIR_DIR}/interrupt_controller.c
+    ${ALTAIR_DIR}/memory.c
+    ${ALTAIR_DIR}/x80.cxx
+    ${ALTAIR_DIR}/cpu_x80_adapter.cpp
+)
+target_include_directories(x80-interrupt-test PRIVATE
+    ${ALTAIR_DIR}
+    ${ALTAIR_DIR}/x80_compat
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers
+)
+target_compile_definitions(x80-interrupt-test PRIVATE ALTAIR_X80_HOST_TEST=1)
 set_source_files_properties(
     ${ALTAIR_DIR}/x80.cxx
     ${ALTAIR_DIR}/cpu_x80_adapter.cpp

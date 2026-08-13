@@ -24,6 +24,8 @@ add_executable(altair-cpm-mcp
     ${LOCAL_DIR}/PortDrivers/utility_io.c
     ${LOCAL_DIR}/PortDrivers/weather_io.c
     ${LOCAL_DIR}/../port_drivers/json_scan.c
+    ${LOCAL_DIR}/../port_drivers/interrupt_timer.c
+    ${ALTAIR_DIR}/interrupt_controller.c
     ${LOCAL_DIR}/drivers/sense_hat/sense_hat_panel.c
     ${ALTAIR_DIR}/universal_88dcdd.c
     ${ALTAIR_DIR}/x80.cxx

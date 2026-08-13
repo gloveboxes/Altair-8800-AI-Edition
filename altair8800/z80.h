@@ -96,7 +96,9 @@ typedef struct
 	uint8_t cpuStatus;
 
 	bool halted;	// True when CPU is halted by HLT instruction
-	bool iff;	// Interrupt enable flip-flop (EI/DI). Not part of PSW.
+	bool iff;	// IFF1 interrupt enable flip-flop. Not part of PSW.
+	bool iff2;	// IFF2 saved interrupt enable flip-flop.
+	uint8_t interrupt_mode;
 
 	disk_controller_t disk_controller;
 } z80_t;
@@ -112,6 +114,10 @@ void z80_examine_next(z80_t *cpu);
 /* Resume execution after a HLT. Clears the halted latch and the HLTA
    status bit so the front panel reflects the new state immediately. */
 void z80_resume(z80_t *cpu);
+
+/* Accept a maskable interrupt if IFF1 is enabled. data_bus is the device
+	supplied byte used by interrupt modes 0 and 2. Returns true if accepted. */
+bool z80_interrupt(z80_t *cpu, uint8_t data_bus);
 
 void z80_cycle(z80_t *cpu);
 void z80_execute_instructions(z80_t *cpu, uint16_t instruction_count);

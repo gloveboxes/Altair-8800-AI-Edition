@@ -4,6 +4,8 @@
 #include "environment_io.h"
 #include "host_files_io.h"
 #include "io_ports.h"
+#include "interrupt_timer.h"
+#include "interrupt_controller.h"
 #include "json_util.h"
 #include "jsonrpc.h"
 #include "time_io.h"
@@ -246,22 +248,33 @@ static bool input_empty(void)
     return g_input_read == g_input_write;
 }
 
+static void run_cpu_instructions(size_t instruction_count)
+{
+    while (instruction_count != 0) {
+        uint16_t batch = instruction_count > 4000 ? 4000 : (uint16_t)instruction_count;
+        z80_execute_instructions(&g_cpu, batch);
+        interrupt_controller_service(&g_cpu);
+        instruction_count -= batch;
+    }
+}
+
 static void run_cycles(size_t cycles)
 {
-    size_t i;
-
-    for (i = 0; i < cycles; i++) {
-        z80_cycle(&g_cpu);
-    }
+    run_cpu_instructions(cycles);
 }
 
 static bool run_until_prompt(size_t max_cycles, char boot_only)
 {
-    size_t i;
+    size_t instructions = 0;
 
-    for (i = 0; i < max_cycles; i++) {
-        z80_cycle(&g_cpu);
-        if ((i & 0x3fff) == 0 && input_empty() && output_has_prompt(boot_only)) {
+    while (instructions < max_cycles) {
+        size_t batch = max_cycles - instructions;
+        if (batch > 4000) {
+            batch = 4000;
+        }
+        run_cpu_instructions(batch);
+        instructions += batch;
+        if (input_empty() && output_has_prompt(boot_only)) {
             return true;
         }
     }
@@ -289,6 +302,8 @@ static bool emulator_boot(const char *drive_a, const char *drive_b, const char *
     memset(memory, 0, 64 * 1024);
     loadDiskLoader(0xff00);
     z80_reset(&g_cpu, terminal_read, terminal_write, sense_switches, &controller, io_port_in, io_port_out);
+    interrupt_controller_init();
+    interrupt_timer_init();
     z80_examine(&g_cpu, 0xff00);
 
     if (!run_until_prompt(BOOT_CYCLES, 1)) {

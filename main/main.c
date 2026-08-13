@@ -60,6 +60,8 @@
 
 // I/O port handlers
 #include "port_drivers/io_ports.h"
+#include "port_drivers/interrupt_timer.h"
+#include "interrupt_controller.h"
 #include "port_drivers/chat_io.h"
 #include "port_drivers/files_io.h"
 #include "port_drivers/weather_io.h"
@@ -418,6 +420,8 @@ static void emulator_task(void *pvParameters)
     printf("Initializing Intel 8080 CPU...\n");
     z80_reset(&cpu, terminal_read, terminal_write, sense,
                 &disk_controller, io_port_in, io_port_out);
+    interrupt_controller_init();
+    interrupt_timer_init();
 
     // Set CPU to boot from disk loader at 0xFF00
     printf("Setting PC to 0xFF00 (disk boot loader)\n");
@@ -450,6 +454,7 @@ static void emulator_task(void *pvParameters)
             // Execute one production batch and publish a single sampled panel
             // state. Monitor single-step continues to use z80_cycle().
             z80_execute_instructions(&cpu, 4000);
+            interrupt_controller_service(&cpu);
             // Drain input sources so Ctrl+M is honoured even if the running
             // 8080 program never executes IN on the 2SIO ports.
             terminal_poll_input();

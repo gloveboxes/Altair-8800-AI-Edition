@@ -44,6 +44,7 @@ nav:
     - Agentic Engineering the Altair: "60-programming/01-Vibe-Coding.md"
     - Editing Files: "60-programming/01-Editing-files.md"
     - Intel 8080 IO Ports: "60-programming/01-i8080-IO-Ports.md"
+    - Z80 Interrupts: "60-programming/02-Z80-interrupts.md"
     - Microsoft BASIC: "60-programming/02-Microsoft-BASIC-programming.md"
     - C Programming: "60-programming/03-C-programming.md"
     - Intel 8080 Assembler: "60-programming/04-Assembly-programming.md"

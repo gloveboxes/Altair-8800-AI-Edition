@@ -10,6 +10,8 @@
 #include "cpu_state.h"
 #include "host_platform.h"
 #include "io_ports.h"
+#include "interrupt_timer.h"
+#include "interrupt_controller.h"
 #include "drivers/sense_hat/sense_hat_panel.h"
 #include "virtual_monitor.h"
 #include "web_terminal.h"
@@ -163,6 +165,8 @@ void altair_reset(void)
     loadDiskLoader(0xff00);
     z80_reset(&cpu, terminal_read, terminal_write, sense_switches,
                 &g_disk_controller, io_port_in, io_port_out);
+    interrupt_controller_init();
+    interrupt_timer_init();
     z80_examine(&cpu, 0xff00);
     bus_switches = cpu.address_bus;
 }
@@ -446,14 +450,13 @@ int main(int argc, char **argv)
             if (g_web_mode && !web_terminal_has_clients())
             {
                 z80_cycle(&cpu);
+                interrupt_controller_service(&cpu);
                 wait_ns(IDLE_THROTTLE_NS);
                 continue;
             }
 
-            for (int i = 0; i < 4000 && keep_running; ++i)
-            {
-                z80_cycle(&cpu);
-            }
+            z80_execute_instructions(&cpu, 4000);
+            interrupt_controller_service(&cpu);
         }
         else
         {

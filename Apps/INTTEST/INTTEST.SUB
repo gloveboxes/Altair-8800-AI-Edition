@@ -1,0 +1,15 @@
+ft -g file://inttest/inttest.asm
+ft -g file://inttest/inttest.asm
+ft -g file://inttest/inttest.asm
+ft -g file://inttest/inttest.asm
+
+b:mac inttest
+b:load inttest
+a:pip a:inttest.com=inttest.com
+
+era inttest.asm
+era inttest.hex
+era inttest.prn
+era inttest.sym
+
+mcpdone inttest
