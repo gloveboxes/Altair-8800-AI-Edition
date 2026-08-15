@@ -82,6 +82,7 @@ typedef struct
 	uint8_t display_data_bus;
 	uint16_t display_address_bus;
 	uint8_t display_cpuStatus;
+	uint32_t display_event_snapshot;
 
 	uint8_t current_op_code;
 
@@ -118,6 +119,11 @@ void z80_resume(z80_t *cpu);
 /* Accept a maskable interrupt if IFF1 is enabled. data_bus is the device
 	supplied byte used by interrupt modes 0 and 2. Returns true if accepted. */
 bool z80_interrupt(z80_t *cpu, uint8_t data_bus);
+
+/* Consume a transient interrupt-acknowledge snapshot for front-panel display.
+   Returns false when no event has occurred since the previous call. */
+bool z80_take_display_event(z80_t *cpu, uint16_t *address_bus,
+			   uint8_t *data_bus, uint8_t *cpu_status);
 
 void z80_cycle(z80_t *cpu);
 void z80_execute_instructions(z80_t *cpu, uint16_t instruction_count);

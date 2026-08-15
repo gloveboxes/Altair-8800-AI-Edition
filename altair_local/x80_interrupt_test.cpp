@@ -44,6 +44,16 @@ int main(void)
     assert(cpu.registers.sp == 0xeffe);
     assert(memory[0xeffe] == 0x02 && memory[0xefff] == 0x01);
     assert(!cpu.iff);
+    uint16_t event_address;
+    uint8_t event_data;
+    uint8_t event_status;
+    assert(z80_take_display_event(&cpu, &event_address, &event_data,
+                                  &event_status));
+    assert(event_address == 0x0038);
+    assert(event_data == memory[0x0038]);
+    assert(event_status == 0x05); // interrupt acknowledge with stack access
+    assert(!z80_take_display_event(&cpu, &event_address, &event_data,
+                                   &event_status));
 
     reset_at(&cpu, 0x0200, 0xe000);
     memory[0x0200] = 0xfb; // EI
@@ -80,6 +90,44 @@ int main(void)
     assert(cpu.registers.pc == 0x0502);
     assert(cpu.registers.sp == 0xb000);
     assert((cpu.cpuStatus & 0x04) != 0); // RETI popped the interrupt return address
+
+    reset_at(&cpu, 0x0a00, 0xb000);
+    memory[0x0038] = 0xc3; // JP 0a20h
+    memory[0x0039] = 0x20;
+    memory[0x003a] = 0x0a;
+    memory[0x0a00] = 0xfb; // EI
+    memory[0x0a01] = 0x76; // HALT
+    memory[0x0a02] = 0xf3; // DI
+    memory[0x0a03] = 0x3a; // LD A,(0b00h)
+    memory[0x0a04] = 0x00;
+    memory[0x0a05] = 0x0b;
+    memory[0x0a06] = 0xfe; // CP 2
+    memory[0x0a07] = 0x02;
+    memory[0x0a08] = 0x20; // JR NZ,0a00h
+    memory[0x0a09] = 0xf6;
+    memory[0x0a0a] = 0x76; // final HALT
+    memory[0x0a20] = 0xf5; // PUSH AF
+    memory[0x0a21] = 0x3a; // LD A,(0b00h)
+    memory[0x0a22] = 0x00;
+    memory[0x0a23] = 0x0b;
+    memory[0x0a24] = 0x3c; // INC A
+    memory[0x0a25] = 0x32; // LD (0b00h),A
+    memory[0x0a26] = 0x00;
+    memory[0x0a27] = 0x0b;
+    memory[0x0a28] = 0xf1; // POP AF
+    memory[0x0a29] = 0xfb; // EI
+    memory[0x0a2a] = 0xed; // RETI
+    memory[0x0a2b] = 0x4d;
+    z80_execute_instructions(&cpu, 20);
+    assert(cpu.halted && cpu.registers.pc == 0x0a02);
+    assert(z80_interrupt(&cpu, 0xff));
+    z80_execute_instructions(&cpu, 40);
+    assert(memory[0x0b00] == 1);
+    assert(cpu.halted && cpu.registers.pc == 0x0a02);
+    assert(z80_interrupt(&cpu, 0xff));
+    z80_execute_instructions(&cpu, 40);
+    assert(memory[0x0b00] == 2);
+    assert(cpu.halted && cpu.registers.pc == 0x0a0b);
 
     reset_at(&cpu, 0x0700, 0xa000);
     memory[0x0700] = 0xaf; // XRA A sets Z

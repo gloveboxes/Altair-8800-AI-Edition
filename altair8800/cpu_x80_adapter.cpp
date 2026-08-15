@@ -95,6 +95,14 @@ static void update_display_bus(z80_t *cpu)
     cpu->display_cpuStatus = cpu->cpuStatus;
 }
 
+static uint32_t pack_display_event(uint16_t address_bus, uint8_t data_bus,
+                                   uint8_t cpu_status)
+{
+    return (uint32_t)address_bus |
+           ((uint32_t)data_bus << 16) |
+           ((uint32_t)cpu_status << 24);
+}
+
 static bool opcode_may_move_stack(uint8_t opcode)
 {
     return (opcode & 0xc7) == 0xc0 || // conditional RET
@@ -172,6 +180,24 @@ extern "C" bool z80_interrupt(z80_t *cpu, uint8_t data_bus)
     cpu->address_bus = reg.pc;
     cpu->data_bus = memory[reg.pc];
     update_display_bus(cpu);
+    __atomic_store_n(&cpu->display_event_snapshot,
+                     pack_display_event(cpu->address_bus, cpu->data_bus,
+                                        cpu->cpuStatus),
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
+extern "C" bool z80_take_display_event(z80_t *cpu, uint16_t *address_bus,
+                                         uint8_t *data_bus, uint8_t *cpu_status)
+{
+    uint32_t snapshot = __atomic_exchange_n(&cpu->display_event_snapshot, 0,
+                                             __ATOMIC_ACQUIRE);
+    if (snapshot == 0)
+        return false;
+
+    *address_bus = (uint16_t)snapshot;
+    *data_bus = (uint8_t)(snapshot >> 16);
+    *cpu_status = (uint8_t)(snapshot >> 24);
     return true;
 }
 

@@ -288,18 +288,42 @@ static void panel_update_task(void *pvParameters)
     printf("Panel update task started on Core %d\n", xPortGetCoreID());
 
     TickType_t last_wake = xTaskGetTickCount();
+    bool last_frame_was_event = false;
+#if !CONFIG_ALTAIR_DISPLAY_AXS15231B
+    z80_t panel_cpu = {0};
+#endif
     for (;;)
     {
+        uint16_t display_address = cpu.display_address_bus;
+        uint8_t display_data = cpu.display_data_bus;
+        uint8_t display_status = cpu.display_cpuStatus;
+
+        if (last_frame_was_event)
+        {
+            last_frame_was_event = false;
+        }
+        else
+        {
+            last_frame_was_event = z80_take_display_event(
+                &cpu, &display_address, &display_data, &display_status);
+        }
+
 #if CONFIG_ALTAIR_DISPLAY_AXS15231B
         PANEL_CHECKPOINT(1); // before update_status
-        vt100_terminal_update_status(cpu.display_address_bus, cpu.display_data_bus, cpu.display_cpuStatus);
+        vt100_terminal_update_status(display_address, display_data, display_status);
         PANEL_CHECKPOINT(2); // before flush
         vt100_terminal_flush();
         PANEL_CHECKPOINT(3); // after flush
-#elif ALTAIR_HAS_FRONT_PANEL_KIT
-    front_panel_kit_update(&cpu);
 #else
-        altair_panel_update(&cpu);
+        panel_cpu.display_address_bus = display_address;
+        panel_cpu.display_data_bus = display_data;
+        panel_cpu.display_cpuStatus = display_status;
+        panel_cpu.iff = cpu.iff;
+#if ALTAIR_HAS_FRONT_PANEL_KIT
+        front_panel_kit_update(&panel_cpu);
+#else
+        altair_panel_update(&panel_cpu);
+#endif
 #endif
         // If we overran the period, reset to avoid "catch-up" bursts.
         if ((xTaskGetTickCount() - last_wake) > pdMS_TO_TICKS(PANEL_UPDATE_TASK_INTERVAL_MS))
