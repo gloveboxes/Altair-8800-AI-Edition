@@ -15,6 +15,7 @@
  *   OUT port, 0 -> start/reset the stopwatch (records current time)
  *   OUT port, 1 -> latch elapsed seconds as a 4-byte unsigned
  *                  long (big-endian, BDS C long layout)
+ *   OUT port, 2 -> latch elapsed milliseconds in the same layout
  *                  (read back via the request buffer, port 200) so an
  *                  Altair app gets the value as an unsigned 32-bit count.
  *
@@ -247,7 +248,7 @@ size_t time_output(int port, uint8_t data, char* buffer, size_t buffer_length)
             len = format_now_string(buffer, buffer_length);
             break;
 
-        // Stopwatches: data 0 starts/resets, data 1 latches elapsed seconds
+        // Stopwatches: data 0 starts/resets, 1 latches seconds, 2 milliseconds
         case 37:
         case 38:
         case 39:
@@ -259,9 +260,12 @@ size_t time_output(int port, uint8_t data, char* buffer, size_t buffer_length)
                 {
                     stopwatch_start_ms[sw_idx] = get_elapsed_ms();
                 }
-                else
+                else if (data == 1 || data == 2)
                 {
-                    uint32_t elapsed = (uint32_t)((get_elapsed_ms() - stopwatch_start_ms[sw_idx]) / 1000ULL);
+                    uint64_t elapsed_ms = get_elapsed_ms() - stopwatch_start_ms[sw_idx];
+                    uint32_t elapsed = data == 1
+                        ? (uint32_t)(elapsed_ms / 1000ULL)
+                        : (uint32_t)elapsed_ms;
                     if (buffer_length >= 4)
                     {
                         // Emit as a 4-byte big-endian value matching the

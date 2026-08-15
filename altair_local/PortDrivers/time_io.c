@@ -238,9 +238,12 @@ size_t time_output(int port, uint8_t data, char* buffer, size_t buffer_length)
                 {
                     stopwatch_start_ms[sw_idx] = get_elapsed_ms();
                 }
-                else
+                else if (data == 1 || data == 2)
                 {
-                    uint32_t elapsed = (uint32_t)((get_elapsed_ms() - stopwatch_start_ms[sw_idx]) / 1000ULL);
+                    uint64_t elapsed_ms = get_elapsed_ms() - stopwatch_start_ms[sw_idx];
+                    uint32_t elapsed = data == 1
+                        ? (uint32_t)(elapsed_ms / 1000ULL)
+                        : (uint32_t)elapsed_ms;
                     if (buffer_length >= 4)
                     {
                         /* Emit as a 4-byte big-endian value matching the

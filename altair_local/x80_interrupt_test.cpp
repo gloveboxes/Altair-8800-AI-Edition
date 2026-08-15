@@ -79,6 +79,76 @@ int main(void)
     assert(memory[0x0700] == 1);
     assert(cpu.registers.pc == 0x0502);
     assert(cpu.registers.sp == 0xb000);
+    assert((cpu.cpuStatus & 0x04) != 0); // RETI popped the interrupt return address
+
+    reset_at(&cpu, 0x0700, 0xa000);
+    memory[0x0700] = 0xaf; // XRA A sets Z
+    memory[0x0701] = 0xc0; // RET NZ, not taken
+    z80_execute_instructions(&cpu, 2);
+    assert(cpu.registers.pc == 0x0702);
+    assert(cpu.registers.sp == 0xa000);
+    assert((cpu.cpuStatus & 0x04) == 0);
+
+    reset_at(&cpu, 0x0710, 0xa000);
+    memory[0x0710] = 0xaf; // XRA A sets Z
+    memory[0x0711] = 0xc4; // CALL NZ,1234h, not taken
+    memory[0x0712] = 0x34;
+    memory[0x0713] = 0x12;
+    z80_execute_instructions(&cpu, 2);
+    assert(cpu.registers.pc == 0x0714);
+    assert(cpu.registers.sp == 0xa000);
+    assert((cpu.cpuStatus & 0x04) == 0);
+
+    reset_at(&cpu, 0x0720, 0xa000);
+    memory[0x0720] = 0xcd; // CALL 1234h
+    memory[0x0721] = 0x34;
+    memory[0x0722] = 0x12;
+    z80_execute_instructions(&cpu, 1);
+    assert(cpu.registers.pc == 0x1234);
+    assert(cpu.registers.sp == 0x9ffe);
+    assert((cpu.cpuStatus & 0x04) != 0);
+
+    reset_at(&cpu, 0x0740, 0xa000);
+    memory[0x0740] = 0xdd; // LD IX,1234h
+    memory[0x0741] = 0x21;
+    memory[0x0742] = 0x34;
+    memory[0x0743] = 0x12;
+    memory[0x0744] = 0xdd; // PUSH IX
+    memory[0x0745] = 0xe5;
+    memory[0x0746] = 0xdd; // POP IX
+    memory[0x0747] = 0xe1;
+    z80_execute_instructions(&cpu, 3);
+    assert(cpu.registers.pc == 0x0748);
+    assert(cpu.registers.sp == 0xa000);
+    assert(memory[0x9ffe] == 0x34 && memory[0x9fff] == 0x12);
+    assert((cpu.cpuStatus & 0x04) != 0);
+
+    reset_at(&cpu, 0x0760, 0xa000);
+    memory[0x0760] = 0xed; // LD (2000h),SP
+    memory[0x0761] = 0x73;
+    memory[0x0762] = 0x00;
+    memory[0x0763] = 0x20;
+    memory[0x0764] = 0x31; // LD SP,9000h
+    memory[0x0765] = 0x00;
+    memory[0x0766] = 0x90;
+    memory[0x0767] = 0xed; // LD SP,(2000h)
+    memory[0x0768] = 0x7b;
+    memory[0x0769] = 0x00;
+    memory[0x076a] = 0x20;
+    z80_execute_instructions(&cpu, 3);
+    assert(memory[0x2000] == 0x00 && memory[0x2001] == 0xa0);
+    assert(cpu.registers.sp == 0xa000);
+
+    reset_at(&cpu, 0x0780, 0xa000);
+    memory[0x0780] = 0xdd; // LD IX,8123h
+    memory[0x0781] = 0x21;
+    memory[0x0782] = 0x23;
+    memory[0x0783] = 0x81;
+    memory[0x0784] = 0xdd; // LD SP,IX
+    memory[0x0785] = 0xf9;
+    z80_execute_instructions(&cpu, 2);
+    assert(cpu.registers.pc == 0x0786);
+    assert(cpu.registers.sp == 0x8123);
 
     reset_at(&cpu, 0x0280, 0xe000);
     memory[0x0280] = 0xfb; // EI

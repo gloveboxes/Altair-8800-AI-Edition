@@ -11,7 +11,8 @@
  * Stopwatch ports (passive elapsed-time counters):
  * - Ports 37/38/39: Stopwatch 0/1/2
  *   OUT port, 0 -> start/reset; OUT port, 1 -> latch elapsed seconds as a
- *   4-byte unsigned long (big-endian, read 4 bytes from port 200).
+ *   4-byte unsigned long; OUT port, 2 -> latch elapsed milliseconds in the
+ *   same format (big-endian, read 4 bytes from port 200).
  *
  * Time string ports (output):
  * - Port 41: Seconds since boot

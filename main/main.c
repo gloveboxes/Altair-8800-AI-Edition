@@ -451,9 +451,11 @@ static void emulator_task(void *pvParameters)
         switch (mode)
         {
         case CPU_RUNNING:
-            // Execute one production batch and publish a single sampled panel
-            // state. Monitor single-step continues to use z80_cycle().
-            z80_execute_instructions(&cpu, 4000);
+            // Check interrupts halfway through each production batch while
+            // retaining the existing peripheral-service cadence.
+            z80_execute_instructions(&cpu, 2000);
+            interrupt_controller_service(&cpu);
+            z80_execute_instructions(&cpu, 2000);
             interrupt_controller_service(&cpu);
             // Drain input sources so Ctrl+M is honoured even if the running
             // 8080 program never executes IN on the 2SIO ports.

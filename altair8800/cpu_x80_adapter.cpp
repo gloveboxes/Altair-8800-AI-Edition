@@ -95,6 +95,17 @@ static void update_display_bus(z80_t *cpu)
     cpu->display_cpuStatus = cpu->cpuStatus;
 }
 
+static bool opcode_may_move_stack(uint8_t opcode)
+{
+    return (opcode & 0xc7) == 0xc0 || // conditional RET
+           (opcode & 0xc7) == 0xc4 || // conditional CALL
+           (opcode & 0xcf) == 0xc1 || // POP
+           (opcode & 0xcf) == 0xc5 || // PUSH
+           (opcode & 0xc7) == 0xc7 || // RST
+           opcode == 0xc9 || opcode == 0xcd ||
+           opcode == 0xdd || opcode == 0xed || opcode == 0xfd;
+}
+
 extern "C" void z80_reset(z80_t *cpu, port_in in, port_out out, read_sense_switches sense,
                             disk_controller_t *disk_controller, io_port_in_fn io_in, io_port_out_fn io_out)
 {
@@ -198,9 +209,12 @@ void z80_execute_instructions(z80_t *cpu, uint16_t instruction_count)
 
     // push/pop/call/ret/rst are the only ops that move SP, always by 2;
     // cheaper than decoding the opcode to detect a stack access.
-    uint16_t sp_delta = reg.sp - x80_last_sp_before;
-    if (sp_delta == 2 || sp_delta == (uint16_t)-2)
-        cpu->cpuStatus |= STATUS_STACK;
+    if (opcode_may_move_stack(x80_last_opcode))
+    {
+        uint16_t sp_delta = reg.sp - x80_last_sp_before;
+        if (sp_delta == 2 || sp_delta == (uint16_t)-2)
+            cpu->cpuStatus |= STATUS_STACK;
+    }
 
     if (cpu->halted)
         cpu->cpuStatus = STATUS_HALT;

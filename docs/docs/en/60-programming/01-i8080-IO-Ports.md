@@ -43,16 +43,19 @@ Many ports return a multi-byte string. The convention is:
 
 ### Stopwatch ports (time_io)
 
-Passive elapsed-time counters with 1-second resolution. Unlike the countdown timers above, a stopwatch never expires — it simply measures the time since it was started. The elapsed value is returned as an unsigned 32-bit second count, emitted big-endian as 4 raw bytes (the BDS C `long` byte layout: MSB first) and read back via port 200.
+Passive elapsed-time counters with optional second or millisecond resolution. Unlike the countdown timers above, a stopwatch never expires — it simply measures the time since it was started. The elapsed value is returned as an unsigned 32-bit count, emitted big-endian as 4 raw bytes (the BDS C `long` byte layout: MSB first) and read back via port 200.
 
 | Port | Dir | Port data | Loads (read with port 200) |
 |------|-----|-----------|----------------------------|
 | 37 | OUT | 0 | Start/reset stopwatch 0 (records current time; no response) |
 | 37 | OUT | 1 | Latch stopwatch 0 elapsed seconds as a 4-byte big-endian long |
+| 37 | OUT | 2 | Latch stopwatch 0 elapsed milliseconds as a 4-byte big-endian long |
 | 38 | OUT | 0 | Start/reset stopwatch 1 (records current time; no response) |
 | 38 | OUT | 1 | Latch stopwatch 1 elapsed seconds as a 4-byte big-endian long |
+| 38 | OUT | 2 | Latch stopwatch 1 elapsed milliseconds as a 4-byte big-endian long |
 | 39 | OUT | 0 | Start/reset stopwatch 2 (records current time; no response) |
 | 39 | OUT | 1 | Latch stopwatch 2 elapsed seconds as a 4-byte big-endian long |
+| 39 | OUT | 2 | Latch stopwatch 2 elapsed milliseconds as a 4-byte big-endian long |
 
 ```c
 char elapsed[4];        /* BDS C long: elapsed[0] = MSB            */

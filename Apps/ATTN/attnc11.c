@@ -1143,7 +1143,7 @@ static int load_weights(void)
 /* same ports ATTNZ80.MAC uses:                                  */
 /*                                                               */
 /*   OUT 37,0 -> start/reset host stopwatch 0                    */
-/*   OUT 37,1 -> latch elapsed seconds (4-byte big-endian long)  */
+/*   OUT 37,2 -> latch elapsed milliseconds (big-endian long)   */
 /*   IN  200  -> read those 4 bytes back, MSB first              */
 /*                                                               */
 /* The ports are no-ops under a bare CP/M emulator that lacks    */
@@ -1157,16 +1157,16 @@ extern void outp(unsigned port, unsigned val);
 #define SWPORT 37               /* host stopwatch 0         */
 #define RDPORT 200              /* request-buffer read-back */
 
-/* read the latched 4-byte big-endian elapsed seconds; low 16 bits */
-static uint16_t elapsed_seconds(void)
+/* read the latched 4-byte big-endian elapsed milliseconds */
+static uint32_t elapsed_milliseconds(void)
 {
-    int hi, lo;
+    uint32_t elapsed;
 
-    inp(RDPORT);                /* byte 0 (MSB) - ignore */
-    inp(RDPORT);                /* byte 1       - ignore */
-    hi = inp(RDPORT);           /* byte 2                */
-    lo = inp(RDPORT);           /* byte 3 (LSB)          */
-    return (unsigned)((hi << 8) | lo);
+    elapsed = (uint32_t)inp(RDPORT) << 24;
+    elapsed |= (uint32_t)inp(RDPORT) << 16;
+    elapsed |= (uint32_t)inp(RDPORT) << 8;
+    elapsed |= (uint32_t)inp(RDPORT);
+    return elapsed;
 }
 
 /* ============================================================ */
@@ -1261,9 +1261,9 @@ int main(int argc, char *argv[])
         test_random_samples();
         return 0;
     }
-    outp(SWPORT, 1);                /* latch elapsed seconds */
+    outp(SWPORT, 2);                /* latch elapsed milliseconds */
 
     printf("\naccuracy  %2d/%d\n", file_hits, sequence_count);
-    printf("run time  %u s\n", elapsed_seconds());
+    printf("run time  %lu ms\n", (unsigned long)elapsed_milliseconds());
     return 0;
 }

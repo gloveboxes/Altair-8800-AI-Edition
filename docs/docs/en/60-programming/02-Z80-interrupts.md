@@ -112,10 +112,13 @@ for the complete implementation.
 ## Service providers in the emulator
 
 The CPU execution loop is independent of individual providers. It calls the
-controller once after each production instruction batch:
+controller halfway through and at the end of each 4,000-instruction production
+batch:
 
 ```c
-z80_execute_instructions(&cpu, 4000);
+z80_execute_instructions(&cpu, 2000);
+interrupt_controller_service(&cpu);
+z80_execute_instructions(&cpu, 2000);
 interrupt_controller_service(&cpu);
 ```
 
@@ -123,9 +126,30 @@ interrupt_controller_service(&cpu);
 highest-priority pending request, and calls `z80_interrupt()`. It consumes one
 event only when the Z80 accepts the interrupt.
 
-On ESP32 this check occurs once per 4,000 emulated instructions. There is no
-interrupt-provider check in the per-instruction hot path, so registered but
-idle providers do not materially affect normal Z80 performance.
+On ESP32 this check occurs once per 2,000 emulated instructions. Terminal input
+and front-panel commands retain their 4,000-instruction service cadence. There
+is no interrupt-provider check in the per-instruction hot path, so registered
+but idle providers do not materially affect normal Z80 performance.
+
+### Interrupt latency
+
+An asynchronous provider, such as the ESP32 timer, can raise a request at any
+time. Core 1 presents that request to the emulated Z80 at the end of the current
+2,000-instruction slice. At the measured emulator throughput, this keeps normal
+request propagation below approximately 1 ms. The exact time varies with the
+emulated instruction mix because Z80 instructions require different amounts of
+host work.
+
+The shorter service interval has negligible throughput cost. The ATTNC11
+benchmark median changed from 9,425 ms with 4,000-instruction checks to 9,433 ms
+with 2,000-instruction checks, an increase of approximately 0.09%.
+
+This is a normal operating target, not a hard real-time guarantee. Additional
+delay can come from ESP timer or FreeRTOS scheduling, a higher-priority pending
+provider, and completion of the current emulated instruction. If Z80 interrupts
+are disabled (`IFF1` is clear), the request remains pending until the program
+enables interrupts, so that delay is not bounded by the 2,000-instruction
+service interval. The Z80's one-instruction delay after `EI` also applies.
 
 ## Configure the timer provider from CP/M
 

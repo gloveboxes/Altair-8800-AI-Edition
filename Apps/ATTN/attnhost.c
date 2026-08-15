@@ -17,7 +17,7 @@ static unsigned stopwatch_byte;
 void outp(unsigned port, unsigned value)
 {
     struct timespec now;
-    int64_t seconds;
+    int64_t elapsed;
 
     if (port != SWPORT)
         return;
@@ -25,14 +25,15 @@ void outp(unsigned port, unsigned value)
         timespec_get(&stopwatch_started, TIME_UTC);
         stopwatch_elapsed = 0;
         stopwatch_byte = 0;
-    } else if (value == 1) {
+    } else if (value == 1 || value == 2) {
         timespec_get(&now, TIME_UTC);
-        seconds = (int64_t)now.tv_sec - stopwatch_started.tv_sec;
-        if (now.tv_nsec < stopwatch_started.tv_nsec)
-            seconds--;
-        if (seconds < 0)
-            seconds = 0;
-        stopwatch_elapsed = (uint32_t)seconds;
+        elapsed = ((int64_t)now.tv_sec - stopwatch_started.tv_sec) * 1000;
+        elapsed += ((int64_t)now.tv_nsec - stopwatch_started.tv_nsec) / 1000000;
+        if (elapsed < 0)
+            elapsed = 0;
+        stopwatch_elapsed = value == 1
+            ? (uint32_t)(elapsed / 1000)
+            : (uint32_t)elapsed;
         stopwatch_byte = 0;
     }
 }

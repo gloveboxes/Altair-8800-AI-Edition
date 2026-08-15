@@ -118,6 +118,9 @@ once it reaches 100% validation accuracy on `ATTN.IN`.
 ntvcm ATTNC11.COM -t       # train + self-test under the emulator
 ```
 
+On this project's Altair emulator, inference reports elapsed milliseconds using
+stopwatch port 37 so emulator performance changes below one second are visible.
+
 **Z80 inference port (`ATTNZ80.MAC`)** with M80/L80:
 
 ```sh
