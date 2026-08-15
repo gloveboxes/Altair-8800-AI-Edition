@@ -400,13 +400,8 @@ int main(int argc, char **argv)
     g_disk_controller = host_disk_controller();
     g_disk_controller_ready = true;
 
-    memset(memory, 0x00, 64 * 1024);
-    loadDiskLoader(0xff00);
     time_reset();
-    z80_reset(&cpu, terminal_read, terminal_write, sense_switches,
-                &g_disk_controller, io_port_in, io_port_out);
-    z80_examine(&cpu, 0xff00);
-    bus_switches = cpu.address_bus;
+    altair_reset();
 
     if (g_sense_hat_requested || env_flag_enabled("ALTAIR_SENSE_HAT"))
     {
