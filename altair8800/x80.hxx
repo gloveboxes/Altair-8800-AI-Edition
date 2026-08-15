@@ -8,6 +8,14 @@
 #define OPCODE_JMP  0xC3  // jmp nn
 #define OPCODE_RET  0xC9
 
+#ifndef TRACK_Z80_R_REGISTER
+#define TRACK_Z80_R_REGISTER 0
+#endif
+
+#ifndef TRACK_Z80_MEMPTR
+#define TRACK_Z80_MEMPTR 0
+#endif
+
 #ifdef TARGET_BIG_ENDIAN
 const size_t reg_offsets[8] = { 0, 1, 2, 3, 4, 5, 9, 8 }; //bcdehlfa
 #else
@@ -44,6 +52,7 @@ struct registers
     uint16_t iy;
     uint8_t r;    // refresh
     uint8_t i;    // interrupt page
+    uint16_t memptr; // undocumented WZ register
 
     // these first four bool flags must remain in this order for getFlag() to work
 
@@ -99,7 +108,31 @@ struct registers
         void SetD( uint16_t x ) { d = (uint8_t) ( x >> 8 ); e = (uint8_t) x; }
         void SetH( uint16_t x ) { h = (uint8_t) ( x >> 8 ); l = (uint8_t) x; }
 
-    void z80_increment_r() { /* reg.r++; */ } // 4.6% of runtime when the increment is enabled
+        void z80_bump_r()
+        {
+    #if TRACK_Z80_R_REGISTER
+        r = ( r & 0x80 ) | ( ( r + 1 ) & 0x7f );
+    #endif
+        }
+
+        void z80_increment_r() { z80_bump_r(); }
+
+        void z80_set_memptr( uint16_t value )
+        {
+    #if TRACK_Z80_MEMPTR
+        memptr = value;
+    #else
+        (void) value;
+    #endif
+        }
+
+        void z80_assignYX_from_memptr()
+        {
+    #if TRACK_Z80_MEMPTR
+        fY = ( 0 != ( memptr & 0x2000 ) );
+        fX = ( 0 != ( memptr & 0x0800 ) );
+    #endif
+        }
 
     void unmaterializeFlags()
     {
@@ -234,6 +267,7 @@ struct registers
         pc = 0;
         r = 1;
         i = 0;
+        memptr = 0;
         a = f = b = c = d = e = h = l = 0xff;
         sp = ix = iy = 0xffff;
         ap = fp = bp = cp = dp = ep = hp = lp = 0xff;

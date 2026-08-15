@@ -166,6 +166,7 @@ extern "C" bool z80_interrupt(z80_t *cpu, uint8_t data_bus)
     {
         uint16_t vector = ((uint16_t)reg.i << 8) | data_bus;
         reg.pc = memory[vector] | ((uint16_t)memory[(uint16_t)(vector + 1)] << 8);
+        reg.z80_set_memptr(reg.pc);
     }
     else
     {
@@ -173,6 +174,7 @@ extern "C" bool z80_interrupt(z80_t *cpu, uint8_t data_bus)
         // RST opcode normally supplied by an Altair-compatible interrupt board.
         uint8_t rst = reg.interruptMode == 1 ? 0xff : data_bus;
         reg.pc = rst & 0x38;
+        reg.z80_set_memptr(reg.pc);
     }
 
     cpu->cpuStatus = STATUS_INTERRUPT | STATUS_STACK;

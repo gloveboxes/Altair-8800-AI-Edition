@@ -196,6 +196,25 @@ target_include_directories(x80-interrupt-test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../port_drivers
 )
 target_compile_definitions(x80-interrupt-test PRIVATE ALTAIR_X80_HOST_TEST=1)
+
+add_executable(x80-correctness-test
+    x80_interrupt_test.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/interrupt_timer.c
+    ${ALTAIR_DIR}/interrupt_controller.c
+    ${ALTAIR_DIR}/memory.c
+    ${ALTAIR_DIR}/x80.cxx
+    ${ALTAIR_DIR}/cpu_x80_adapter.cpp
+)
+target_include_directories(x80-correctness-test PRIVATE
+    ${ALTAIR_DIR}
+    ${ALTAIR_DIR}/x80_compat
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers
+)
+target_compile_definitions(x80-correctness-test PRIVATE
+    ALTAIR_X80_HOST_TEST=1
+    TRACK_Z80_R_REGISTER=1
+    TRACK_Z80_MEMPTR=1
+)
 set_source_files_properties(
     ${ALTAIR_DIR}/x80.cxx
     ${ALTAIR_DIR}/cpu_x80_adapter.cpp

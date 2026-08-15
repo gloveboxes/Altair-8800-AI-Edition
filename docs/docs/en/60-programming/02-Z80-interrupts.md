@@ -140,6 +140,14 @@ request propagation below approximately 1 ms. The exact time varies with the
 emulated instruction mix because Z80 instructions require different amounts of
 host work.
 
+Repeating block instructions (`LDIR`, `LDDR`, `CPIR`, `CPDR`, `INIR`, `INDR`,
+`OTIR`, and `OTDR`) execute one hardware iteration per emulator dispatch. When
+the repeat condition remains true, the PC returns to the `ED` prefix so the
+next iteration counts against the instruction budget and re-fetches the opcode.
+This permits interrupt service between iterations and prevents a large repeat,
+including a 65,536-iteration transfer with `BC=0`, from bypassing the
+2,000-instruction service interval.
+
 The shorter service interval has negligible throughput cost. The ATTNC11
 benchmark median changed from 9,425 ms with 4,000-instruction checks to 9,433 ms
 with 2,000-instruction checks, an increase of approximately 0.09%.

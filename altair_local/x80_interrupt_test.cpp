@@ -10,11 +10,29 @@ extern "C"
 #include <cstdio>
 #include <cstring>
 
+#if TRACK_Z80_R_REGISTER || TRACK_Z80_MEMPTR
+#include "x80.hxx"
+#endif
+
 static uint8_t no_input(void) { return 0; }
 static void no_output(uint8_t) {}
 static uint8_t no_sense(void) { return 0; }
-static uint8_t no_port_input(uint8_t) { return 0; }
-static void no_port_output(uint8_t, uint8_t) {}
+static uint8_t port_input_count;
+static uint8_t last_input_port;
+static uint8_t port_output_count;
+static uint8_t last_output_port;
+static uint8_t last_output_data;
+static uint8_t no_port_input(uint8_t port)
+{
+    last_input_port = port;
+    return ++port_input_count;
+}
+static void no_port_output(uint8_t port, uint8_t data)
+{
+    port_output_count++;
+    last_output_port = port;
+    last_output_data = data;
+}
 
 static disk_controller_t no_disk = {
     no_output, no_input, no_output, no_input, no_output, no_input
@@ -23,6 +41,8 @@ static disk_controller_t no_disk = {
 static void reset_at(z80_t *cpu, uint16_t pc, uint16_t sp)
 {
     memset(memory, 0, 65536);
+    port_input_count = last_input_port = 0;
+    port_output_count = last_output_port = last_output_data = 0;
     z80_reset(cpu, no_input, no_output, no_sense, &no_disk,
               no_port_input, no_port_output);
     cpu->registers.sp = sp;
@@ -128,6 +148,137 @@ int main(void)
     z80_execute_instructions(&cpu, 40);
     assert(memory[0x0b00] == 2);
     assert(cpu.halted && cpu.registers.pc == 0x0a0b);
+
+    reset_at(&cpu, 0x0c00, 0xb000);
+    memory[0x0c00] = 0xed; // LDIR
+    memory[0x0c01] = 0xb0;
+    memory[0x0d00] = 0x11;
+    memory[0x0d01] = 0x22;
+    memory[0x0d02] = 0x33;
+    cpu.registers.b = 0x00;
+    cpu.registers.c = 0x03;
+    cpu.registers.d = 0x0e;
+    cpu.registers.e = 0x00;
+    cpu.registers.h = 0x0d;
+    cpu.registers.l = 0x00;
+    z80_execute_instructions(&cpu, 1);
+    assert(memory[0x0e00] == 0x11 && memory[0x0e01] == 0x00);
+    assert(cpu.registers.pc == 0x0c00);
+    assert(cpu.registers.b == 0x00 && cpu.registers.c == 0x02);
+    z80_execute_instructions(&cpu, 2);
+    assert(memory[0x0e01] == 0x22 && memory[0x0e02] == 0x33);
+    assert(cpu.registers.pc == 0x0c02);
+
+    reset_at(&cpu, 0x0c10, 0xb000);
+    memory[0x0c10] = 0xfb; // EI
+    memory[0x0c11] = 0xed; // LDIR
+    memory[0x0c12] = 0xb0;
+    memory[0x0d10] = 0x44;
+    memory[0x0d11] = 0x55;
+    cpu.registers.b = 0x00;
+    cpu.registers.c = 0x02;
+    cpu.registers.d = 0x0e;
+    cpu.registers.e = 0x10;
+    cpu.registers.h = 0x0d;
+    cpu.registers.l = 0x10;
+    z80_execute_instructions(&cpu, 2);
+    assert(memory[0x0e10] == 0x44 && memory[0x0e11] == 0x00);
+    assert(cpu.registers.pc == 0x0c11);
+    assert(z80_interrupt(&cpu, 0xff));
+    assert(cpu.registers.pc == 0x0038 && cpu.registers.sp == 0xaffe);
+    assert(memory[0xaffe] == 0x11 && memory[0xafff] == 0x0c);
+
+    reset_at(&cpu, 0x0c20, 0xb000);
+    memory[0x0c20] = 0xed; // LDIR overwrites its own ED prefix
+    memory[0x0c21] = 0xb0;
+    memory[0x0d20] = 0x00; // NOP replaces ED
+    memory[0x0d21] = 0x44;
+    cpu.registers.b = 0x00;
+    cpu.registers.c = 0x02;
+    cpu.registers.d = 0x0c;
+    cpu.registers.e = 0x20;
+    cpu.registers.h = 0x0d;
+    cpu.registers.l = 0x20;
+    z80_execute_instructions(&cpu, 1);
+    assert(memory[0x0c20] == 0x00);
+    assert(cpu.registers.pc == 0x0c20);
+    z80_execute_instructions(&cpu, 1);
+    assert(cpu.registers.pc == 0x0c21);
+    assert(cpu.registers.b == 0x00 && cpu.registers.c == 0x01);
+
+    reset_at(&cpu, 0x0c40, 0xb000);
+    memory[0x0c40] = 0xed;
+    memory[0x0c41] = 0x7c; // undocumented NEG alias
+    cpu.registers.a = 0x01;
+    z80_execute_instructions(&cpu, 1);
+    assert(cpu.registers.a == 0xff && (cpu.registers.flags & FLAGS_CARRY));
+
+    reset_at(&cpu, 0x0c50, 0x0d00);
+    memory[0x0c50] = 0xed;
+    memory[0x0c51] = 0x75; // undocumented RETN alias
+    memory[0x0d00] = 0x34;
+    memory[0x0d01] = 0x12;
+    z80_execute_instructions(&cpu, 1);
+    assert(cpu.registers.pc == 0x1234 && cpu.registers.sp == 0x0d02);
+
+    reset_at(&cpu, 0x0c60, 0xb000);
+    memory[0x0c60] = 0xed;
+    memory[0x0c61] = 0x73; // LD (0d10h),SP
+    memory[0x0c62] = 0x10;
+    memory[0x0c63] = 0x0d;
+    z80_execute_instructions(&cpu, 1);
+    assert(memory[0x0d10] == 0x00 && memory[0x0d11] == 0xb0);
+
+    reset_at(&cpu, 0x0c80, 0xb000);
+    memory[0x0c80] = 0xed;
+    memory[0x0c81] = 0xb2; // INIR
+    cpu.registers.a = 0x5a;
+    cpu.registers.b = 2;
+    cpu.registers.c = 0x23;
+    cpu.registers.h = 0x0d;
+    cpu.registers.l = 0x40;
+    z80_execute_instructions(&cpu, 1);
+    assert(memory[0x0d40] == 1 && memory[0x0d41] == 0);
+    assert(cpu.registers.a == 0x5a && cpu.registers.b == 1);
+    assert(cpu.registers.hl == 0x0d41 && cpu.registers.pc == 0x0c80);
+    assert(port_input_count == 1 && last_input_port == 0x23);
+    z80_execute_instructions(&cpu, 1);
+    assert(memory[0x0d41] == 2 && cpu.registers.b == 0);
+    assert(cpu.registers.pc == 0x0c82);
+
+    reset_at(&cpu, 0x0ca0, 0xb000);
+    memory[0x0ca0] = 0xed;
+    memory[0x0ca1] = 0xab; // OUTD
+    memory[0x0d60] = 0xa5;
+    cpu.registers.a = 0x5a;
+    cpu.registers.b = 1;
+    cpu.registers.c = 0x34;
+    cpu.registers.h = 0x0d;
+    cpu.registers.l = 0x60;
+    z80_execute_instructions(&cpu, 1);
+    assert(port_output_count == 1 && last_output_port == 0x34);
+    assert(last_output_data == 0xa5 && cpu.registers.a == 0x5a);
+    assert(cpu.registers.b == 0 && cpu.registers.hl == 0x0d5f);
+
+#if TRACK_Z80_R_REGISTER
+    reset_at(&cpu, 0x0cc0, 0xb000);
+    memory[0x0cc0] = 0xed;
+    memory[0x0cc1] = 0x44; // NEG: opcode plus ED prefix fetch
+    reg.r = 0xfe;
+    z80_execute_instructions(&cpu, 1);
+    assert(reg.r == 0x80);
+#endif
+
+#if TRACK_Z80_MEMPTR
+    reset_at(&cpu, 0x0cd0, 0xb000);
+    memory[0x0cd0] = 0xcb;
+    memory[0x0cd1] = 0x46; // BIT 0,(HL)
+    memory[0x2800] = 0x01;
+    cpu.registers.hl = 0x2800;
+    z80_execute_instructions(&cpu, 1);
+    assert((cpu.registers.flags & FLAGS_IF) != 0); // Y from MEMPTR bit 13
+    assert((cpu.registers.flags & 0x08) != 0);     // X from MEMPTR bit 11
+#endif
 
     reset_at(&cpu, 0x0700, 0xa000);
     memory[0x0700] = 0xaf; // XRA A sets Z
