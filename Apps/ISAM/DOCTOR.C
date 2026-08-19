@@ -1559,9 +1559,25 @@ static int verify_database(void)
     return I_OK;
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc;
+    int verify;
+
+    verify = 0;
+    if (argc > 1)
+    {
+        if (argc == 2 &&
+            (strcmp(argv[1], "/V") == 0 || strcmp(argv[1], "/v") == 0 ||
+             strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "-v") == 0))
+            verify = 1;
+        else
+        {
+            puts("Usage: DOCTOR [/V]");
+            puts("  /V  Verify tables and relationships before startup");
+            return 1;
+        }
+    }
 
     puts("\r\nDXISAM DOCTORS SURGERY");
     rc = i_cfrd(CFG_FILE);
@@ -1577,7 +1593,10 @@ int main(void)
         puts("Database schema is obsolete; run DOCGEN to rebuild it.");
         return 1;
     }
-    rc = verify_database();
+    if (verify)
+        rc = verify_database();
+    else
+        rc = I_OK;
     if (rc == I_OK)
     {
         istat_reset();
