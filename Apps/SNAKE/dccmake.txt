@@ -1,0 +1,19 @@
+# dccmake configuration for the optimized C11 Snake port
+# CP/M 2.2 / Z80 using the dcc compiler
+#
+# Prerequisites: Set DCC_DIR and NTVCM_DIR to the dcc and ntvcm repositories.
+
+dcc-input=snakec11.c
+dcc-output=SNAKE
+dcc-floatio=false
+dcc-flongio=false
+dcc-peep=true
+dcc-build-dir=build
+dcc-runtime=${DCC_DIR}/DCCRTL.MAC
+dcc-include-directory=${DCC_DIR}
+dcc-tool=${DCC_DIR}/dcc
+dccpeep-tool=${DCC_DIR}/dccpeep
+dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
+ntvcm-tool=${NTVCM_DIR}/ntvcm
+m80-command=${DCC_DIR}/m80c.com
+l80-command=${DCC_DIR}/l80c.com
