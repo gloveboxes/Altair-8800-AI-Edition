@@ -1,6 +1,6 @@
 # ESP32-S3 Altair 8800 Emulator
 
-Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.1 (minimum required). The project runs an Intel 8080/Altair environment with CP/M disks, physical display output, SD-card disk storage, WiFi setup, WebSocket terminal access, Bluetooth keyboard input, and an OpenAI-compatible chat I/O port for BDS C applications.
+Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.2 (minimum required). The project runs an Intel 8080/Altair environment with CP/M disks, physical display output, SD-card disk storage, WiFi setup, WebSocket terminal access, Bluetooth keyboard input, and an OpenAI-compatible chat I/O port for BDS C applications.
 
 > **Documentation:** The full project documentation is published at <https://gloveboxes.github.io/esp32-altair-8800/>.
 
@@ -117,19 +117,19 @@ docs/                 Development notes
 
 ## Build Prerequisites
 
-- ESP-IDF v6.0.1 or newer for `esp32s3` (the build will fail with a clear error if an older ESP-IDF is sourced).
+- ESP-IDF v6.0.2 or newer for `esp32s3` (the build will fail with a clear error if an older ESP-IDF is sourced).
 - ESP-IDF VS Code extension, recommended for build/flash/monitor.
 - ESP32-S3 board matching one of the supported configs.
 - SD card formatted for the project disk layout when using CP/M disk images.
 
 > **Install location.** This project expects ESP-IDF and its tools to live under `$HOME/.espressif/` — specifically `$HOME/.espressif/<version>/esp-idf/` for the SDK and `$HOME/.espressif/tools/` for the toolchain. The ESP-IDF extension does not expand VS Code variables such as `${userHome}` in all of its own settings, so its `idf.*` paths in `.vscode/settings.json` are literal local paths. After cloning, run `python3 scripts/update_vscode_idf_paths.py` to rewrite those paths for your user account before building in VS Code.
 
-> **SDK version pinned in settings.** `.vscode/settings.json` hard-codes the v6.0.1 SDK path (for example `/Users/<you>/.espressif/v6.0.1/esp-idf`) along with version-specific subdirectories of the toolchain (e.g. `tools/xtensa-esp-elf/esp-15.2.0_20251204`, `tools/esp-clang/esp-20.1.1_20250829`, `python_env/idf6.0_py3.14_env`). When upgrading to a newer ESP-IDF, update these paths in `.vscode/settings.json` (and the `source` paths in `.vscode/tasks.json`) to match the new install. The CMake guard in `CMakeLists.txt` enforces only the *minimum* SDK version (v6.0.1) and is independent of these IDE paths.
+> **SDK version pinned in settings.** `.vscode/settings.json` hard-codes the v6.0.2 SDK path (for example `/Users/<you>/.espressif/v6.0.2/esp-idf`) along with version-specific subdirectories of the toolchain (e.g. `tools/xtensa-esp-elf/esp-15.2.0_20251204`, `tools/esp-clang/esp-20.1.1_20250829`, `python_env/idf6.0_py3.14_env`). When upgrading to a newer ESP-IDF, update these paths in `.vscode/settings.json` (and the `source` paths in `.vscode/tasks.json`) to match the new install. The CMake guard in `CMakeLists.txt` enforces only the *minimum* SDK version (v6.0.2) and is independent of these IDE paths.
 
 Install ESP-IDF tools for ESP32-S3 if needed:
 
 ```bash
-$HOME/.espressif/v6.0.1/esp-idf/install.sh esp32s3
+$HOME/.espressif/v6.0.2/esp-idf/install.sh esp32s3
 ```
 
 Update the VS Code ESP-IDF extension paths for your local account:
@@ -138,7 +138,7 @@ Update the VS Code ESP-IDF extension paths for your local account:
 python3 scripts/update_vscode_idf_paths.py
 ```
 
-If ESP-IDF is installed somewhere other than `$HOME/.espressif/v6.0.1/esp-idf`, pass the paths explicitly:
+If ESP-IDF is installed somewhere other than `$HOME/.espressif/v6.0.2/esp-idf`, pass the paths explicitly:
 
 ```bash
 python3 scripts/update_vscode_idf_paths.py \
@@ -150,7 +150,7 @@ python3 scripts/update_vscode_idf_paths.py \
 For CLI use, source ESP-IDF before running `idf.py`:
 
 ```bash
-source $HOME/.espressif/v6.0.1/esp-idf/export.sh
+source $HOME/.espressif/v6.0.2/esp-idf/export.sh
 ```
 
 ### ESP-IDF environment for VS Code on macOS
@@ -164,27 +164,27 @@ CMake Error at CMakeLists.txt:26 (message):
 
 ...or, mid-build, the bootloader sub-build fails with `IDF_PATH environment variable is different from inferred IDF_PATH` and a stale path.
 
-This workspace keeps the extension environment explicit in `.vscode/settings.json` via `idf.customExtraVars`: it sets `IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_TARGET`, `IDF_PYTHON_ENV_PATH`, `PYTHON`, `ESP_IDF_VERSION`, and a deterministic ESP-IDF `PATH` that includes the v6.0.1 Python environment, `idf.py`, toolchains, OpenOCD, Ninja, and Homebrew CMake. Keep those `idf.*` values as literal absolute paths; using `${userHome}` there makes the ESP-IDF extension treat the setup as missing.
+This workspace keeps the extension environment explicit in `.vscode/settings.json` via `idf.customExtraVars`: it sets `IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_TARGET`, `IDF_PYTHON_ENV_PATH`, `PYTHON`, `ESP_IDF_VERSION`, and a deterministic ESP-IDF `PATH` that includes the v6.0.2 Python environment, `idf.py`, toolchains, OpenOCD, Ninja, and Homebrew CMake. Keep those `idf.*` values as literal absolute paths; using `${userHome}` there makes the ESP-IDF extension treat the setup as missing.
 
 Do **not** source `export.sh` from `~/.zshenv`. That file runs for every zsh invocation, including non-interactive probes from VS Code and tooling; sourcing ESP-IDF there can make `/bin/zsh` exit with code 1 and break terminals system-wide. If you want global static shell variables, keep `~/.zshenv` limited to simple exports only:
 
 ```bash
-export IDF_PATH="$HOME/.espressif/v6.0.1/esp-idf"
+export IDF_PATH="$HOME/.espressif/v6.0.2/esp-idf"
 export IDF_TOOLS_PATH="$HOME/.espressif"
 ```
 
 For interactive CLI use, source ESP-IDF in the terminal where you need it:
 
 ```bash
-source "$HOME/.espressif/v6.0.1/esp-idf/export.sh"
+source "$HOME/.espressif/v6.0.2/esp-idf/export.sh"
 ```
 
 After cloning, installing ESP-IDF, or changing ESP-IDF-related VS Code settings, **fully quit VS Code with Cmd+Q** (a window reload or "Reopen Folder" is not enough because VS Code's process environment is captured at launch). Then relaunch VS Code from the Dock or via `code <folder>`. Run **ESP-IDF: Doctor Command** and verify that `ESP-IDF Path`, `Virtual environment Python path`, `CMake`, `Ninja`, and `ESP-IDF Tools Path` are accessible. For CLI builds, source ESP-IDF first and then check the terminal environment:
 
 ```bash
-source "$HOME/.espressif/v6.0.1/esp-idf/export.sh"
+source "$HOME/.espressif/v6.0.2/esp-idf/export.sh"
 echo $IDF_PATH
-# → /Users/<you>/.espressif/v6.0.1/esp-idf
+# → /Users/<you>/.espressif/v6.0.2/esp-idf
 ```
 
 > If you upgrade ESP-IDF, update `.vscode/settings.json`, `.vscode/tasks.json`, and any static `~/.zshenv` exports to the new path.

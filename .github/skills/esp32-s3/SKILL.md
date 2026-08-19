@@ -1,20 +1,20 @@
 ---
 name: esp32-s3
-description: Build, flash, configure, and debug the ESP32-S3 Altair 8800 firmware with ESP-IDF v6.0.1+. Use when working on the ESP-IDF side of this repo — C/C++ firmware under main/, altair8800/, front_panel/, drivers/, port_drivers/, or captive_portal/; CMakeLists.txt component files; sdkconfig / sdkconfig.*.defaults; partitions.csv; or any task that mentions idf.py, esp32s3, board switching (Waveshare AXS15231B, Freenove ILI9341, Lonely Binary, Seeed XIAO), PSRAM, partitions, USB Serial/JTAG console, BLE keyboard, WiFi/captive portal, WebSocket terminal, SD-card disk images, or flashing/monitoring the device. NOT for CP/M-side BDS C or MAC/8080 assembly (use the bds-c or mac-asm skills).
+description: Build, flash, configure, and debug the ESP32-S3 Altair 8800 firmware with ESP-IDF v6.0.2+. Use when working on the ESP-IDF side of this repo — C/C++ firmware under main/, altair8800/, front_panel/, drivers/, port_drivers/, or captive_portal/; CMakeLists.txt component files; sdkconfig / sdkconfig.*.defaults; partitions.csv; or any task that mentions idf.py, esp32s3, board switching (Waveshare AXS15231B, Freenove ILI9341, Lonely Binary, Seeed XIAO), PSRAM, partitions, USB Serial/JTAG console, BLE keyboard, WiFi/captive portal, WebSocket terminal, SD-card disk images, or flashing/monitoring the device. NOT for CP/M-side BDS C or MAC/8080 assembly (use the bds-c or mac-asm skills).
 ---
 
 # ESP32-S3 Altair 8800 Firmware
 
 ## Core Facts
 
-- Target is fixed: `esp32s3`. Toolchain is ESP-IDF **v6.0.1 or newer** (the
+- Target is fixed: `esp32s3`. Toolchain is ESP-IDF **v6.0.2 or newer** (the
   build fails fast with a clear message in the root `CMakeLists.txt` if an older
   or missing IDF is sourced).
 - ESP-IDF is **not** activated automatically (see user memory: never source
   `export.sh` from shell rc files). Activate it per command:
 
   ```bash
-  source "$HOME/.espressif/v6.0.1/esp-idf/export.sh" >/dev/null
+  source "$HOME/.espressif/v6.0.2/esp-idf/export.sh" >/dev/null
   ```
 
 - All `idf.py` commands run from the workspace root (`${workspaceFolder}`),
@@ -71,7 +71,7 @@ defaults. Prefer the VS Code tasks (`Altair: Switch config to ...`) or run the
 equivalent directly:
 
 ```bash
-source "$HOME/.espressif/v6.0.1/esp-idf/export.sh" >/dev/null
+source "$HOME/.espressif/v6.0.2/esp-idf/export.sh" >/dev/null
 rm -f sdkconfig
 idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults" reconfigure
 ```

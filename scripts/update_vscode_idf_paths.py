@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_IDF_VERSION = "6.0.1"
+DEFAULT_IDF_VERSION = "6.0.2"
 DEFAULT_PYTHON_ENV = "idf6.0_py3.14_env"
 
 

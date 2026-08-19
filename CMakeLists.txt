@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # --------------------------------------------------------------------
-# Require ESP-IDF v6.0.1 or newer.
+# Require ESP-IDF v6.0.2 or newer.
 #
 # IDF_PATH must point at a valid ESP-IDF install. If it's missing or
 # the version is older than the minimum, fail fast with a clear
@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.16)
 # --------------------------------------------------------------------
 set(_altair_min_idf_major 6)
 set(_altair_min_idf_minor 0)
-set(_altair_min_idf_patch 1)
+set(_altair_min_idf_patch 2)
 set(_altair_min_idf "v${_altair_min_idf_major}.${_altair_min_idf_minor}.${_altair_min_idf_patch}")
 set(_altair_example_idf_path "$ENV{HOME}/.espressif/${_altair_min_idf}/esp-idf")
 

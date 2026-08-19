@@ -90,7 +90,7 @@ The wall clock requires Wi-Fi and a successful SNTP sync. Before sync these port
 | 48 | OUT | 1   | Wi-Fi IPv4 address string |
 | 48 | OUT | 2   | Device ID (MAC address) string |
 | 49 | OUT | 0xA5 | **Reboot the ESP32.** Any other data byte is ignored. |
-| 70 | OUT | 0   | Firmware version string, e.g. `ESP32-S3 Altair8800 (IDF v6.0.1)` |
+| 70 | OUT | 0   | Firmware version string, e.g. `ESP32-S3 Altair8800 (IDF v6.0.2)` |
 
 ### Weather ports (weather_io)
 
