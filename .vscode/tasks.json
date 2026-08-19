@@ -160,7 +160,7 @@
         "dcc-input=${file}",
         "dcc-output=${fileBasenameNoExtension}",
         "dcc-include-directory=${env:DCC_DIR}",
-        "l80-command=${env:DCC_DIR}/l80.com",
+        "l80-command=${env:DCC_DIR}/l80c.com",
         "dcc-runtime=${DCC_DIR}/DCCRTL.MAC",
         "dcc-build-dir=build"
       ],

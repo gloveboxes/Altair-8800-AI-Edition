@@ -17,5 +17,5 @@ dcc-tool=${DCC_DIR}/dcc
 dccpeep-tool=${DCC_DIR}/dccpeep
 dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
 ntvcm-tool=${NTVCM_DIR}/ntvcm
-m80-command=${DCC_DIR}/m80.com
-l80-command=${DCC_DIR}/l80.com
+m80-command=${DCC_DIR}/m80c.com
+l80-command=${DCC_DIR}/l80c.com
