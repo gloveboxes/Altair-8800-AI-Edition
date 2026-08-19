@@ -81,20 +81,24 @@ The C11 port also uses dcc's one-byte `bool`, pointer induction, fixed-shape
 attention kernels, and an all-row Q/K/V pass that reuses each input activation
 across the three projections. The score dot product and scaling are fused, and
 the 8x16 attention-value and 16x10 output projections avoid generic dimension
-handling. These transformations preserve the fixed-point accumulation order;
-training from the same seed produces a byte-identical `ATTN.WTS`.
+handling. Fixed-weight inference also memoizes Q/K/V rows by position and digit
+after the first sequence. The cache overlays the Q16 and backward-only training
+workspace, so it adds only 97 bytes of BSS. These transformations preserve the
+fixed-point accumulation order; training from the same seed produces a
+byte-identical `ATTN.WTS`.
 
 Internal state and helper names are expanded for readability instead of
 retaining the seven-character identifiers required by the original BDS C port.
 All file-local state has internal linkage, so descriptive names cannot collide
 at the CP/M linker boundary.
 
-Measured with `ntvcm -p` over the 14 sequences in `ATTN.IN`, the optimized
-forward path uses 442,506,230 Z80 cycles versus 455,257,575 before the
-inference-specific pass, a 2.80% reduction. The speed-focused kernels increase
-`ATTNC11.COM` from 16,768 to 18,560 bytes. C11 features that dcc only parses for
-source compatibility, such as `restrict`, are deliberately not presented as
-target optimizations.
+Measured with `ntvcm -p` over the 15 sequences in `ATTN.IN`, the optimized
+inference path uses 249,255,359 Z80 cycles versus 287,723,708 for the original
+binary, a 13.37% reduction. Over 100 repeated sequences, cache reuse reduces
+the count from 1,906,851,118 to 712,243,418 cycles, a 62.65% reduction. The
+speed-focused build increases `ATTNC11.COM` from 19,072 to 20,992 bytes. C11
+features that dcc only parses for source compatibility, such as `restrict`, are
+deliberately not presented as target optimizations.
 
 ## Usage
 

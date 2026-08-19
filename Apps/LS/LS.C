@@ -281,7 +281,7 @@ static void put_listing(uint8_t block_shift)
     uint8_t column;
     uint8_t offset;
 
-    cputs("Name    Ext Bytes   Name    Ext Bytes   Name    Ext Bytes   Name    Ext Bytes\r\n");
+    cputs("\x1b[94mName    Ext Bytes   Name    Ext Bytes   Name    Ext Bytes   Name    Ext Bytes\x1b[0m\r\n");
     for (row = 0; row < row_count; ++row) {
         offset = row;
         for (column = 0; column < COLUMN_COUNT; ++column) {

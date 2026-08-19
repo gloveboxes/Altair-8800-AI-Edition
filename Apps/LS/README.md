@@ -3,7 +3,8 @@
 Compact C11 directory listing for CP/M 2.2. It scans raw directory entries so
 all extents are included, sorts 8.3 names, and reports allocation-block sizes
 without linking `printf` formatting. CP/M filespec filtering and temporary
-drive selection are supported:
+drive selection are supported. The column heading is bright blue on VT100-compatible
+terminals and resets to the terminal's default color before file output.
 
 ```text
 LS *.COM

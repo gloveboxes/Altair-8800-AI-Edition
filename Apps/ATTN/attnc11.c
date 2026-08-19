@@ -67,6 +67,11 @@ typedef int32_t weight_value_t;
 #define FM_VALID 2
 #define FM_INFER 3
 
+#define PCACHE_DISABLED 0
+#define PCACHE_COLD 1
+#define PCACHE_PENDING 2
+#define PCACHE_READY 3
+
 /* Trained weights are saved here so inference can reload them. */
 #define WFILE "ATTN.WTS"
 
@@ -88,13 +93,59 @@ _Static_assert(AB == 3*S*D, "ATTNC11 workspace offsets changed");
 _Static_assert(AB + S*S == 3*S*D + S*S, "ATTNC11 workspace size changed");
 _Static_assert(WBYTES == 4864, "ATTNC11 weight file payload changed");
 
-/* --- Q16 weight accumulators (native little-endian int32_t) --- */
-static weight_value_t token_weights_q16[V*D];
-static weight_value_t position_weights_q16[S*D];
-static weight_value_t query_weights_q16[D*D];
-static weight_value_t key_weights_q16[D*D];
-static weight_value_t value_weights_q16[D*D];
-static weight_value_t output_weights_q16[D*V];
+/* Training needs the Q16 weights and backward state together.  Fixed-weight
+ * inference needs neither after Q8 conversion, so it reuses this storage. */
+static union {
+    struct {
+        weight_value_t token_weights_q16[V*D];
+        weight_value_t position_weights_q16[S*D];
+        weight_value_t query_weights_q16[D*D];
+        weight_value_t key_weights_q16[D*D];
+        weight_value_t value_weights_q16[D*D];
+        weight_value_t output_weights_q16[D*V];
+
+        model_value_t token_gradients[V*D];
+        model_value_t position_gradients[S*D];
+        model_value_t query_weight_gradients[D*D];
+        model_value_t key_weight_gradients[D*D];
+        model_value_t value_weight_gradients[D*D];
+        model_value_t output_weight_gradients[D*V];
+
+        model_value_t logit_gradients[V];
+        model_value_t attention_output_gradients[S*D];
+        model_value_t attention_score_gradients[S*S];
+        model_value_t query_state_gradients[S*D];
+        model_value_t key_state_gradients[S*D];
+        model_value_t value_state_gradients[S*D];
+        model_value_t embedding_gradients[S*D];
+        model_value_t gradient_column[D];
+    } training;
+    model_value_t projection_cache[S*V*3*D];
+} mode_workspace;
+
+#define token_weights_q16 mode_workspace.training.token_weights_q16
+#define position_weights_q16 mode_workspace.training.position_weights_q16
+#define query_weights_q16 mode_workspace.training.query_weights_q16
+#define key_weights_q16 mode_workspace.training.key_weights_q16
+#define value_weights_q16 mode_workspace.training.value_weights_q16
+#define output_weights_q16 mode_workspace.training.output_weights_q16
+#define token_gradients mode_workspace.training.token_gradients
+#define position_gradients mode_workspace.training.position_gradients
+#define query_weight_gradients mode_workspace.training.query_weight_gradients
+#define key_weight_gradients mode_workspace.training.key_weight_gradients
+#define value_weight_gradients mode_workspace.training.value_weight_gradients
+#define output_weight_gradients mode_workspace.training.output_weight_gradients
+#define logit_gradients mode_workspace.training.logit_gradients
+#define attention_output_gradients \
+    mode_workspace.training.attention_output_gradients
+#define attention_score_gradients \
+    mode_workspace.training.attention_score_gradients
+#define query_state_gradients mode_workspace.training.query_state_gradients
+#define key_state_gradients mode_workspace.training.key_state_gradients
+#define value_state_gradients mode_workspace.training.value_state_gradients
+#define embedding_gradients mode_workspace.training.embedding_gradients
+#define gradient_column mode_workspace.training.gradient_column
+#define projection_cache mode_workspace.projection_cache
 
 /* --- Q8 weight copies (rebuilt from the Q16 accumulators) --- */
 static model_value_t token_weights_q8[V*D];
@@ -104,29 +155,14 @@ static model_value_t key_weights_q8[D*D];
 static model_value_t value_weights_q8[D*D];
 static model_value_t output_weights_q8[D*V];
 
-/* --- Q15 gradient accumulators --- */
-static model_value_t token_gradients[V*D];
-static model_value_t position_gradients[S*D];
-static model_value_t query_weight_gradients[D*D];
-static model_value_t key_weight_gradients[D*D];
-static model_value_t value_weight_gradients[D*D];
-static model_value_t output_weight_gradients[D*V];
-
 /* --- forward state --- */
 static model_value_t embeddings[S*D];
 static model_value_t attention_output[S*D];
 static model_value_t logits[S*V];
 static model_value_t attention_workspace[3*S*D + S*S];
-
-/* --- backward workspace --- */
-static model_value_t logit_gradients[V];
-static model_value_t attention_output_gradients[S*D];
-static model_value_t attention_score_gradients[S*S];
-static model_value_t query_state_gradients[S*D];
-static model_value_t key_state_gradients[S*D];
-static model_value_t value_state_gradients[S*D];
-static model_value_t embedding_gradients[S*D];
-static model_value_t gradient_column[D];
+static bool projection_cache_valid[S*V];
+static model_value_t first_projection_tokens[S];
+static unsigned char projection_cache_state;
 
 /* --- training data / state --- */
 static model_value_t tokens[S];
@@ -228,6 +264,8 @@ static void transposed_matrix_vector_multiply(
     model_value_t *matrix, model_value_t *input, model_value_t *output,
     unsigned char rows, unsigned char columns);
 static void project_all_qkv(void);
+static void cache_projected_qkv(model_value_t *cached_tokens);
+static void project_cached_qkv(void);
 static void transposed_multiply_8x16(model_value_t *matrix,
                                      model_value_t *input,
                                      model_value_t *output);
@@ -540,6 +578,73 @@ static void project_all_qkv(void)
     }
 }
 
+static void cache_projected_qkv(model_value_t *cached_tokens)
+{
+    int cache_index;
+    model_value_t *cached;
+    unsigned char row;
+
+    for (row = 0; row < S; row++) {
+        cache_index = row * V + cached_tokens[row];
+        cached = &projection_cache[cache_index * 3 * D];
+        memcpy(cached, &attention_workspace[QB + row * D],
+               D * (int)sizeof(model_value_t));
+        memcpy(cached + D, &attention_workspace[KB + row * D],
+               D * (int)sizeof(model_value_t));
+        memcpy(cached + 2 * D, &attention_workspace[VB + row * D],
+               D * (int)sizeof(model_value_t));
+        projection_cache_valid[cache_index] = true;
+    }
+}
+
+/* Reuse fixed-weight projections for repeated position/digit pairs. */
+static void project_cached_qkv(void)
+{
+    int cache_index;
+    unsigned char row, i, j;
+    model_value_t sc;
+    model_value_t *vin, *voutq, *voutk, *voutv, *cached;
+    model_value_t *matq, *matk, *matv;
+
+    memset(&attention_workspace[QB], 0,
+           3 * S * D * (int)sizeof(model_value_t));
+    vin = embeddings;
+    voutq = &attention_workspace[QB];
+    voutk = &attention_workspace[KB];
+    voutv = &attention_workspace[VB];
+    for (row = 0; row < S; row++) {
+        cache_index = row * V + tokens[row];
+        cached = &projection_cache[cache_index * 3 * D];
+        if (projection_cache_valid[cache_index]) {
+            memcpy(voutq, cached, D * (int)sizeof(model_value_t));
+            memcpy(voutk, cached + D, D * (int)sizeof(model_value_t));
+            memcpy(voutv, cached + 2 * D,
+                   D * (int)sizeof(model_value_t));
+            vin += D;
+        } else {
+            matq = query_weights_q8;
+            matk = key_weights_q8;
+            matv = value_weights_q8;
+            for (i = 0; i < D; i++) {
+                sc = *vin++;
+                for (j = 0; j < D; j++) {
+                    add_clamped(&voutq[j], multiply_q8(*matq++, sc));
+                    add_clamped(&voutk[j], multiply_q8(*matk++, sc));
+                    add_clamped(&voutv[j], multiply_q8(*matv++, sc));
+                }
+            }
+            memcpy(cached, voutq, D * (int)sizeof(model_value_t));
+            memcpy(cached + D, voutk, D * (int)sizeof(model_value_t));
+            memcpy(cached + 2 * D, voutv,
+                   D * (int)sizeof(model_value_t));
+            projection_cache_valid[cache_index] = true;
+        }
+        voutq += D;
+        voutk += D;
+        voutv += D;
+    }
+}
+
 static void transposed_multiply_8x16(model_value_t *matrix,
                                      model_value_t *input,
                                      model_value_t *output)
@@ -614,7 +719,20 @@ static void forward_attention(void)
     unsigned char i, j;
 
     /* Step 1-3: Q = X.Wq, K = X.Wk, V = X.Wv */
-    project_all_qkv();
+    if (projection_cache_state == PCACHE_DISABLED)
+        project_all_qkv();
+    else if (projection_cache_state == PCACHE_COLD) {
+        project_all_qkv();
+        memcpy(first_projection_tokens, tokens,
+               S * (int)sizeof(model_value_t));
+        projection_cache_state = PCACHE_PENDING;
+    } else {
+        if (projection_cache_state == PCACHE_PENDING) {
+            cache_projected_qkv(first_projection_tokens);
+            projection_cache_state = PCACHE_READY;
+        }
+        project_cached_qkv();
+    }
     /* Step 4: S[i][j] = (Q[i] . K[j]) / sqrt(d), sqrt(16)=4 -> >>2 */
     query = &attention_workspace[QB];
     score = &attention_workspace[AB];
@@ -1247,6 +1365,8 @@ int main(int argc, char *argv[])
         return 1;
     }
     convert_weights_to_q8();        /* build Q8 weight copies once */
+    memset(projection_cache_valid, 0, S * V * (int)sizeof(bool));
+    projection_cache_state = PCACHE_COLD;
 
     outp(SWPORT, 0);                /* start host stopwatch 0 */
     sequence_count = run_inference_file(filename);
