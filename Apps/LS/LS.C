@@ -25,80 +25,31 @@ typedef struct {
     uint16_t blocks;
 } FileEntry;
 
-/* Stable largest-first sort of fixed 13-byte records; equal sizes stay alpha. */
-#ifdef _DCC_
-extern void szsort(FileEntry *base, uint8_t count);
+static FileEntry sort_temp;
+static FileEntry *sort_left;
+static uint8_t sort_pass;
+static uint8_t sort_remaining;
 
-#asm
-    public  _szsort
-_szsort:
-    pop     bc
-    pop     hl
-    pop     de
-    push    de
-    push    hl
-    push    bc
-    push    ix
-    ld      a,e
-    cp      2
-    jr      c,szdone
-    ld      (szbase),hl
-    dec     a
-    ld      (szpass),a
-szouter:
-    ld      ix,(szbase)
-    ld      a,(szpass)
-    ld      b,a
-szinner:
-    ld      a,(ix+12)
-    cp      (ix+25)
-    jr      c,szswap
-    jr      nz,sznext
-    ld      a,(ix+11)
-    cp      (ix+24)
-    jr      nc,sznext
-szswap:
-    push    bc
-    push    ix
-    pop     hl
-    push    hl
-    ld      de,13
-    add     hl,de
-    ex      de,hl
-    pop     hl
-    ld      b,13
-szbyte:
-    ld      c,(hl)
-    ld      a,(de)
-    ld      (hl),a
-    ld      a,c
-    ld      (de),a
-    inc     hl
-    inc     de
-    djnz    szbyte
-    pop     bc
-sznext:
-    ld      de,13
-    add     ix,de
-    djnz    szinner
-    ld      hl,szpass
-    dec     (hl)
-    jr      nz,szouter
-szdone:
-    pop     ix
-    ret
-szbase:
-    dw      0
-szpass:
-    db      0
-#endasm
-#else
+/* Stable largest-first sort; equal sizes retain the initial alpha order. */
 static void szsort(FileEntry *base, uint8_t count)
 {
-    (void)base;
-    (void)count;
+    if (count < 2)
+        return;
+    sort_pass = count - 1;
+    while (sort_pass != 0) {
+        sort_left = base;
+        sort_remaining = sort_pass;
+        do {
+            if (sort_left->blocks < sort_left[1].blocks) {
+                sort_temp = *sort_left;
+                *sort_left = sort_left[1];
+                sort_left[1] = sort_temp;
+            }
+            ++sort_left;
+        } while (--sort_remaining != 0);
+        --sort_pass;
+    }
 }
-#endif
 
 static FileEntry files[MAX_FILES];
 static uint8_t file_count;
