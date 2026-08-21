@@ -1,4 +1,20 @@
-#include "CALC1024.H"
+/**
+ * @file calc1024.c
+ * @brief Signed 1024-bit integer implementation for the CALC regression.
+ *
+ * @par Role
+ * This module implements parsing, formatting, comparison, arithmetic, and
+ * bitwise operations over fixed little-endian arrays of 32-bit limbs. The
+ * portable C path deliberately exercises reusable wide-integer compiler
+ * patterns; Z80_ASM_OPTS selects equivalent hand-written kernels for the
+ * comparison build.
+ *
+ * @par Boundary
+ * The public integer contract is declared in calc1024.h. This layer has no
+ * parser or console responsibilities, and calcdoub builds decimal arithmetic
+ * on top of it.
+ */
+#include "calc1024.h"
 
 #define SIGN_BIT 0x80000000UL
 #define WORD_MAX 0xffffffffUL
@@ -13,9 +29,12 @@ static int unsigned_compare(const struct CalcInt1024 *left,
 {
     int index;
 
-    for (index = CALC_INT_WORDS - 1; index >= 0; --index) {
-        if (left->word[index] < right->word[index]) return -1;
-        if (left->word[index] > right->word[index]) return 1;
+    for (index = CALC_INT_WORDS - 1; index >= 0; --index)
+    {
+        if (left->word[index] < right->word[index])
+            return -1;
+        if (left->word[index] > right->word[index])
+            return 1;
     }
     return 0;
 }
@@ -39,12 +58,14 @@ static void unsigned_add(const struct CalcInt1024 *left,
     int index;
 
     carry = 0;
-    for (index = 0; index < CALC_INT_WORDS; ++index) {
+    for (index = 0; index < CALC_INT_WORDS; ++index)
+    {
         left_word = left->word[index];
         sum = left_word + right->word[index];
         next_carry = sum < left_word;
         with_carry = sum + (unsigned long)carry;
-        if (carry && with_carry == 0UL) next_carry = 1;
+        if (carry && with_carry == 0UL)
+            next_carry = 1;
         result->word[index] = with_carry;
         carry = next_carry;
     }
@@ -69,12 +90,14 @@ static void unsigned_subtract(const struct CalcInt1024 *left,
     int index;
 
     borrow = 0;
-    for (index = 0; index < CALC_INT_WORDS; ++index) {
+    for (index = 0; index < CALC_INT_WORDS; ++index)
+    {
         left_word = left->word[index];
         difference = left_word - right->word[index];
         next_borrow = left_word < right->word[index];
         with_borrow = difference - (unsigned long)borrow;
-        if (borrow && difference == 0UL) next_borrow = 1;
+        if (borrow && difference == 0UL)
+            next_borrow = 1;
         result->word[index] = with_borrow;
         borrow = next_borrow;
     }
@@ -94,7 +117,8 @@ static void unsigned_negate(const struct CalcInt1024 *value,
     int index;
 
     carry = 1;
-    for (index = 0; index < CALC_INT_WORDS; ++index) {
+    for (index = 0; index < CALC_INT_WORDS; ++index)
+    {
         word = ~value->word[index] + (unsigned long)carry;
         carry = carry && word == 0UL;
         result->word[index] = word;
@@ -105,8 +129,10 @@ static void unsigned_negate(const struct CalcInt1024 *value,
 static void magnitude(const struct CalcInt1024 *value,
                       struct CalcInt1024 *result)
 {
-    if (xisneg(value)) unsigned_negate(value, result);
-    else *result = *value;
+    if (xisneg(value))
+        unsigned_negate(value, result);
+    else
+        *result = *value;
 }
 
 #ifdef Z80_ASM_OPTS
@@ -120,7 +146,8 @@ static void shift_left(struct CalcInt1024 *value)
     int index;
 
     carry = 0UL;
-    for (index = 0; index < CALC_INT_WORDS; ++index) {
+    for (index = 0; index < CALC_INT_WORDS; ++index)
+    {
         next_carry = value->word[index] >> 31;
         value->word[index] = (value->word[index] << 1) | carry;
         carry = next_carry;
@@ -139,13 +166,14 @@ static void shift_right(struct CalcInt1024 *value)
     int index;
 
     carry = 0UL;
-    for (index = CALC_INT_WORDS - 1; index >= 0; --index) {
+    for (index = CALC_INT_WORDS - 1; index >= 0; --index)
+    {
         next_carry = value->word[index] & 1UL;
         value->word[index] = (value->word[index] >> 1) | (carry << 31);
         carry = next_carry;
     }
 }
-    #endif
+#endif
 
 #ifdef Z80_ASM_OPTS
 extern int xacmn(const struct CalcInt1024 *left,
@@ -156,7 +184,7 @@ extern void xasbn(const struct CalcInt1024 *left,
 extern void xashn(struct CalcInt1024 *value, int byte_count);
 #endif
 
-    #ifdef Z80_ASM_OPTS
+#ifdef Z80_ASM_OPTS
     #asm
         ; Register-optimized 1024-bit unsigned kernels. CalcInt1024 is 128
         ; little-endian bytes. All routines preserve the caller's IX.
@@ -430,9 +458,9 @@ extern void xashn(struct CalcInt1024 *value, int byte_count);
         ld h,0
         ret
     #endasm
-    #endif
+#endif
 
-static int low_bit(const struct CalcInt1024 *value)
+    static int low_bit(const struct CalcInt1024 *value)
 {
     return (value->word[0] & 1UL) != 0UL;
 }
@@ -465,12 +493,15 @@ static void unsigned_divide(const struct CalcInt1024 *dividend,
     active_words = CALC_INT_WORDS;
     while (active_words > 1 && divisor->word[active_words - 1] == 0UL)
         --active_words;
-    if (active_words < CALC_INT_WORDS) ++active_words;
+    if (active_words < CALC_INT_WORDS)
+        ++active_words;
     byte_count = active_words * 4;
 #endif
     bit = (CALC_INT_WORDS * 32) - 1;
-    while (bit >= 0 && bit_value(dividend, bit) == 0) --bit;
-    while (bit >= 0) {
+    while (bit >= 0 && bit_value(dividend, bit) == 0)
+        --bit;
+    while (bit >= 0)
+    {
 #ifdef Z80_ASM_OPTS
         carry = (remainder->word[active_words - 1] & SIGN_BIT) != 0UL;
         xashn(remainder, byte_count);
@@ -480,10 +511,12 @@ static void unsigned_divide(const struct CalcInt1024 *dividend,
 #endif
         remainder->word[0] |= (unsigned long)bit_value(dividend, bit);
 #ifdef Z80_ASM_OPTS
-        if (carry || xacmn(remainder, divisor, byte_count) >= 0) {
+        if (carry || xacmn(remainder, divisor, byte_count) >= 0)
+        {
             xasbn(remainder, divisor, remainder, byte_count);
 #else
-        if (carry || unsigned_compare(remainder, divisor) >= 0) {
+        if (carry || unsigned_compare(remainder, divisor) >= 0)
+        {
             unsigned_subtract(remainder, divisor, remainder);
 #endif
             set_bit(quotient, bit);
@@ -504,14 +537,18 @@ static int unsigned_multiply_limited(const struct CalcInt1024 *left,
     multiplicand = *left;
     multiplier = *right;
     xzero(result);
-    while (!xiszero(&multiplier)) {
-        if (low_bit(&multiplier)) {
+    while (!xiszero(&multiplier))
+    {
+        if (low_bit(&multiplier))
+        {
             unsigned_subtract(limit, result, &room);
-            if (unsigned_compare(&multiplicand, &room) > 0) return 1;
+            if (unsigned_compare(&multiplicand, &room) > 0)
+                return 1;
             unsigned_add(result, &multiplicand, result);
         }
         shift_right(&multiplier);
-        if (!xiszero(&multiplier)) {
+        if (!xiszero(&multiplier))
+        {
             if ((multiplicand.word[CALC_INT_WORDS - 1] & SIGN_BIT) != 0UL)
                 return 1;
             shift_left(&multiplicand);
@@ -540,8 +577,10 @@ static unsigned int unsigned_divide_small(struct CalcInt1024 *value,
 
     remainder = 0;
     index = CALC_INT_WORDS - 1;
-    while (index >= 0 && value->word[index] == 0UL) --index;
-    while (index >= 0) {
+    while (index >= 0 && value->word[index] == 0UL)
+        --index;
+    while (index >= 0)
+    {
         source = value->word[index];
         partial = (remainder << 8) + (unsigned int)(source >> 24);
         quotient = (unsigned long)(partial / divisor) << 24;
@@ -566,7 +605,8 @@ void xzero(struct CalcInt1024 *value)
 {
     int index;
 
-    for (index = 0; index < CALC_INT_WORDS; ++index) value->word[index] = 0UL;
+    for (index = 0; index < CALC_INT_WORDS; ++index)
+        value->word[index] = 0UL;
 }
 
 void xfrom(struct CalcInt1024 *value, int source)
@@ -593,11 +633,14 @@ int xparse(const char *text, struct CalcInt1024 *value)
     for (index = 0; index < CALC_INT_WORDS - 1; ++index)
         maximum.word[index] = WORD_MAX;
     maximum.word[CALC_INT_WORDS - 1] = 0x7fffffffUL;
-    while (*text >= '0' && *text <= '9') {
+    while (*text >= '0' && *text <= '9')
+    {
         xfrom(&digit, *text - '0');
-        if (unsigned_multiply_limited(value, &ten, &maximum, &product)) return 1;
+        if (unsigned_multiply_limited(value, &ten, &maximum, &product))
+            return 1;
         unsigned_subtract(&maximum, &product, &maximum);
-        if (unsigned_compare(&digit, &maximum) > 0) return 1;
+        if (unsigned_compare(&digit, &maximum) > 0)
+            return 1;
         unsigned_add(&product, &digit, value);
         for (index = 0; index < CALC_INT_WORDS - 1; ++index)
             maximum.word[index] = WORD_MAX;
@@ -612,7 +655,8 @@ int xiszero(const struct CalcInt1024 *value)
     int index;
 
     for (index = 0; index < CALC_INT_WORDS; ++index)
-        if (value->word[index] != 0UL) return 0;
+        if (value->word[index] != 0UL)
+            return 0;
     return 1;
 }
 
@@ -628,7 +672,8 @@ int xcomp(const struct CalcInt1024 *left, const struct CalcInt1024 *right)
 
     left_negative = xisneg(left);
     right_negative = xisneg(right);
-    if (left_negative != right_negative) return left_negative ? -1 : 1;
+    if (left_negative != right_negative)
+        return left_negative ? -1 : 1;
     return unsigned_compare(left, right);
 }
 
@@ -636,12 +681,14 @@ int xnegate(const struct CalcInt1024 *value, struct CalcInt1024 *result)
 {
     int index;
 
-    if (value->word[CALC_INT_WORDS - 1] != SIGN_BIT) {
+    if (value->word[CALC_INT_WORDS - 1] != SIGN_BIT)
+    {
         unsigned_negate(value, result);
         return 0;
     }
     for (index = 0; index < CALC_INT_WORDS - 1; ++index)
-        if (value->word[index] != 0UL) {
+        if (value->word[index] != 0UL)
+        {
             unsigned_negate(value, result);
             return 0;
         }
@@ -696,8 +743,10 @@ int xmul(const struct CalcInt1024 *left, const struct CalcInt1024 *right,
         limit.word[index] = negative ? 0UL : WORD_MAX;
     limit.word[CALC_INT_WORDS - 1] = negative ? SIGN_BIT : 0x7fffffffUL;
     if (unsigned_multiply_limited(&left_magnitude, &right_magnitude,
-                                  &limit, result)) return 1;
-    if (negative) unsigned_negate(result, result);
+                                  &limit, result))
+        return 1;
+    if (negative)
+        unsigned_negate(result, result);
     return 0;
 }
 
@@ -710,19 +759,25 @@ int xdiv(const struct CalcInt1024 *left, const struct CalcInt1024 *right,
     int minimum;
     int minus_one;
 
-    if (xiszero(right)) return 1;
+    if (xiszero(right))
+        return 1;
     minimum = left->word[CALC_INT_WORDS - 1] == SIGN_BIT;
     for (index = 0; index < CALC_INT_WORDS - 1; ++index)
-        if (left->word[index] != 0UL) minimum = 0;
+        if (left->word[index] != 0UL)
+            minimum = 0;
     minus_one = 1;
     for (index = 0; index < CALC_INT_WORDS; ++index)
-        if (right->word[index] != WORD_MAX) minus_one = 0;
-    if (minimum && minus_one) return 2;
+        if (right->word[index] != WORD_MAX)
+            minus_one = 0;
+    if (minimum && minus_one)
+        return 2;
     magnitude(left, &left_magnitude);
     magnitude(right, &right_magnitude);
     unsigned_divide(&left_magnitude, &right_magnitude, quotient, remainder);
-    if (xisneg(left) != xisneg(right)) unsigned_negate(quotient, quotient);
-    if (xisneg(left)) unsigned_negate(remainder, remainder);
+    if (xisneg(left) != xisneg(right))
+        unsigned_negate(quotient, quotient);
+    if (xisneg(left))
+        unsigned_negate(remainder, remainder);
     return 0;
 }
 
@@ -732,7 +787,8 @@ void xfmt(const struct CalcInt1024 *value, char *buffer)
     char digits[CALC_INT_DECIMAL_DIGITS];
     int count;
 
-    if (xiszero(value)) {
+    if (xiszero(value))
+    {
         buffer[0] = '0';
         buffer[1] = '\0';
         return;
@@ -741,7 +797,9 @@ void xfmt(const struct CalcInt1024 *value, char *buffer)
     count = 0;
     while (!xiszero(&absolute))
         digits[count++] = (char)('0' + unsigned_divide_small(&absolute, 10));
-    if (xisneg(value)) *buffer++ = '-';
-    while (count > 0) *buffer++ = digits[--count];
+    if (xisneg(value))
+        *buffer++ = '-';
+    while (count > 0)
+        *buffer++ = digits[--count];
     *buffer = '\0';
 }

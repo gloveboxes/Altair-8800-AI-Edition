@@ -1,9 +1,21 @@
-#ifndef CALCDOUB_H
-#define CALCDOUB_H
+/**
+ * @file calcdoub.h
+ * @brief Public decimal-arithmetic contract for the CALC front end.
+ *
+ * @par Role
+ * Defines the coefficient/exponent representation and decimal operations used
+ * for mixed numeric expressions.
+ *
+ * @par Boundary
+ * CalcDouble is implemented by calcdoub.c on top of CalcInt1024; expression
+ * syntax, promotion policy, and user interaction remain in calc.c.
+ */
+#pragma once
 
-#include "CALC1024.H"
+#include "calc1024.h"
 
-struct CalcDouble {
+struct CalcDouble
+{
     struct CalcInt1024 coefficient;
     int exponent;
 };
@@ -27,5 +39,3 @@ int ddiv(const struct CalcDouble *left, const struct CalcDouble *right,
 int dpow(const struct CalcDouble *base, const struct CalcDouble *exponent,
          struct CalcDouble *result);
 void dfmt(const struct CalcDouble *value, char *buffer);
-
-#endif
