@@ -1,6 +1,6 @@
 #include "stdio.h"
 #include "string.h"
-#include "ISAMDB.H"
+#include "isamdb.h"
 
 #define T_RECSZ 16
 

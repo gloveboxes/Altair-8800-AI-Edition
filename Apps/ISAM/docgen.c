@@ -1,7 +1,7 @@
 #include "stdio.h"
 #include "string.h"
-#include "ISAMDB.H"
-#include "SURGERY.H"
+#include "isamdb.h"
+#include "surgery.h"
 
 static char doctor_record[DOCTOR_SIZE];
 static char patient_record[PATIENT_SIZE];

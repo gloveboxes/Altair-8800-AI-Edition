@@ -1,6 +1,6 @@
 #include "stdio.h"
 #include "string.h"
-#include "ISAMDB.H"
+#include "isamdb.h"
 
 struct i_db g_cfg;
 static char config_buffer[I_CFGBUF];

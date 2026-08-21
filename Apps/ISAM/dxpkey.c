@@ -1,7 +1,7 @@
 #include "stdio.h"
 #include "stdint.h"
 #include "string.h"
-#include "ISAMDB.H"
+#include "isamdb.h"
 
 #define PRIMARY_INDEX_HEADER_SIZE 24
 #define PRIMARY_INDEX_MAGIC_0 'D'

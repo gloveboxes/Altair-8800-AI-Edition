@@ -5,9 +5,9 @@
  * separate modules. A single translation unit prevents dcc-generated private
  * symbols from colliding at the CP/M linker.
  */
-#include "DXISAM.C"
-#include "DXPKEY.C"
-#include "DXFILE.C"
+#include "dxisam.c"
+#include "dxpkey.c"
+#include "dxfile.c"
 #ifdef DXISAM_LEGACY_INDEX
-#include "DXINDEX.C"
+#include "dxindex.c"
 #endif

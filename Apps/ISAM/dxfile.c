@@ -1,5 +1,5 @@
 #include "stdio.h"
-#include "ISAMDB.H"
+#include "isamdb.h"
 
 int i_mktbl(char *table_name)
 {

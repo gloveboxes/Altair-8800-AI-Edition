@@ -1,7 +1,7 @@
 /* Test i_insrt - insert records */
 #include "stdio.h"
 #include "string.h"
-#include "ISAMDB.H"
+#include "isamdb.h"
 
 /* Number of initial records inserted during the test */
 #define I_RNUM 1000

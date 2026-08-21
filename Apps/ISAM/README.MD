@@ -39,9 +39,9 @@ Exact lookup and delete are `O(log n)` index reads; delete then performs one ent
 
 ## Build
 
-Compile `ISAMDB.C` as the only library source. The build amalgamates configuration, record I/O, optional journaling, verification, and durable indexes into one dcc translation unit. Do not compile `DXISAM.C`, `DXFILE.C`, or `DXPKEY.C` separately; doing so can produce collisions between dcc-generated private symbols.
+Compile `isamdb.c` as the only library source. The build amalgamates configuration, record I/O, optional journaling, verification, and durable indexes into one dcc translation unit. Do not compile `dxisam.c`, `dxfile.c`, or `dxpkey.c` separately; doing so can produce collisions between dcc-generated private symbols.
 
-The old in-memory sparse index is excluded by default because it duplicates the durable `.IDX` index and requires application-maintained synchronization. Existing callers that still need `ixbld`, `ixlook`, `ixins`, or `ixdel` can opt in with `DXISAM_LEGACY_INDEX`; `ISAMDB.C` then includes `DXINDEX.C` and `ISAMDB.H` exposes its types and API.
+The old in-memory sparse index is excluded by default because it duplicates the durable `.IDX` index and requires application-maintained synchronization. Existing callers that still need `ixbld`, `ixlook`, `ixins`, or `ixdel` can opt in with `DXISAM_LEGACY_INDEX`; `isamdb.c` then includes `dxindex.c` and `isamdb.h` exposes its types and API.
 
 M80 keeps only six significant external-symbol characters, including dcc's leading underscore. Public names therefore differ within their first five C characters (`pki_*`, `key_*`, and `cur_*`).
 
@@ -140,7 +140,7 @@ The embedded free-list format uses the `DXI3` index header. Existing `DXI2` tabl
 
 DCCRTL's `open` function accepts an 8.3 filename on the current drive but does not parse a leading `A:` through `P:` drive selector. Change to the desired drive before launching an ISAM application. Passing `C:PATIENTS.DAT` to DCCRTL creates a malformed literal basename such as `C:PATIEN.DAT`; DXISAM therefore never puts a drive prefix in an I/O filename.
 
-In journaled builds, the test-only `i_test_crash_after` hook injects failures at transaction boundaries. In compact builds it is a no-op. `PKTEST.C` always covers multi-key insert, update, delete, prefix ranges, verification, and rebuild; journaled builds additionally cover injected crash recovery.
+In journaled builds, the test-only `i_test_crash_after` hook injects failures at transaction boundaries. In compact builds it is a no-op. `pktest.c` always covers multi-key insert, update, delete, prefix ranges, verification, and rebuild; journaled builds additionally cover injected crash recovery.
 
 ## Usage Examples
 
@@ -205,9 +205,9 @@ The `isamtst8` utility demonstrates the lazy-delete strategy end to end: records
 
 ## Validation
 
-- `PKTEST.C` covers primary and secondary exact lookup, prefix ranges, multi-key insert/update/delete, deleted-slot reuse, verification, corruption detection, and all-index rebuild. Journaled builds also cover injected transaction failures.
-- `ISAMTST.C` validates logical reads/updates/deletes, physical scans, durable counts, and slot reuse with 1,000 records.
-- `DOCGEN.C` creates the three-table surgery database and generates 968 related records.
-- `DOCTOR.C` provides indexed CRUD, joins, ordered traversal, and startup verification without carrying generation code in the production binary.
+- `pktest.c` covers primary and secondary exact lookup, prefix ranges, multi-key insert/update/delete, deleted-slot reuse, verification, corruption detection, and all-index rebuild. Journaled builds also cover injected transaction failures.
+- `isamtst.c` validates logical reads/updates/deletes, physical scans, durable counts, and slot reuse with 1,000 records.
+- `docgen.c` creates the three-table surgery database and generates 968 related records.
+- `doctor.c` provides indexed CRUD, joins, ordered traversal, and startup verification without carrying generation code in the production binary.
 
-Refer to `PKTEST.C`, `DOCGEN.C`, and `DOCTOR.C` for complete CP/M examples.
+Refer to `pktest.c`, `docgen.c`, and `doctor.c` for complete CP/M examples.

@@ -5,7 +5,7 @@
 #include <unistd.h>
 
 /* ============================================================
- * ISAMDB.H - ISAM Database Library Header
+ * isamdb.h - ISAM Database Library Header
  * ============================================================
  * Shared definitions for ISAM table management and record I/O.
  */

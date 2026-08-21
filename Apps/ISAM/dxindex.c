@@ -1,5 +1,5 @@
 #include "stdio.h"
-#include "ISAMDB.H"
+#include "isamdb.h"
 
 #define I_IDXSZ (I_MXKEYLN + 2)
 

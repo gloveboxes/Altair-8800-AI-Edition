@@ -1,7 +1,7 @@
 #include "stdio.h"
 #include "string.h"
-#include "ISAMDB.H"
-#include "SURGERY.H"
+#include "isamdb.h"
+#include "surgery.h"
 #define H_NOTES_WIDTH 48
 #define H_NOTES_EDIT_WIDTH 72
 #define SCREEN_ROWS 30

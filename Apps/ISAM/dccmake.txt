@@ -5,7 +5,7 @@
 # e.g., export DCC_DIR=$HOME/GitHub/dcc
 # Note: dccmake.txt values are literal; ${...} is not expanded here.
 
-dcc-input=doctor.c,isamdb.c
+dcc-input=doctor.c, isamdb.c
 dcc-output=DOCTOR
 dcc-floatio=false
 dcc-flongio=false
