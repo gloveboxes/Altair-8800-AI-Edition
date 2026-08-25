@@ -81,6 +81,10 @@ By default the emulator boots **CP/M 2.2** (`disks/cpm63k.dsk`). To boot
 ./altair_local/build/altair-local --cpm3
 ```
 
+The reconstructed source for the 64K Burcon CP/M 2.2 BIOS is
+[`disks/cpm64_bios.asm`](../disks/cpm64_bios.asm). It assembles with `zmac -8`,
+loads at `F900`, and reproduces every initialized BIOS byte in the disk image.
+
 `--cpm3` selects the DeRamp / Mike Douglas Altair CP/M 3 builds:
 
 ```text
