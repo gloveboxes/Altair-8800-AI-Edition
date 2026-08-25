@@ -1,0 +1,5 @@
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+altair_env.txt

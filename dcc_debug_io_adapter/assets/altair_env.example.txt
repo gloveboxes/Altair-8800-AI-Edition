@@ -1,0 +1,7 @@
+# Altair debugger I/O adapter environment.
+# Add non-secret local settings here, or use --env-file with a private file.
+# CHAT_PROVIDER=compatible
+# CHAT_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions
+# CHAT_MODEL=
+# OWM_LOCATION=
+# OWM_UNITS=metric

@@ -44,6 +44,8 @@ The project currently supports four ESP32-S3 board configurations:
 - WiFi provisioning through serial setup or captive portal fallback.
 - WebSocket browser terminal after WiFi connects.
 - Remote file system / file-transfer support through I/O ports.
+- Local full-CP/M DCC debugging with a native-file-backed session drive. The
+  generic debugger host is maintained under `$DCC_DIR/src/dcc_debug_host`.
 - Time and utility I/O ports.
 - OpenAI Chat Completions compatible I/O port for CP/M/BDS C programs.
 

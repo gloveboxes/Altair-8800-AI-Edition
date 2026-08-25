@@ -15,24 +15,41 @@
       "name": "DCC CP/M: Debug active C file",
       "type": "cppdbg",
       "request": "launch",
-      "preLaunchTask": "Build and copy active DCC C file for debugging",
+      "preLaunchTask": "Prepare active DCC file for full CP/M debugging",
       "program": "${fileDirname}/${fileBasenameNoExtension}.COM",
       "cwd": "${fileDirname}",
       "MIMode": "gdb",
-      "miDebuggerPath": "/Users/dave/GitHub/ntvcm/ntvcm",
-      "miDebuggerArgs": "--interpreter=mi",
-      "targetArchitecture": "x86",
-      "sourceFileMap": {
-        "tests": "${workspaceFolder}/tests"
+      "miDebuggerPath": "${env:DCC_DIR}/build/dcc_debug_host/dcc-debug-host",
+      "miDebuggerArgs": "--interpreter=mi --io-adapter \"${workspaceFolder}/dcc_debug_io_adapter/build/libdcc-debug-io-adapter.dylib\" --env-file \"${workspaceFolder}/dcc_debug_io_adapter/build/altair_env.txt\" --terminal-endpoint-file \"${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint\"",
+      "linux": {
+        "miDebuggerArgs": "--interpreter=mi --io-adapter \"${workspaceFolder}/dcc_debug_io_adapter/build/libdcc-debug-io-adapter.so\" --env-file \"${workspaceFolder}/dcc_debug_io_adapter/build/altair_env.txt\" --terminal-endpoint-file \"${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint\""
       },
-      "customLaunchSetupCommands": [
-        {
-          "text": "-environment-cd \"${fileDirname}\""
-        },
-        {
-          "text": "-file-exec-and-symbols \"${fileDirname}/${fileBasenameNoExtension}.COM\""
-        }
-      ],
+      "windows": {
+        "miDebuggerArgs": "--interpreter=mi --io-adapter \"${workspaceFolder}/dcc_debug_io_adapter/build/dcc-debug-io-adapter.dll\" --env-file \"${workspaceFolder}/dcc_debug_io_adapter/build/altair_env.txt\" --terminal-endpoint-file \"${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint\""
+      },
+      "targetArchitecture": "x86",
+      "stopAtEntry": false,
+      "launchCompleteCommand": "exec-continue",
+      "externalConsole": false
+    },
+    {
+      "name": "DCC CP/M: Regenerate ISAM fixtures with DOCGEN",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "Prepare ISAM DOCGEN fixture generation",
+      "program": "${workspaceFolder}/Apps/ISAM/build-docgen/DOCGEN.COM",
+      "cwd": "${workspaceFolder}/Apps/ISAM",
+      "MIMode": "gdb",
+      "miDebuggerPath": "${env:DCC_DIR}/build/dcc_debug_host/dcc-debug-host",
+      "miDebuggerArgs": "--interpreter=mi --io-adapter \"${workspaceFolder}/dcc_debug_io_adapter/build/libdcc-debug-io-adapter.dylib\" --env-file \"${workspaceFolder}/dcc_debug_io_adapter/build/altair_env.txt\" --save-fixtures \"${workspaceFolder}/Apps/ISAM/fixtures\" --terminal-endpoint-file \"${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint\"",
+      "linux": {
+        "miDebuggerArgs": "--interpreter=mi --io-adapter \"${workspaceFolder}/dcc_debug_io_adapter/build/libdcc-debug-io-adapter.so\" --env-file \"${workspaceFolder}/dcc_debug_io_adapter/build/altair_env.txt\" --save-fixtures \"${workspaceFolder}/Apps/ISAM/fixtures\" --terminal-endpoint-file \"${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint\""
+      },
+      "windows": {
+        "miDebuggerArgs": "--interpreter=mi --io-adapter \"${workspaceFolder}/dcc_debug_io_adapter/build/dcc-debug-io-adapter.dll\" --env-file \"${workspaceFolder}/dcc_debug_io_adapter/build/altair_env.txt\" --save-fixtures \"${workspaceFolder}/Apps/ISAM/fixtures\" --terminal-endpoint-file \"${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint\""
+      },
+      "targetArchitecture": "x86",
+      "stopAtEntry": false,
       "launchCompleteCommand": "exec-continue",
       "externalConsole": false
     }

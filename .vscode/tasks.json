@@ -154,25 +154,16 @@
     {
       "label": "Build active DCC C file for debugging",
       "type": "shell",
-      "command": "${env:DCC_DIR}/dccmake",
-      "args": [
-        "-g",
-        "dcc-input=${file}",
-        "dcc-output=${fileBasenameNoExtension}",
-        "dcc-include-directory=${env:DCC_DIR}",
-        "l80-command=${env:DCC_DIR}/l80c.com",
-        "dcc-runtime=${DCC_DIR}/DCCRTL.MAC",
-        "dcc-build-dir=build"
-      ],
+      "command": "if [[ -f dccmake.txt ]]; then \"${env:DCC_DIR}/dccmake\" -g; else \"${env:DCC_DIR}/dccmake\" -g \"dcc-input=${file}\" \"dcc-output=${fileBasenameNoExtension}\" \"dcc-include-directory=${env:DCC_DIR}\" \"l80-command=${env:DCC_DIR}/l80c.com\" 'dcc-runtime=${DCC_DIR}/DCCRTL.MAC' dcc-build-dir=build; fi",
       "options": {
-        "cwd": "${fileDirname}",
+        "cwd": "${fileDirname}"
       },
       "problemMatcher": []
     },
     {
       "label": "Copy debug outputs back to source folder",
       "type": "shell",
-      "command": "output_base=$(printf '%s' \"${fileBasenameNoExtension}\" | tr '[:lower:]' '[:upper:]') && cp -f \"${fileDirname}/build/${output_base}.COM\" \"${fileDirname}/${fileBasenameNoExtension}.COM\" && cp -f \"${fileDirname}/build/${output_base}.DBG\" \"${fileDirname}/${fileBasenameNoExtension}.DBG\"",
+      "command": "if [[ -f dccmake.txt ]]; then output_base=$(sed -n 's/^[[:space:]]*dcc-output[[:space:]]*=[[:space:]]*//p' dccmake.txt | tail -1); fi; if [[ -z \"${output_base}\" ]]; then output_base=\"${fileBasenameNoExtension}\"; fi; output_base=$(printf '%s' \"${output_base}\" | tr '[:lower:]' '[:upper:]') && cp -f \"${fileDirname}/build/${output_base}.COM\" \"${fileDirname}/${fileBasenameNoExtension}.COM\" && cp -f \"${fileDirname}/build/${output_base}.DBG\" \"${fileDirname}/${fileBasenameNoExtension}.DBG\"",
       "options": {
         "cwd": "${fileDirname}"
       },
@@ -184,6 +175,100 @@
       "dependsOn": [
         "Build active DCC C file for debugging",
         "Copy debug outputs back to source folder"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build DCC debugger I/O adapter",
+      "type": "shell",
+      "command": "cmake -S dcc_debug_io_adapter -B dcc_debug_io_adapter/build && cmake --build dcc_debug_io_adapter/build",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Build DCC full CP/M debugger host",
+      "type": "shell",
+      "command": "cmake -S \"${env:DCC_DIR}/src/dcc_debug_host\" -B \"${env:DCC_DIR}/build/dcc_debug_host\" && cmake --build \"${env:DCC_DIR}/build/dcc_debug_host\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Build active DCC file for full CP/M debugging",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build and copy active DCC C file for debugging",
+        "Build DCC debugger I/O adapter",
+        "Build DCC full CP/M debugger host"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Start DCC full CP/M debug terminal",
+      "type": "process",
+      "command": "python3",
+      "windows": {
+        "command": "python"
+      },
+      "args": [
+        "${env:DCC_DIR}/src/dcc_debug_host/dcc_host_terminal_bridge.py",
+        "--endpoint-file",
+        "${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "base": "$gcc",
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^DCC debug terminal starting$",
+            "endsPattern": "^DCC debug terminal ready$"
+          }
+        }
+      ],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Build ISAM DOCGEN for fixture generation",
+      "type": "shell",
+      "command": "\"${env:DCC_DIR}/dccmake\" dcc-input=docgen.c,isamdb.c dcc-output=DOCGEN dcc-build-dir=build-docgen",
+      "options": {
+        "cwd": "${workspaceFolder}/Apps/ISAM"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare active DCC file for full CP/M debugging",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build active DCC file for full CP/M debugging",
+        "Start DCC full CP/M debug terminal"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare ISAM DOCGEN fixture generation",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build ISAM DOCGEN for fixture generation",
+        "Build DCC full CP/M debugger host",
+        "Start DCC full CP/M debug terminal"
       ],
       "problemMatcher": []
     }
