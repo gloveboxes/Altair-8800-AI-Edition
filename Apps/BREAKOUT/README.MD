@@ -1,8 +1,7 @@
 # Breakout
 
-This directory contains two CP/M/Z80 implementations:
+This directory contains a CP/M/Z80 implementation for dcc:
 
-- `BREAKOUT.C`: original BDS C 1.6 source
 - `breakc11.c`: optimized C11 source for dcc
 
 The C11 version is self-contained and talks directly to the Altair timer and
