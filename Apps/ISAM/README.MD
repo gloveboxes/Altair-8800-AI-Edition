@@ -50,10 +50,30 @@ dcc-input=doctor.c,isamdb.c
 dcc-define=DXISAM_DISABLE_JOURNAL
 dcc-stack-check=true
 dcc-stack-bytes=768
+dcc-debug=lines
 ```
+
+DOCTOR uses optimized debugging because its full no-peep `-g` image does not fit
+CP/M's address space. Breakpoints, stepping, stack frames, locals, arguments,
+globals, structures, and watches remain available with release-identical code.
+A value with no recoverable machine location is shown as `<optimized out>`.
+
+The generated surgery database is stored once under `fixtures/`. When DOCTOR is
+launched through `dcc-debug-host`, every regular file in that app-adjacent
+directory is copied into synthetic B: before CP/M starts. No dccmake fixture
+list is needed. Database changes made while debugging remain in the in-memory
+B: image and do not modify the native fixture snapshot.
 
 Run `build-app.sh` to build both `DOCTOR.COM` and `DOCGEN.COM`. Each program is
 linked separately with its own stripped DCC runtime.
+
+To regenerate the canonical database, launch
+`DCC CP/M: Regenerate ISAM fixtures with DOCGEN`. Its dedicated build task
+compiles `docgen.c` with `isamdb.c`; a normal DOCGEN exit replaces this app's
+`fixtures/` directory with the generated B: files. Stopping or cancelling the
+run leaves the previous snapshot untouched. Use the ordinary
+`DCC CP/M: Debug active C file` profile for DOCTOR so application edits remain
+disposable.
 
 For a legacy compatibility build, add:
 

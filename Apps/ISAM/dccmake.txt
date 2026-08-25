@@ -13,6 +13,9 @@ dcc-define=DXISAM_DISABLE_JOURNAL
 dcc-stack-check=true
 dcc-stack-bytes=768
 dcc-peep=true
+# Full -g exceeds the CP/M address space; keep release code generation and
+# emit optimized source line/function tables instead.
+dcc-debug=lines
 dcc-build-dir=build
 dcc-runtime=${DCC_DIR}/DCCRTL.MAC
 dcc-include-directory=${DCC_DIR}
