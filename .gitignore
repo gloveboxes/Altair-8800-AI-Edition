@@ -17,6 +17,10 @@ managed_components/
 # macOS
 .DS_Store
 
+# Python
+__pycache__/
+*.pyc
+
 references/
 
 # Host runner runtime state

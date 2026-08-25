@@ -8,14 +8,15 @@
 ;
 ;----------------------------------------------------------------------
 ;
-;    This 64K variant corresponds to the BIOS loaded at 0f900h by
-;    disks/cpm63k.dsk (SHA-256 339bff156dad0d75dbea6f39b7e6de338c85dd42dd4960050ebc6cc2af918c46).
+;    This is the authoritative BIOS source for the 64K CP/M system loaded at
+;    0f900h by disks/cpm63k.dsk.
 ;    The source was recovered from the Burcon BIOS.ASM published at:
 ;    https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/
 ;    CPM%202.2/Burcon%20CPM/
 ;
-;    Assemble the Intel 8080 syntax with:
-;    zmac -8 --od build-bios disks/cpm64_bios.asm
+;    Assemble it, update disks/cpm63k.dsk, and synchronize the pristine reset
+;    images with:
+;    python3 scripts/build_cpm64_bios.py
 ;
 ;    All initialized bytes match the BIOS loaded by altair-local. DS regions
 ;    are runtime scratch storage and intentionally have no assembled contents;

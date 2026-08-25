@@ -82,8 +82,20 @@ By default the emulator boots **CP/M 2.2** (`disks/cpm63k.dsk`). To boot
 ```
 
 The reconstructed source for the 64K Burcon CP/M 2.2 BIOS is
-[`disks/cpm64_bios.asm`](../disks/cpm64_bios.asm). It assembles with `zmac -8`,
-loads at `F900`, and reproduces every initialized BIOS byte in the disk image.
+[`disks/cpm64_bios.asm`](../disks/cpm64_bios.asm). It is the authoritative BIOS,
+loads at `F900`, and is assembled into the disk image with:
+
+```sh
+python3 scripts/build_cpm64_bios.py
+```
+
+The builder requires [zmac](https://github.com/gp48k/zmac) on `PATH`; use
+`--zmac /path/to/zmac` for an uninstalled build. It invokes `zmac -8`,
+deterministically zero-fills uninitialized `DS` storage, updates the framed BIOS
+sectors and checksums in `disks/cpm63k.dsk`, and synchronizes the two system
+tracks in the archive and MCP pristine reset images while preserving their
+filesystems. Use `--check` to verify that all three tracked images match the
+assembly source without writing them.
 
 `--cpm3` selects the DeRamp / Mike Douglas Altair CP/M 3 builds:
 

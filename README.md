@@ -117,10 +117,53 @@ Apps/                 CP/M, BASIC, BDS C, and demo applications
 docs/                 Development notes
 ```
 
+## CP/M 2.2 BIOS Source and Disk Generation
+
+[`disks/cpm64_bios.asm`](disks/cpm64_bios.asm) is the authoritative Intel 8080
+source for the 64K Burcon CP/M 2.2 BIOS loaded at `F900`. Do not patch BIOS
+bytes directly in a `.dsk` file. After changing the assembly source, regenerate
+the tracked images with:
+
+```bash
+python3 scripts/build_cpm64_bios.py
+```
+
+The builder assembles the source with `zmac -8`, zero-fills uninitialized `DS`
+scratch storage, maps the resulting `F900`-`FFFF` BIOS into track 1 sectors
+16-29, and regenerates the Altair physical-sector checksums. It updates
+`disks/cpm63k.dsk`, then synchronizes the complete two-track 64K system area in
+`disk_archive/cpm63k.dsk` and
+`altair_mcp_server/pristine/cpm63k.dsk`. Filesystem bytes after the system tracks
+remain unchanged in each image.
+
+Install [zmac](https://github.com/gp48k/zmac) and put it on `PATH`, or pass an
+explicit executable:
+
+```bash
+python3 scripts/build_cpm64_bios.py --zmac /path/to/zmac
+```
+
+Run the focused tests and verify that the committed images are current:
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+python3 scripts/build_cpm64_bios.py --check
+```
+
+`--check` does not write files. It fails if the runtime disk does not match the
+assembled BIOS or either pristine reset image has different system tracks. For
+a final behavior check, boot the normal local emulator and run `DIR`:
+
+```bash
+./altair_local/build/altair-local --drive-a disks/cpm63k.dsk
+```
+
 ## Build Prerequisites
 
 - ESP-IDF v6.0.2 or newer for `esp32s3` (the build will fail with a clear error if an older ESP-IDF is sourced).
 - ESP-IDF VS Code extension, recommended for build/flash/monitor.
+- Python 3 and [zmac](https://github.com/gp48k/zmac) for regenerating the CP/M
+  2.2 BIOS disk images.
 - ESP32-S3 board matching one of the supported configs.
 - SD card formatted for the project disk layout when using CP/M disk images.
 
