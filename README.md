@@ -128,6 +128,13 @@ the tracked images with:
 python3 scripts/build_cpm64_bios.py
 ```
 
+For CP/M system regeneration, use the
+[Burcon CP/M 2.2 utilities](https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/CPM%202.2/Burcon%20CPM/):
+the archive's `MOVCPM.COM` and `SYSGEN.COM`, following its
+[Using MOVCPM guide](https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/CPM%202.2/Burcon%20CPM/Using%20MOVCPM.pdf).
+The matching `MOVCPM 64` workflow reports `SAVE 38` and preserves the Burcon
+`0xE300`/`0xEB00`/`0xF900` memory ABI used by this image.
+
 The builder assembles the source with `zmac -8`, zero-fills uninitialized `DS`
 scratch storage, maps the resulting `F900`-`FFFF` BIOS into track 1 sectors
 16-29, and regenerates the Altair physical-sector checksums. It updates

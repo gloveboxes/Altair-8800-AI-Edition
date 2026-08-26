@@ -89,6 +89,14 @@ loads at `F900`, and is assembled into the disk image with:
 python3 scripts/build_cpm64_bios.py
 ```
 
+If the CP/M system itself must be regenerated, use `MOVCPM.COM` and
+`SYSGEN.COM` from the
+[Burcon CP/M 2.2 archive](https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/CPM%202.2/Burcon%20CPM/),
+following its
+[Using MOVCPM guide](https://deramp.com/downloads/altair/software/8_inch_floppy/CPM/CPM%202.2/Burcon%20CPM/Using%20MOVCPM.pdf).
+The matching `MOVCPM 64` workflow reports `SAVE 38` and retains the memory ABI
+expected by this BIOS.
+
 The builder requires [zmac](https://github.com/gp48k/zmac) on `PATH`; use
 `--zmac /path/to/zmac` for an uninstalled build. It invokes `zmac -8`,
 deterministically zero-fills uninitialized `DS` storage, updates the framed BIOS
