@@ -1,0 +1,17 @@
+# dccmake configuration for C11 Hangman on CP/M 2.2 / Z80
+
+dcc-input=hangman.c
+dcc-output=HANGMAN
+dcc-floatio=false
+dcc-flongio=false
+dcc-peep=true
+dcc-stack-bytes=1024
+dcc-build-dir=build
+dcc-runtime=${DCC_DIR}/DCCRTL.MAC
+dcc-include-directory=${DCC_DIR}
+dcc-tool=${DCC_DIR}/dcc
+dccpeep-tool=${DCC_DIR}/dccpeep
+dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
+ntvcm-tool=${NTVCM_DIR}/ntvcm
+m80-command=${DCC_DIR}/m80c.com
+l80-command=${DCC_DIR}/l80c.com
