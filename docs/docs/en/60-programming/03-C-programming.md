@@ -1,6 +1,41 @@
-The BD Software C compiler is included on drive A: or drive B: if you have the CP/M filesystem loaded on the Micro SD card. The following text is an exert from the [BDS C Wikipedia](https://en.wikipedia.org/wiki/BDS_C){:target=_blank} article.
+# C Programming
 
-*BDS C (or the BD Software C Compiler) is a compiler for a sizeable subset of the C programming language, that ran on and generated code for the Intel 8080 and Zilog Z80 processors. It was the first C compiler for CP/M. It was written by Leor Zolman and first released in 1979 when he was 20 years old. "BDS" stands for "Brain Damage Software."*
+Altair applications can be built with either the included BDS C compiler or
+the host-based dcc compiler. **dcc is strongly recommended for new C
+applications.** BDS C remains useful when you want an authentic compiler that
+runs entirely inside CP/M.
+
+## Recommended: dcc C Compiler
+
+[dcc](https://davidly.github.io/dcc/) is an open source C compiler for CP/M 2.2
+on the Z80. It supports C89 plus CP/M-relevant C99 and C11 features. The
+compiler runs on Windows, macOS, and Linux, producing M80 assembly that is
+assembled and linked into a CP/M `.COM` application.
+
+Use the [dcc documentation](https://davidly.github.io/dcc/) for the language,
+runtime library, limitations, and debugging reference. Start with
+[Setting up the toolchain](https://davidly.github.io/dcc/00-setup-toolchain/)
+and [Building and linking](https://davidly.github.io/dcc/02-build-and-link/).
+
+Some applications use `dccmake` to compile C on the host and then install the
+generated `.COM` file into a CP/M disk image. This workflow requires:
+
+- PowerShell 7 (`pwsh`).
+- The dcc toolchain, including `dccmake`.
+- [cpmtools](https://www.moria.de/~michael/cpmtools/), with `cpmrm` and
+    `cpmcp` available on `PATH`.
+
+See [Build and Install CP/M Apps](../90-appendices/10-build-and-install-cpm-apps.md)
+for installation checks, the complete build flow, and details of the MITS
+Altair disk format used by the project.
+
+## BDS C Compiler
+
+The BD Software C compiler is included on drive A: or drive B: when the CP/M
+filesystem is loaded on the Micro SD card. It runs under CP/M and generates
+code for the Intel 8080 and Zilog Z80 processors. See the
+[BDS C Wikipedia article](https://en.wikipedia.org/wiki/BDS_C){:target=_blank}
+for its history.
 
 ## BDS C User's Guide
 

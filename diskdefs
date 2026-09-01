@@ -1,0 +1,14 @@
+# MITS Altair 88-DCDD CP/M payload, packed as 32 128-byte sectors per track.
+# The project's install helper converts its 137-byte physical sectors to and
+# from this representation before invoking cpmtools.
+diskdef altair88
+  seclen 128
+  tracks 77
+  sectrk 32
+  blocksize 2048
+  maxdir 64
+  boottrk 2
+  skewtab 0,8,16,24,2,10,18,26,4,12,20,28,6,14,22,30,1,9,17,25,3,11,19,27,5,13,21,29,7,15,23,31
+  logicalextents 1
+  os 2.2
+end

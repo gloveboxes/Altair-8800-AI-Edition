@@ -52,6 +52,8 @@ nav:
     - Front Panel Programming: "60-programming/06-Front-panel-programming.md"
   - Docker Images:
       - Build Docker Images: "40-deploy-with-docker/100-Create-Docker-images.md" 
+  - Appendices:
+    - Build and Install CP/M Apps: "90-appendices/10-build-and-install-cpm-apps.md"
   - Run on Azure Sphere:
     - Introduction: "50-azsphere/01-Introduction.md"
     - Architecture: "50-azsphere/03-architecture.md"

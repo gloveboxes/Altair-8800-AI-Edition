@@ -118,7 +118,7 @@ once it reaches 100% validation accuracy on `ATTN.IN`.
 **C11 trainer/inference (`attnc11.c`)** with the dcc toolchain:
 
 ```sh
-./build-app.sh             # -> ATTNC11.COM
+./build-app.ps1            # -> ATTNC11.COM
 ntvcm ATTNC11.COM -t       # train + self-test under the emulator
 ```
 

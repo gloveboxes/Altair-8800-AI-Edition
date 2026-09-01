@@ -16,6 +16,11 @@ authentic Altair 8800 software without leaving the editor. Several apps ship in
 both a BDS C (`.C`) and a MAC assembler (`.ASM`) implementation with identical
 behavior.
 
+!!! note "Building host-compiled apps"
+  Host-side dcc builds require PowerShell 7, `dccmake`, and cpmtools. The app
+  build script can compile a `.COM` file and install it directly into a CP/M
+  disk image. See [Build and Install CP/M Apps](../90-appendices/10-build-and-install-cpm-apps.md).
+
 !!! tip "Built-in help"
     Most apps surface their own help. Pass `-H` (or `/?`) on the command line
     for command-line apps, and press the in-app help key (often `Ctrl-W`) once
