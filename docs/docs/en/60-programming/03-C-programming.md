@@ -31,8 +31,7 @@ Altair disk format used by the project.
 
 ## BDS C Compiler
 
-The BD Software C compiler is included on drive A: or drive B: when the CP/M
-filesystem is loaded on the Micro SD card. It runs under CP/M and generates
+The BD Software C compiler is included on drive B:. It runs under CP/M and generates
 code for the Intel 8080 and Zilog Z80 processors. See the
 [BDS C Wikipedia article](https://en.wikipedia.org/wiki/BDS_C){:target=_blank}
 for its history.
