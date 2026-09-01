@@ -125,7 +125,7 @@ Usage notes:
 This repo ships an MCP server at `altair_mcp_server/` that boots the Altair 8800 emulator into CP/M 2.2 on the host and exposes four tools to MCP clients:
 
 - `build_app` — one-shot end-to-end build. Resets fresh disks, switches to `B:`, fetches `Apps/<app>/<app>.sub` over FT, runs `submit <app>`, and stops on `MCP-TOOL-COMPLETED <APP>`. Use this for the normal edit/build loop on apps with an `Apps/<APP>/<APP>.SUB` driver.
-- `run_submit` — same as `build_app` but for arbitrary submit files such as `BUILDALL.SUB`. Supports a custom `fetch` path and `marker`.
+- `run_submit` — same as `build_app` but for arbitrary CP/M submit files. Supports a custom `fetch` path and `marker`.
 - `run_cpm` — sends terminal text to the live CP/M session and returns output. Session state (disks, memory) persists between calls until `reset`. Newlines become carriage returns. Empty input advances SuperSUB one step.
 - `reset` — restores pristine disks and reboots to `A>`.
 
@@ -236,7 +236,7 @@ era a:foo.*
 a:pip a:foo.com=foo.com
 ```
 
-Apply this rule for every `a:pip a:<app>.<ext>=...` step in `BUILDALL.SUB` and any per-app submit. This was the cause of the 2026-05 buildall failure at the `BREAKOUT` step.
+Apply this rule for every `a:pip a:<app>.<ext>=...` step in a per-app or custom submit workflow.
 
 ### Submit-file authoring checklist
 

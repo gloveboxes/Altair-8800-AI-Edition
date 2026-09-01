@@ -172,11 +172,10 @@ any other label. Reference implementation: `Apps/MCPDONE/MCPDONE.ASM` (built via
    changed files in one command.
 4. Update the app's `.SUB` to call `mac` (not `asm`) and to erase the extra
    `.HEX` / `.PRN` / `.SYM` artifacts (or use a `era <app>.*` wildcard).
-5. If the app is part of `Apps/BUILDALL/BUILDALL.SUB`, update that line too.
-6. Build end-to-end in real CP/M via the `altair-cpm-build` MCP server. Use
+5. Build end-to-end in real CP/M via the `altair-cpm-build` MCP server. Use
    `build_app` with `app: "<app>"` for apps whose `.SUB` ends with
    `mcpdone <app>` (the `MCP-TOOL-COMPLETED <APP>` marker is the only success
-   signal), or `run_submit` for `BUILDALL.SUB`. Apps with no `mcpdone` marker
+  signal), or `run_submit` for a custom submit workflow. Apps with no `mcpdone` marker
    (e.g. `AUTORUN`) will assemble and produce a `.COM`, but `build_app` reports
    a timeout because there is no completion marker — that is expected, not a
    build failure.
@@ -192,7 +191,7 @@ emulator into CP/M 2.2 and exposes build tools. Drives:
 - `C:` / `D:` blank scratch disks
 
 `FT` (`ft -g ...`) serves files from this repo's `Apps/` directory. Use
-`build_app` for the normal edit/build loop and `run_submit` for `BUILDALL.SUB`.
+`build_app` for the normal edit/build loop and `run_submit` for custom submit workflows.
 Treat `MCP-TOOL-COMPLETED <NAME>` as the only success signal.
 
 The MCP console path is good for smoke tests with printable characters, Enter,

@@ -69,6 +69,22 @@ performs these steps:
 PowerShell stops at the first failed command, so the disk installation only
 runs after a successful compile, assemble, and link.
 
+## Build all dcc applications
+
+Build and install the complete dcc application cohort with:
+
+```powershell
+pwsh ./Apps/BUILDALL/build-all.ps1
+```
+
+The build-all script discovers every immediate `Apps` subdirectory containing
+`build-app.ps1`, sorts the scripts by application name, and invokes them
+serially. It stops on the first failure. Each successful wrapper installs its
+fresh `.COM` output into the default C: disk image before the next app starts.
+
+Applications without `build-app.ps1` are not part of this cohort. BDS C,
+assembly, and BASIC-only applications retain their own build workflows.
+
 ## Reusing the installer
 
 Other application build scripts can call the shared installer directly:

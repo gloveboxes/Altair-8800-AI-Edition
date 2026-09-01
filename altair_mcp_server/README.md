@@ -6,9 +6,9 @@ emulator core into CP/M 2.2 and exposes four tools:
 - `run_cpm` sends terminal input to the current CP/M session and returns output.
 - `build_app` runs the standard reset, `ft -g <app>/<app>.sub`, `submit <app>`,
   and submit-advance loop until `MCP-TOOL-COMPLETED <APP>` appears.
-- `run_submit` runs an arbitrary submit workflow such as `BUILDALL.SUB` in one
-  call, stopping at a configurable completion marker. If `fetch` is omitted it
-  tries `<submit>.sub`, then falls back to `<submit>/<submit>.sub`.
+- `run_submit` runs an arbitrary CP/M submit workflow in one call, stopping at
+    a configurable completion marker. If `fetch` is omitted it tries
+    `<submit>.sub`, then falls back to `<submit>/<submit>.sub`.
 - `reset` restores fresh disk images and reboots CP/M to `A>`.
 
 ## Architecture
@@ -170,5 +170,5 @@ for example:
 
 ```text
 BUILD RESULT: PASS (530 ms) - MCP-TOOL-COMPLETED BREAKOUT
-SUBMIT RESULT: PASS (2888 ms) - MCP-TOOL-COMPLETED BUILDALL
+SUBMIT RESULT: PASS (2888 ms) - MCP-TOOL-COMPLETED CUSTOMJOB
 ```
