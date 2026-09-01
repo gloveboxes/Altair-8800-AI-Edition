@@ -14,10 +14,10 @@ frames so controls remain responsive.
 
 Set the dcc and ntvcm repository locations, then run the build script:
 
-```sh
-export DCC_DIR="$HOME/GitHub/dcc"
-export NTVCM_DIR="$HOME/GitHub/ntvcm"
-./build-app.sh
+```powershell
+$env:DCC_DIR = "$HOME/GitHub/dcc"
+$env:NTVCM_DIR = "$HOME/GitHub/ntvcm"
+pwsh ./build-app.ps1
 ```
 
 The equivalent direct command is:
@@ -27,7 +27,8 @@ dccmake
 ```
 
 The stripped, peephole-optimized build is written to `build/BREAKOUT.COM` by
-`dccmake`; `build-app.sh` copies it to this directory and removes `build/`.
+`dccmake`; `build-app.ps1` copies it to this directory, removes `build/`, and
+installs it into the default C: disk image.
 
 ## Controls
 

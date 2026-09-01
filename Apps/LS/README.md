@@ -23,19 +23,12 @@ before returning to the CCP.
 
 ## Build
 
-```sh
-export DCC_DIR=$HOME/GitHub/dcc
-export NTVCM_DIR=$HOME/GitHub/ntvcm
-./build-app.sh
+```powershell
+$env:DCC_DIR = "$HOME/GitHub/dcc"
+$env:NTVCM_DIR = "$HOME/GitHub/ntvcm"
+pwsh ./build-app.ps1
 ```
 
 The optimized `LS.COM` is 4,096 bytes and occupies 4K on the bundled 2K-block
-disk format.
-
-## Install
-
-Transfer COM files in binary mode:
-
-```text
-FT -GB FILE://LS/LS.COM
-```
+disk format. After a successful build, the script installs it into the default
+C: disk image.

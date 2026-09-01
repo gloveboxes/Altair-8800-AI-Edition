@@ -42,11 +42,14 @@ The staged string is formatted as `%a %m/%d/%Y %H:%M:%S`. `DATE.COM` does
 
 Build the C11 version with dcc:
 
+```powershell
+$env:DCC_DIR = "$HOME/GitHub/dcc"
+$env:NTVCM_DIR = "$HOME/GitHub/ntvcm"
+pwsh ./build-app.ps1
 ```
-export DCC_DIR=$HOME/GitHub/dcc
-export NTVCM_DIR=$HOME/GitHub/ntvcm
-./build-app.sh
-```
+
+After a successful build, the script installs `DATE.COM` into the default C:
+disk image.
 
 The stripped, peephole-optimized C build is 640 bytes with the current dcc
 toolchain. Runtime stripping keeps only the small `putchar` output path; no

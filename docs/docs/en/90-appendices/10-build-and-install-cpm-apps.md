@@ -51,7 +51,8 @@ Get-Command cpmcp
 
 ## Build and install flow
 
-`Apps/ATTN/build-app.ps1` performs these steps:
+Each app's `build-app.ps1` delegates to `scripts/build-dcc-app.ps1`, which
+performs these steps:
 
 1. Reads the last active `dcc-output` assignment from `dccmake.txt` and appends
    `.COM`. For `dcc-output=ATTNC11`, the expected file is `ATTNC11.COM`.

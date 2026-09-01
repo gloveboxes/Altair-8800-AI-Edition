@@ -45,14 +45,15 @@ Examples:
 
 Set the dcc and ntvcm locations, then run:
 
-```sh
-export DCC_DIR="$HOME/GitHub/dcc"
-export NTVCM_DIR="$HOME/GitHub/ntvcm"
-./build-app.sh
+```powershell
+$env:DCC_DIR = "$HOME/GitHub/dcc"
+$env:NTVCM_DIR = "$HOME/GitHub/ntvcm"
+pwsh ./build-app.ps1
 ```
 
-The optimized build produces `SHEETS.COM`; intermediate files are removed.
-From the repository root, run it with a CP/M filename argument:
+The optimized build produces `SHEETS.COM`, removes intermediate files, and
+installs the program into the default C: disk image. From the repository root,
+run it with a CP/M filename argument:
 
 ```sh
 ntvcm Apps/SHEETS/SHEETS.COM TEST

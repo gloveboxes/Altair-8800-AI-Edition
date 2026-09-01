@@ -64,8 +64,9 @@ directory is copied into synthetic B: before CP/M starts. No dccmake fixture
 list is needed. Database changes made while debugging remain in the in-memory
 B: image and do not modify the native fixture snapshot.
 
-Run `build-app.sh` to build both `DOCTOR.COM` and `DOCGEN.COM`. Each program is
-linked separately with its own stripped DCC runtime.
+Run `pwsh ./build-app.ps1` to build both `DOCTOR.COM` and `DOCGEN.COM`. Each
+program is linked separately with its own stripped DCC runtime and installed
+into the default C: disk image.
 
 To regenerate the canonical database, launch
 `DCC CP/M: Regenerate ISAM fixtures with DOCGEN`. Its dedicated build task

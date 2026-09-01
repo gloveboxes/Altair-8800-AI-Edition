@@ -22,21 +22,14 @@ runtime is already active, so those services are not reentrant.
 
 Set the dcc checkout location and run the build script:
 
-```sh
-export DCC_DIR="$HOME/GitHub/dcc"
-./build-app.sh
+```powershell
+$env:DCC_DIR = "$HOME/GitHub/dcc"
+pwsh ./build-app.ps1
 ```
 
-This produces `DCCINT.COM`. The source uses dcc's supported `#asm` block, so
-the regular `dccmake` pipeline compiles, assembles, and links both languages as
-one module.
-
-Transfer it to the ESP32 Altair from CP/M with the FT utility on drive C:
-
-```text
-C:FT -GB DCCINT/DCCINT.COM
-DCCINT
-```
+This produces `DCCINT.COM` and installs it into the default C: disk image. The
+source uses dcc's supported `#asm` block, so the regular `dccmake` pipeline
+compiles, assembles, and links both languages as one module.
 
 The example is verified on both the ESP32 Altair and the desktop
 `altair-local` emulator, where I/O port 52 provides the periodic interrupt
