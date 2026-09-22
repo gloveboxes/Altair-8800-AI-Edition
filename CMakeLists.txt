@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # --------------------------------------------------------------------
-# Require ESP-IDF v6.0.2 or newer.
+# Require ESP-IDF v6.0.3 or newer.
 #
 # IDF_PATH must point at a valid ESP-IDF install. If it's missing or
 # the version is older than the minimum, fail fast with a clear

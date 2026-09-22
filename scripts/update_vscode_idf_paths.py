@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_IDF_VERSION = "6.0.2"
+DEFAULT_IDF_VERSION = "6.0.3"
 DEFAULT_PYTHON_ENV = "idf6.0_py3.14_env"
 
 
@@ -19,6 +19,79 @@ def repository_root() -> Path:
 
 def default_idf_path(home: Path) -> Path:
     return home / ".espressif" / f"v{DEFAULT_IDF_VERSION}" / "esp-idf"
+
+
+def is_idf_install(idf_path: Path) -> bool:
+    """Return whether *idf_path* looks like an ESP-IDF checkout."""
+    return (idf_path / "tools" / "cmake" / "project.cmake").is_file()
+
+
+def version_sort_key(idf_path: Path) -> tuple[int, int, int, str]:
+    """Sort SDKs newest-first while still handling non-release checkouts."""
+    version = idf_version_from_path(idf_path)
+    numbers = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
+    if numbers:
+        return (*map(int, numbers.groups()), str(idf_path))
+    return (0, 0, 0, str(idf_path))
+
+
+def discover_idf_installs(tools_path: Path) -> list[Path]:
+    """Find ESP-IDF installations below the normal Espressif tools root.
+
+    ``IDF_PATH`` is included as well, so an activated SDK outside that root is
+    still offered to the user.
+    """
+    candidates = []
+    environment_idf = os.environ.get("IDF_PATH")
+    if environment_idf:
+        candidates.append(Path(environment_idf).expanduser())
+    if tools_path.is_dir():
+        candidates.extend(tools_path.glob("v*/esp-idf"))
+
+    installs = {path.resolve() for path in candidates if is_idf_install(path)}
+    return sorted(installs, key=version_sort_key, reverse=True)
+
+
+def choose_idf_install(installs: list[Path]) -> Path:
+    """Interactively choose one discovered SDK, with a safe CI fallback."""
+    if not installs:
+        raise ValueError("No ESP-IDF installations were found")
+
+    environment_idf = os.environ.get("IDF_PATH")
+    preferred = Path(environment_idf).expanduser().resolve() if environment_idf else None
+    if preferred not in installs:
+        preferred = next(
+            (path for path in installs if idf_version_from_path(path) == DEFAULT_IDF_VERSION),
+            installs[0],
+        )
+    default_index = installs.index(preferred) + 1
+
+    if len(installs) == 1:
+        print(f"Discovered ESP-IDF: {installs[0]} (v{idf_version_from_path(installs[0])})")
+        return installs[0]
+
+    print("Discovered ESP-IDF installations:")
+    for index, path in enumerate(installs, start=1):
+        default_marker = " (default)" if index == default_index else ""
+        print(f"  {index}. v{idf_version_from_path(path)}  {path}{default_marker}")
+
+    # Do not make automated invocations hang waiting for input. They receive
+    # the activated SDK, the project default, or the newest discovered SDK.
+    if not sys.stdin.isatty():
+        print(f"Non-interactive input; selecting {default_index}.")
+        return preferred
+
+    while True:
+        answer = input(f"Select ESP-IDF [default {default_index}]: ").strip()
+        if not answer:
+            return preferred
+        try:
+            selection = int(answer)
+            if 1 <= selection <= len(installs):
+                return installs[selection - 1]
+        except ValueError:
+            pass
+        print(f"Enter a number from 1 to {len(installs)}.", file=sys.stderr)
 
 
 def idf_version_from_path(idf_path: Path) -> str:
@@ -156,7 +229,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--idf-path",
         type=Path,
-        default=Path(os.environ.get("IDF_PATH", default_idf_path(home))),
+        default=None,
+        help="Use this ESP-IDF installation instead of selecting a discovered one.",
     )
     parser.add_argument(
         "--tools-path",
@@ -172,8 +246,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     settings_path = args.settings.resolve()
-    idf_path = args.idf_path.expanduser().resolve()
     tools_path = args.tools_path.expanduser().resolve()
+    if args.idf_path:
+        idf_path = args.idf_path.expanduser().resolve()
+    else:
+        try:
+            idf_path = choose_idf_install(discover_idf_installs(tools_path))
+        except ValueError:
+            # Keep the old conventional location in the validation error; it
+            # gives a useful next step on a machine with no SDK installed.
+            idf_path = default_idf_path(home).resolve()
     idf_version = idf_version_from_path(idf_path)
     if args.python_env_path:
         python_env_path = args.python_env_path.expanduser().resolve()
