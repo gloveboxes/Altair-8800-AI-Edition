@@ -71,6 +71,12 @@ The Altair 8800 Z80 emulator running the [VT100 Clock/Weather app](https://githu
 
 ![FREENOVE-ESP32-S3-LCD-2.8](../img/FREENOVE-ESP32-S3-LCD-2.8.png)
 
+### Lonely Binary ESP32-S3 N16R8 Dev Board + Screw Terminal Base, FPC Port
+
+[Lonely Binary ESP32-S3 N16R8 Dev Board + Screw Terminal Base, FPC Port](https://lonelybinary.com/products/esp32-s3-n16r8-dev-board-screw-terminal-base-fpc-port){:target=_blank}
+
+![Lonely Binary ESP32-S3 N16R8 Dev Board + Screw Terminal Base, FPC Port](../img/Lonely%20Binary%20ESP32-S3%20N16R8%20Dev%20Board%20+%20Screw%20Terminal%20Base,%20FPC%20Port)
+
 ## Altair history
 
 ![The image shows the Altair 8800](../img/altair-8800-smithsonian-museum.png)
