@@ -27,9 +27,9 @@
     "sdkconfig": "ini",
     "*.h": "c"
   },
-  "idf.espIdfPath": "/home/dave/.espressif/v6.0.3/esp-idf",
-  "idf.toolsPath": "/home/dave/.espressif",
-  "idf.pythonInstallPath": "/home/dave/.espressif/python_env/idf6.0_py3.14_env/bin/python",
+  "idf.espIdfPath": "/Users/dave/.espressif/v6.0.3/esp-idf",
+  "idf.toolsPath": "/Users/dave/.espressif",
+  "idf.pythonInstallPath": "/Users/dave/.espressif/python_env/idf6.0_py3.14_env/bin/python",
   "idf.buildPath": "${workspaceFolder}/build",
   "idf.port": "/dev/tty.usbmodem1101",
   "idf.openOcdConfigs": [
@@ -38,11 +38,14 @@
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3",
     "ESP_IDF_VERSION": "6.0.3",
-    "PYTHON": "/home/dave/.espressif/python_env/idf6.0_py3.14_env/bin/python",
-    "PATH": "/home/dave/.espressif/v6.0.3/esp-idf/components/espcoredump:/home/dave/.espressif/v6.0.3/esp-idf/components/partition_table:/home/dave/.espressif/v6.0.3/esp-idf/components/app_update:/home/dave/.espressif/python_env/idf6.0_py3.14_env/bin:/home/dave/.espressif/v6.0.3/esp-idf/tools:/home/dave/.espressif/tools/xtensa-esp-elf-gdb/16.3_20250913/xtensa-esp-elf-gdb/bin:/home/dave/.espressif/tools/riscv32-esp-elf-gdb/16.3_20250913/riscv32-esp-elf-gdb/bin:/home/dave/.espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin:/home/dave/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin:/home/dave/.espressif/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin:/home/dave/.espressif/tools/esp32ulp-elf/2.38_20240113/esp32ulp-elf/bin:/home/dave/.espressif/tools/openocd-esp32/v0.12.0-esp32-20260304/openocd-esp32/bin:/home/dave/.espressif/tools/ninja/1.12.1:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    "PYTHON": "/Users/dave/.espressif/python_env/idf6.0_py3.14_env/bin/python",
+    "PATH": "/Users/dave/.espressif/v6.0.3/esp-idf/components/espcoredump:/Users/dave/.espressif/v6.0.3/esp-idf/components/partition_table:/Users/dave/.espressif/v6.0.3/esp-idf/components/app_update:/Users/dave/.espressif/python_env/idf6.0_py3.14_env/bin:/Users/dave/.espressif/v6.0.3/esp-idf/tools:/Users/dave/.espressif/tools/xtensa-esp-elf-gdb/16.3_20250913/xtensa-esp-elf-gdb/bin:/Users/dave/.espressif/tools/riscv32-esp-elf-gdb/16.3_20250913/riscv32-esp-elf-gdb/bin:/Users/dave/.espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin:/Users/dave/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin:/Users/dave/.espressif/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin:/Users/dave/.espressif/tools/esp32ulp-elf/2.38_20240113/esp32ulp-elf/bin:/Users/dave/.espressif/tools/openocd-esp32/v0.12.0-esp32-20260304/openocd-esp32/bin:/Users/dave/.espressif/tools/ninja/1.12.1:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    "IDF_PATH": "/Users/dave/.espressif/v6.0.3/esp-idf",
+    "IDF_TOOLS_PATH": "/Users/dave/.espressif",
+    "IDF_PYTHON_ENV_PATH": "/Users/dave/.espressif/python_env/idf6.0_py3.14_env"
   },
   "idf.flashType": "UART",
-  "idf.currentSetup": "/home/dave/.espressif/v6.0.3/esp-idf",
+  "idf.currentSetup": "/Users/dave/.espressif/v6.0.3/esp-idf",
   "clangd.path": "/Users/dave/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
   "clangd.arguments": [
     "--background-index",
