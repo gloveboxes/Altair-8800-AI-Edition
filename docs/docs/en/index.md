@@ -65,7 +65,11 @@ The ESP32-S3 build drives a physical Altair front panel, mirroring the address a
 
 The Altair 8800 Z80 emulator running the [VT100 Clock/Weather app](https://github.com/gloveboxes/Altair-8800-AI-Edition/tree/main/Apps/CLOCK){:target=_blank} compiled with the [dcc Z80 C Compiler](https://github.com/davidly/dcc){:target=_blank}
 
+### FREENOVE ESP32-S3-LCD-2.8
 
+[https://store.freenove.com/products/fnk0104](https://store.freenove.com/products/fnk0104){:target=_blank}
+
+![FREENOVE-ESP32-S3-LCD-2.8](../img/FREENOVE-ESP32-S3-LCD-2.8.png)
 
 ## Altair history
 
