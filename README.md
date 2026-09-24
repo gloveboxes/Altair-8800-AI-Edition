@@ -2,7 +2,7 @@
 
 Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.3 (minimum required). The project runs an Intel 8080/Altair environment with CP/M disks, physical display output, SD-card disk storage, WiFi setup, WebSocket terminal access, Bluetooth keyboard input, and an OpenAI-compatible chat I/O port for BDS C applications.
 
-> **Documentation:** The full project documentation is published at <https://gloveboxes.github.io/esp32-altair-8800/>.
+> **Documentation:** The full project documentation is published at <https://gloveboxes.github.io/Altair-8800-AI-Edition/>.
 
 ## Cloning (with submodules)
 
