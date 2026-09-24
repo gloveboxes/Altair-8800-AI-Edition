@@ -43,11 +43,11 @@
   },
   "idf.flashType": "UART",
   "idf.currentSetup": "/home/dave/.espressif/v6.0.3/esp-idf",
-  "clangd.path": "/home/dave/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
+  "clangd.path": "/Users/dave/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=/home/dave/GitHub/esp32/esp32-altair-8800/build"
+    "--compile-commands-dir=/Users/dave/GitHub/esp32/esp32-altair-8800/build"
   ],
   "cmake.configureOnOpen": false,
   "cmake.configureOnEdit": false,

@@ -57,11 +57,19 @@ The ESP32-S3 build drives a physical Altair front panel, mirroring the address a
 
 ![The gif shows the ESP32-S3 driven Altair front panel in action](../img/altair-front-panel.gif)
 
-> More images of the ESP32-S3 VT100 terminal and the ESP32-S3 TFT LCD front panel are coming soon.
+### Waveshare ESP32-S3-Touch-LCD-3.5B
+
+[Note, this project specifically supports the Waveshare ESP32-S3-Touch-LCD-3.5B version with the AXS15231B display driver. ](https://docs.waveshare.com/ESP32-S3-Touch-LCD-3.5B){:target=_blank}
+
+![Waveshare ESP32 S3 3.5 Display](../img/waveshare-3.5-display.png)
+
+The Altair 8800 Z80 emulator running the [VT100 Clock/Weather app](https://github.com/gloveboxes/Altair-8800-AI-Edition/tree/main/Apps/CLOCK){:target=_blank} compiled with the [dcc Z80 C Compiler](https://github.com/davidly/dcc){:target=_blank}
+
+
 
 ## Altair history
 
-![The image shows the Altair 8800](./img/altair-8800-smithsonian-museum.png)
+![The image shows the Altair 8800](../img/altair-8800-smithsonian-museum.png)
 
 [Altair 8800 image attribution - Smithsonian Museum](https://commons.wikimedia.org/wiki/File:Altair_8800,_Smithsonian_Museum.jpg){:target=_blank}
 
