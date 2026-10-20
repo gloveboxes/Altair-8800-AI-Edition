@@ -4,14 +4,11 @@
 ; Usage:
 ;   SLEEP n        wait n seconds (n is decimal, 0..65535)
 ;
-; The delay is timed with the host "seconds timer" exposed on I/O port 30
-; (see altair_local/PortDrivers/time_io.c):
+; The delay uses dedicated timer port 23, timer ID 3 (seconds).
+; OUT 23,19 then the duration starts it; OUT 23,35 selects running status.
 ;
-;   OUT 30,n   arms the timer to expire n seconds from now (n is a byte)
-;   IN  30     returns 1 while the timer is still running, 0 once it expires
-;
-; Because the port only accepts a one-byte count, requests longer than 255
-; seconds are serviced in chunks of up to 255 seconds each.
+; Timer 3 retains its 0..255-second range despite the u32 wire duration.
+; Longer waits are serviced in chunks of up to 255 seconds each.
 ;
 ; While waiting we poll the console with BDOS direct console I/O (function 6,
 ; E=0FFh) so a keypress is detected without blocking. ESC (1Bh) or Ctrl-C
@@ -30,8 +27,7 @@ FDCONIO EQU     6               ; BDOS func 6: direct console I/O
 NOCHAR  EQU     0FFH            ; func 6 input request (E=0FFh)
 TAILLN  EQU     0080H           ; command tail length byte
 TAILCH  EQU     0081H           ; first character of the command tail
-SECPORT EQU     30              ; host seconds-timer port (decimal)
-MAXCHK  EQU     255             ; largest count one OUT can arm
+MAXCHK  EQU     255             ; largest timer-3 START duration
 SPACE   EQU     ' '
 ESCKEY  EQU     1BH             ; ESC
 CTRLC   EQU     03H             ; Ctrl-C
@@ -111,12 +107,36 @@ SLPLP:  MOV     A,H             ; remaining == 0 ?
         JMP     HAVECH
 BIGCHK: MVI     A,MAXCHK
 HAVECH: MOV     B,A             ; B = chunk count (saved for subtraction)
-        OUT     SECPORT         ; arm the host seconds timer with A
+        MVI     A,19
+        OUT     23
+        MOV     A,B
+        OUT     23
+        MVI     A,35
+        OUT     23
+        XRA     A
+        STA     WTHI
+        STA     WTLO
+        STA     WTLO+1
 
-WAITLP: IN      SECPORT         ; 0 = expired, 1 = still counting
+; At most 2^24 status reads per chunk, not an infinite timer wait.
+WAITLP: IN      23
         ORA     A
         JZ      CHKDON
+        CPI     1
+        JNZ     SVFAIL
         CALL    CKKEY           ; honour ESC / Ctrl-C while waiting
+        PUSH    H
+        LHLD    WTLO
+        DCX     H
+        SHLD    WTLO
+        MOV     A,H
+        ORA     L
+        POP     H
+        JNZ     WAITLP
+        LDA     WTHI
+        DCR     A
+        STA     WTHI
+        JZ      SVFAIL
         JMP     WAITLP
 
 CHKDON: MOV     A,L             ; remaining -= chunk
@@ -154,5 +174,16 @@ NOARG:  PRINT   USAGE
 
 USAGE:  DB      'Usage: SLEEP n   (seconds; ESC or ^C cancels)',0DH,0AH,'$'
 CANMSG: DB      0DH,0AH,'SLEEP cancelled',0DH,0AH,'$'
+WTLO:   DW      0
+WTHI:   DB      0
+
+SVFAIL: IN      23
+        XRA     A
+        OUT     23
+        LXI     D,SVMSG
+        MVI     C,9
+        CALL    5
+        JMP     0
+SVMSG:  DB      13,10,'Timer error/timeout; interface reset',13,10,'$'
 
         END

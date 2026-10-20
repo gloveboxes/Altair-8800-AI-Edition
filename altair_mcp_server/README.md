@@ -32,14 +32,14 @@ flowchart TB
         cpu["Intel 8080 CPU"]
         term["Terminal I/O"]
         diskio["Altair disk I/O"]
-        ftio["FT host-file I/O<br/>ports 60/61"]
+        ftio["FT host-file I/O<br/>ports 21/22"]
     end
 
     subgraph cpm["CP/M 2.2 guest"]
         direction LR
         shell["CCP prompt"]
         supersub["SuperSUB"]
-        bdsc["BDS-C / ASM / CLINK / FT / MCPDONE"]
+        bdsc["MAC / LOAD / FT / MCPDONE"]
     end
 
     subgraph host["Host workspace"]
@@ -139,20 +139,31 @@ The executable also accepts explicit disk paths:
 ./build/altair-cpm-mcp disks/cpm63k.dsk disks/bdsc-v1.60.dsk disks/blank.dsk
 ```
 
-For `reset`, the executable restores from pristine source images. By default
-those are `../Disks/cpm63k.dsk`, `../Disks/bdsc-v1.60.dsk`, and
-`../Disks/blank.dsk`. You can override them after the working disk paths:
+For `reset`, the executable restores from this folder's `pristine/` images.
+The tools image contains the FT client for ports 21/22; historical
+`disk_archive/` images are not suitable bootstrap replacements. Override
+the pristine paths after the four working disk paths:
 
 ```sh
 ./build/altair-cpm-mcp \
-  disks/cpm63k.dsk disks/bdsc-v1.60.dsk disks/blank.dsk \
-  ../Disks/cpm63k.dsk ../Disks/bdsc-v1.60.dsk ../Disks/blank.dsk
+  disks/cpm63k.dsk disks/bdsc-v1.60.dsk disks/blank.dsk disks/blank_d.dsk \
+  pristine/cpm63k.dsk pristine/bdsc-v1.60.dsk pristine/blank.dsk pristine/blank.dsk \
+  ../Apps
 ```
 
 The MCP tool input is terminal text. Newlines are sent to CP/M as carriage
 returns, so multi-command input such as `b:\ndir` works.
 
-`MCPDONE.COM` is deployed on the BDS-C tools disk. Submit files can use it as
+The server uses the same shared-service worker/router as local, Docker and
+ESP32 builds. Emulator reset joins the old worker before resetting its drivers,
+then starts a fresh worker. Terminal/disk CPU routing remains unchanged.
+
+Current C apps are built on the host with dcc; their former BDS workflows and
+SDK have been removed. The retained submit workflows build assembly apps.
+See [shared-client tests](../Apps/COMMON/README.md) for the native client and
+real MBASIC/MCP regression suite. It uses private disk copies.
+
+`MCPDONE.COM` is deployed on the CP/M tools disk. Submit files can use it as
 their final command:
 
 ```text

@@ -1,7 +1,7 @@
 /*
  * DCCINT.C - mixed dcc C and Z80 assembly interrupt example.
  *
- * The Altair timer on port 52 raises maskable interrupts.  IM 1 enters at
+ * The Altair timer on port 7 raises maskable interrupts.  IM 1 enters at
  * 0038H, where the assembly wrapper preserves the interrupted context and
  * calls irq_tick().  The C handler only updates memory; it must not call BDOS
  * or any non-reentrant runtime function.
@@ -30,7 +30,7 @@ void irq_tick(void)
         public  _irq_remove
 
 INTVEC  equ     0038h
-INTPORT equ     52
+INTPORT equ     7
 
 ; Save CP/M's vector and bind the C state passed through the normal dcc ABI:
 ; IX+4/5 = counter pointer, IX+6/7 = handler function pointer.

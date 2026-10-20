@@ -905,3 +905,14 @@ uint8_t weather_input(uint8_t port)
     }
     return 0;
 }
+
+bool weather_io_has_data(void)
+{
+    if (!s_initialized || !s_state)
+        return false;
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
+        return false;
+    bool available = s_state->last_fetch_us > 0;
+    xSemaphoreGive(s_mutex);
+    return available;
+}

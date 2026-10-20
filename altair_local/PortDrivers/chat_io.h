@@ -20,6 +20,8 @@ void chat_io_prompt_api_key(void);
 void chat_io_set_network_available(bool available);
 size_t chat_output(int port, uint8_t data, char* buffer, size_t buffer_length);
 uint8_t chat_input(uint8_t port);
+bool chat_io_available(void);
+uint8_t chat_service_submit(void);
 void chat_client_poll(void);
 
 #endif

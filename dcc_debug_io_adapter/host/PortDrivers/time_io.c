@@ -61,6 +61,11 @@ static inline uint64_t get_elapsed_ms(void)
     return now_ms - emulator_start_ms;
 }
 
+uint64_t time_elapsed_ms(void)
+{
+    return get_elapsed_ms();
+}
+
 /* Build a printable date/time string from the host local clock in the same
  * field order as the CP/M 3 DATE command, e.g. "Sun 05/31/2026 17:13:00".
  * Unlike the vintage DATE.COM, this uses a full four-digit year so dates from

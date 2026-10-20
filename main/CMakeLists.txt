@@ -14,6 +14,7 @@ set(app_sources
     "websocket_server.c"
     "../captive_portal/captive_portal.c"
     "../port_drivers/io_ports.c"
+    "../port_drivers/io_service.c"
     "../port_drivers/json_scan.c"
     "../port_drivers/chat_io.c"
     "../port_drivers/environment_io.c"
@@ -47,6 +48,7 @@ list(APPEND app_sources
 idf_component_register(SRCS ${app_sources}
                        INCLUDE_DIRS "." 
                                     ".."
+                                    "../port_drivers"
                                     "../front_panel"
                                     "../altair8800"
                                     "../altair8800/x80_compat"

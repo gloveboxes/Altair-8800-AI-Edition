@@ -80,6 +80,7 @@ static size_t s_request_len = 0;
 static int8_t s_status = ENV_STATUS_OK;
 static char s_file_path[ENV_PATH_SIZE] = "altair_env.txt";
 static bool s_initialized = false;
+static bool response_overflow;
 static time_t s_start_time = 0;
 
 /* Workspace scratch buffers (avoid large stack frames). */
@@ -246,6 +247,7 @@ static void env_append_byte(uint8_t data)
 
 static size_t env_execute_command(uint8_t command, char *buffer, size_t buffer_length)
 {
+    response_overflow = false;
     const char *second;
     size_t len = 0;
     int rc = ENV_STATUS_OK;
@@ -310,7 +312,7 @@ static size_t env_execute_command(uint8_t command, char *buffer, size_t buffer_l
         break;
     }
 
-    s_status = (int8_t)rc;
+    s_status = (int8_t)(response_overflow ? ENV_STATUS_FULL : rc);
     if (command != ENV_COMMAND_EXECUTE)
     {
         env_reset_request();
@@ -564,6 +566,8 @@ static size_t env_append_text(char *buffer, size_t buffer_length, size_t pos, co
 {
     if (!buffer || buffer_length == 0 || pos >= buffer_length - 1 || !text)
     {
+        if (text && *text)
+            response_overflow = true;
         return pos;
     }
 
@@ -572,6 +576,8 @@ static size_t env_append_text(char *buffer, size_t buffer_length, size_t pos, co
         buffer[pos++] = *text++;
     }
     buffer[pos] = '\0';
+    if (*text)
+        response_overflow = true;
     return pos;
 }
 
@@ -596,6 +602,7 @@ static size_t env_format_response(char *buffer, size_t buffer_length, const char
     }
     if ((size_t)written >= buffer_length)
     {
+        response_overflow = true;
         return buffer_length - 1;
     }
     return (size_t)written;

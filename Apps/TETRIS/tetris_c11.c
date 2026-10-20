@@ -10,10 +10,7 @@
  * is accumulated in a static buffer and flushed once per visible update.
  */
 
-#define TIMER_HIGH_PORT 28
-#define TIMER_LOW_PORT 29
-#define RANDOM_COMMAND_PORT 45
-#define RANDOM_DATA_PORT 200
+#include "../COMMON/DXSVC.H"
 #define FRAME_MILLISECONDS 25
 
 #define BOARD_WIDTH 10
@@ -35,8 +32,6 @@
 #define ROTATION_COUNT 4
 
 extern int bdos(int function, int value);
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned value);
 
 enum piece_type {
     PIECE_NONE,
@@ -199,23 +194,17 @@ static int read_key(void)
 
 static void start_frame_timer(void)
 {
-    outp(TIMER_HIGH_PORT, FRAME_MILLISECONDS >> 8);
-    outp(TIMER_LOW_PORT, FRAME_MILLISECONDS & 0xff);
+    svc_start_timer(2, FRAME_MILLISECONDS);
 }
 
 static bool frame_timer_active(void)
 {
-    return inp(TIMER_LOW_PORT) != 0;
+    return svc_timer_active(2) != 0;
 }
 
 static uint16_t random_word(void)
 {
-    uint16_t value;
-
-    outp(RANDOM_COMMAND_PORT, 1);
-    value = (uint8_t)inp(RANDOM_DATA_PORT);
-    value |= (uint16_t)((uint8_t)inp(RANDOM_DATA_PORT)) << 8;
-    return value;
+    return svc_random_u16();
 }
 
 static uint8_t piece_background(enum piece_type piece)

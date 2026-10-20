@@ -161,13 +161,15 @@ service interval. The Z80's one-instruction delay after `EI` also applies.
 
 ## Configure the timer provider from CP/M
 
-The included timer provider is controlled through I/O port 52:
+The included timer provider is controlled through I/O port 7 (`0x07`).
+This replaces legacy port 52, which aliases the fixed disk-data register on
+the ROMless hardware. See the [service migration reference](01-ROMless-IO-Mapping.md).
 
 | Operation | Description |
 |-----------|-------------|
-| `OUT 52,0` | Disable the timer and clear pending requests |
-| `OUT 52,n` | Generate `n` interrupts per second, where `1 <= n <= 255` |
-| `IN 52` | Return the configured rate, or zero when disabled |
+| `OUT 7,0` | Disable the timer and clear pending requests |
+| `OUT 7,n` | Generate `n` interrupts per second, where `1 <= n <= 255` |
+| `IN 7` | Return the configured rate, or zero when disabled |
 
 The timer supplies `FFH` on the interrupt data bus. The ESP32 implementation
 uses `esp_timer`; the local emulator uses its monotonic host clock.
@@ -188,7 +190,7 @@ This abbreviated MAC assembly example installs a mode 1 handler and sleeps
 until each timer interrupt arrives:
 
 ```asm
-INTPRT  EQU     52
+INTPRT  EQU     7
 INTVEC  EQU     0038H
 
         ORG     0100H

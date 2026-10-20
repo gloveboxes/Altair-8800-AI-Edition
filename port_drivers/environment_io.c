@@ -63,6 +63,7 @@ typedef struct
 } environment_state_t;
 
 static environment_state_t *s_env = NULL;
+static bool response_overflow;
 static size_t s_request_len = 0;
 static int8_t s_status = ENV_STATUS_OK;
 static bool s_initialized = false;
@@ -207,6 +208,7 @@ static void environment_append_byte(uint8_t data)
 
 static size_t environment_execute_command(uint8_t command, char *buffer, size_t buffer_length)
 {
+    response_overflow = false;
     char *key = s_env->key;
     char *value = s_env->value;
     const char *second;
@@ -285,7 +287,7 @@ static size_t environment_execute_command(uint8_t command, char *buffer, size_t 
         break;
     }
 
-    s_status = (int8_t)rc;
+    s_status = (int8_t)(response_overflow ? ENV_STATUS_FULL : rc);
     if (command != ENV_COMMAND_EXECUTE)
     {
         environment_reset_request();
@@ -583,6 +585,8 @@ static size_t environment_append_text(char *buffer, size_t buffer_length, size_t
 {
     if (!buffer || buffer_length == 0 || pos >= buffer_length - 1 || !text)
     {
+        if (text && *text)
+            response_overflow = true;
         return pos;
     }
 
@@ -591,6 +595,8 @@ static size_t environment_append_text(char *buffer, size_t buffer_length, size_t
         buffer[pos++] = *text++;
     }
     buffer[pos] = '\0';
+    if (*text)
+        response_overflow = true;
     return pos;
 }
 
@@ -614,6 +620,7 @@ static size_t environment_format_response(char *buffer, size_t buffer_length, co
     }
     if ((size_t)written >= buffer_length)
     {
+        response_overflow = true;
         return buffer_length - 1;
     }
     return (size_t)written;

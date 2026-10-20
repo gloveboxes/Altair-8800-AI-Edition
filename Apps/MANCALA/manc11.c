@@ -94,8 +94,7 @@ enum escape_state {
 };
 
 extern int bdos(int func, int val);
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned val);
+#include "../COMMON/DXSVC.H"
 
 /* Single console buffer, installed once at startup. */
 static char console_buffer[CONSOLE_BUFFER_SIZE];
@@ -208,15 +207,10 @@ static int read_key(void)
     return bdos(6, 0xFF) & 0xFF;
 }
 
-/* Read a 16-bit random number from the emulator RNG port. */
+/* Read a 16-bit random number from the utility service. */
 static uint16_t random_word(void)
 {
-    uint16_t value;
-
-    outp(45, 1);
-    value = (uint16_t)inp(200);
-    value |= (uint16_t)(inp(200) << 8);
-    return value;
+    return svc_random_u16();
 }
 
 /* --- forward declarations -------------------------------------------- */

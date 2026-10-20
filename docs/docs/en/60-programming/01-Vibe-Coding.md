@@ -18,18 +18,23 @@ The Altair 8800 is a vintage microcomputer that has a unique architecture and pr
 4. **Craft Prompts**: Write clear and specific prompts to guide the LLM in generating relevant code snippets.
 5. **Iterate and Refine**: Use the generated code as a starting point, test it on the Altair, and refine it as needed.
 
-## Altair Emulator IO Port SDK
+## Shared service client
 
-Sample code in the **AppSamples/sdk** folder demonstrates how to use the IO port features via a C language SDK. For details, see the [SDK samples](https://github.com/gloveboxes/Altair-8800-Emulator/tree/main/src/AppSamples/sdk){:target=_blank}. These examples are also helpful for LLM-assisted development and [Vibe-Engineering](01-Vibe-Coding.md) for C, Microsoft Basic, and Assembly programming.
+Current dcc applications share
+[Apps/COMMON/DXSVC.C](https://github.com/gloveboxes/Altair-8800-AI-Edition/blob/main/Apps/COMMON/DXSVC.C)
+and its header. Use the [service ABI](01-ROMless-IO-Mapping.md) and
+[C programming guide](03-C-programming.md) when generating new code.
+The legacy BDS C SDK and compiler archives have been removed.
 
 ## Leverage existing code samples
 
-Point the LLM to existing code samples in the [AppSamples](https://github.com/gloveboxes/Altair-8800-Emulator/tree/main/src/AppSamples){:target=_blank} folder. These samples can provide valuable context and inspiration for your prompts.
+Point the LLM to current [Apps](https://github.com/gloveboxes/Altair-8800-AI-Edition/tree/main/Apps)
+sources and their dcc build configurations:
 
-- sdk/dxtimer.c
-- breakout.c
-- tetris.c
-- onboard.c
+- COMMON/DXSVC.C
+- BREAKOUT/breakc11.c
+- TETRIS/tetris_c11.c
+- CLOCK/CLOCK.C
 
 Are great examples how to use the IO ports and other features such as timers and VT100 terminal control characters of the Altair 8800 for Vibe-Engineering.
 

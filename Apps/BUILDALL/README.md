@@ -16,4 +16,6 @@ app wrapper compiles through `dccmake` and installs its fresh output through
 `BUILD ALL PASS` only after every app succeeds.
 
 Apps without `build-app.ps1` are not part of the dcc cohort. This includes
-applications that currently have only BDS C, MAC, ASM, or BASIC build sources.
+applications that have only MAC, ASM or BASIC build sources. Legacy BDS C
+applications and their supporting SDK/compiler archives have been removed.
+Current service-using C apps share `Apps/COMMON/DXSVC.C`.

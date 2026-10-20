@@ -2,8 +2,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "io_ports.h"
 
-#define INTERRUPT_TIMER_PORT 52
+#define INTERRUPT_TIMER_PORT IO_INTERRUPT_TIMER_PORT
 
 void interrupt_timer_init(void);
 void interrupt_timer_output(uint8_t rate_hz);

@@ -402,6 +402,15 @@ int main(int argc, char **argv)
 
     time_reset();
     altair_reset();
+    if (!io_ports_init())
+    {
+        host_disk_close();
+        if (g_web_mode)
+            web_terminal_stop();
+        else
+            host_terminal_restore();
+        return 1;
+    }
 
     if (g_sense_hat_requested || env_flag_enabled("ALTAIR_SENSE_HAT"))
     {
@@ -465,6 +474,7 @@ int main(int argc, char **argv)
         }
     }
 
+    io_ports_shutdown();
     host_disk_close();
     sense_hat_panel_shutdown();
     if (g_web_mode)

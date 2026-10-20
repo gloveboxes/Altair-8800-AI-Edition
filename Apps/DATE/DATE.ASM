@@ -1,52 +1,148 @@
-; ============================================================================
-; DATE - Display the host machine's date and time, DATE-style
-; ============================================================================
-; Works on CP/M 2.2 and CP/M 3. The Altair emulator has no real-time clock,
-; so the built-in DATE command (CP/M 3 only) shows a frozen, and for years
-; >= 2000 corrupted, value. This DATE.COM instead asks the host for the
-; current local date/time and prints it with a correct four-digit year.
-; Because CP/M runs a transient .COM in preference to a built-in command,
-; this DATE.COM also shadows the buggy CP/M 3 built-in DATE.
-;
-; Emulator I/O ports (see altair_local/PortDrivers/time_io.c,
-; format_now_string):
-;
-;   OUT 31  - capture the host's local date/time and stage a printable,
-;             NUL-terminated string in the port buffer, formatted as:
-;                 "Sun 05/31/2026 17:13:00"   (%a %m/%d/%Y %H:%M:%S)
-;   IN  200 - read the staged string back one byte at a time; a 0 byte
-;             marks the end of the string.
-;
-; Build (CP/M):  asm date / load date  ->  DATE.COM
-;
-; ASM.COM constraints: symbols unique in first 6 chars; ports in decimal.
-; ============================================================================
-
-BDOS    EQU     5              ; CP/M BDOS entry point
-FPRCHR  EQU     2              ; BDOS func 2: console output (char in E)
-CLKCAP  EQU     31             ; OUT port: capture host clock into buffer
-CLKRD   EQU     200            ; IN  port: read next buffer byte
-
-        ORG     0100H          ; CP/M transient program area
-
-START:  MVI     A,0            ; value is irrelevant; OUT triggers capture
-        OUT     CLKCAP         ; host stages the printable date/time string
-
-PRLOOP: IN      CLKRD          ; A = next character of the string
-        ORA     A              ; zero byte?
-        JZ      DONE           ; yes -> end of string
-        MOV     E,A            ; character to print -> E
-        MVI     C,FPRCHR       ; BDOS console output
-        PUSH    PSW            ; preserve A across the BDOS call
-        CALL    BDOS
-        POP     PSW
+; DATE - local DATE-format clock, grouped service ABI.
+; Build: ASM DATE / LOAD DATE. Terminal and disk I/O are unchanged.
+        ORG     100H
+START:  MVI     A,32
+        LXI     H,REQ
+        LXI     B,1
+        CALL    SVREQ
+        CALL    SVTEXT
+        LHLD    SVLEN
+        MOV     B,H
+        MOV     C,L
+        LXI     H,SVBUF
+PRLOOP: MOV     A,B
+        ORA     C
+        JZ      DONE
+        MOV     E,M
+        PUSH    B
+        PUSH    H
+        MVI     C,2
+        CALL    5
+        POP     H
+        POP     B
+        INX     H
+        DCX     B
         JMP     PRLOOP
+DONE:   LXI     D,CRLF
+        MVI     C,9
+        CALL    5
+        RET
+REQ:    DB      4
+CRLF:   DB      13,10,'$'
 
-DONE:   MVI     E,0DH          ; carriage return
-        MVI     C,FPRCHR
-        CALL    BDOS
-        MVI     E,0AH          ; line feed
-        MVI     C,FPRCHR
-        CALL    BDOS
-        RET                    ; return to CCP
+; Standalone transport (ASM.COM has no source includes).
+; A=group, BC=length, HL=raw payload. Preserves BC/DE/HL.
+; Result SVTYP=1 COMPLETE, 2 response; SVLEN and SVBUF are counted.
+; Bounded polling, full frame drain, RESET/error/warm boot on failure.
+SVREQ:  PUSH    B
+        PUSH    D
+        PUSH    H
+        PUSH    PSW
+        IN      2
+        ORA     A
+        JNZ     SVBAD
+        POP     PSW
+        OUT     2
+        MOV     A,C
+        OUT     3
+        MOV     A,B
+        OUT     3
+SVSEND: MOV     A,B
+        ORA     C
+        JZ      SVPOLL
+        MOV     A,M
+        OUT     3
+        INX     H
+        DCX     B
+        JMP     SVSEND
+SVPOLL: MVI     B,32
+        LXI     D,0
+SVWAIT: IN      2
+        CPI     3
+        JZ      SVTICK
+        CPI     4
+        JNZ     SVSTAT
+SVTICK: DCX     D
+        MOV     A,D
+        ORA     E
+        JNZ     SVWAIT
+        DCR     B
+        JNZ     SVWAIT
+        JMP     SVFAIL
+SVSTAT: STA     SVTYP
+        CPI     1
+        JNZ     SVRESP
+        XRA     A
+        OUT     2
+        LXI     H,0
+        SHLD    SVLEN
+        JMP     SVRET
+SVRESP: CPI     2
+        JZ      SVREAD
+        CPI     255
+        JNZ     SVFAIL
+SVREAD: IN      4
+        MOV     C,A
+        IN      4
+        MOV     B,A
+        CPI     8
+        JC      SVSIZE
+        JNZ     SVFAIL
+        MOV     A,C
+        ORA     A
+        JNZ     SVFAIL
+SVSIZE: MOV     H,B
+        MOV     L,C
+        SHLD    SVLEN
+        LXI     H,SVBUF
+SVLOOP: MOV     A,B
+        ORA     C
+        JZ      SVDONE
+        IN      4
+        MOV     M,A
+        INX     H
+        DCX     B
+        JMP     SVLOOP
+SVDONE: MVI     M,0             ; local convenience, never wire termination
+        LDA     SVTYP
+        CPI     255
+        JZ      SVFAIL
+        IN      2
+        ORA     A
+        JNZ     SVFAIL
+SVRET:  POP     H
+        POP     D
+        POP     B
+        RET
+SVBAD:  CPI     255
+        JZ      SVSTAT         ; drain pending error before RESET
+SVFAIL: MVI     A,1
+        OUT     2
+        LXI     D,SVMSG
+        MVI     C,9
+        CALL    5
+        JMP     0
+SVNONE: LDA     SVTYP
+        CPI     1
+        JNZ     SVFAIL
+        RET
+SVTEXT: LDA     SVTYP
+        CPI     2
+        JNZ     SVFAIL
+        RET
+SVFOUR: CALL    SVTEXT
+        PUSH    H
+        LHLD    SVLEN
+        MOV     A,H
+        ORA     A
+        JNZ     SVFAIL
+        MOV     A,L
+        CPI     4
+        JNZ     SVFAIL
+        POP     H
+        RET
+SVMSG:  DB      13,10,'Service error/timeout; transport reset',13,10,'$'
+SVTYP:  DB      0
+SVLEN:  DW      0
+SVBUF:  DS      2049
         END

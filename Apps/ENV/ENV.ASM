@@ -1,8 +1,8 @@
 ; ============================================================================
 ; ENV - Environment Variable Manager for CP/M (MAC assembly port)
 ; ============================================================================
-; Talks directly to the ESP32/host environment I/O driver on ports 71, 72,
-; and 200. With a command tail, ENV forwards the tail to the host CLI parser.
+; Uses framed service group 48 on ports 2/3/4. With a command tail, ENV
+; forwards the tail to the host CLI parser. Errors reset and exit explicitly.
 ; With no command tail, it opens an interactive editor that preserves mixed
 ; case values by reading characters through BDOS function 1.
 ;
@@ -24,11 +24,6 @@ KEYSZ   EQU     17              ; 16 chars plus NUL
 VALSZ   EQU     256             ; 255 chars plus NUL
 LINSZ   EQU     144             ; command line buffer
 PGSIZ   EQU     15              ; rows per page
-
-ECPRT   EQU     71              ; ENV command/status port
-EDPRT   EQU     72              ; ENV request data port
-ERPRT   EQU     200             ; shared response port
-RBPRT   EQU     49              ; guarded ESP32 reboot port
 
 ECRST   EQU     0               ; reset request buffer
 ECINI   EQU     1               ; initialize ENV storage
@@ -94,76 +89,135 @@ HA0:    XRA     A
         STA     ARGLN
         RET
 
-; -- ENV port wrappers ------------------------------------------------------
-EINIT:  MVI     A,ECRST
-        OUT     ECPRT
-        MVI     A,ECINI
-        OUT     ECPRT
-        IN      ECPRT
-        RET
+; -- ENV framed requests: no NUL bytes are sent as text terminators ----------
+EINIT:  MVI     A,ECINI
+        STA     ESBUF
+        LXI     B,1
+        JMP     ENONE
 
-EBEG:   MVI     A,ECRST
-        OUT     ECPRT
-        RET
-
-ESSTR:  MOV     A,M             ; HL -> NUL-terminated string
-        OUT     EDPRT
+; Copy/validate HL=key to ESBUF+2; return HL=end, BC=request length.
+EKEY:   LXI     D,ESBUF+2
+        MVI     C,0
+EK1:    MOV     A,M
         ORA     A
-        RZ
+        JZ      EK2
+        MOV     B,A
+        MOV     A,C
+        CPI     16
+        JNC     SVFAIL
+        MOV     A,B
+        STAX    D
         INX     H
-        JMP     ESSTR
-
-ESVAL:  MVI     B,255           ; HL -> value, capped at 255 chars
-ESV1:   MOV     A,M
+        INX     D
+        INR     C
+        JMP     EK1
+EK2:    MOV     A,C
         ORA     A
-        JZ      ESV0
-        OUT     EDPRT
-        INX     H
-        DCR     B
-        JNZ     ESV1
-ESV0:   XRA     A
-        OUT     EDPRT
+        JZ      SVFAIL
+        STA     ESBUF+1
+        INR     C
+        INR     C
+        MVI     B,0
+        XCHG
         RET
 
-ESET:   PUSH    D               ; HL=key, DE=value, returns status in A
-        CALL    EBEG
-        CALL    ESSTR
-        POP     H
-        CALL    ESVAL
+ESET:   PUSH    D               ; HL=key, DE=value
         MVI     A,ECSET
-        OUT     ECPRT
-        IN      ECPRT
+        STA     ESBUF
+        CALL    EKEY
+        SHLD    EWPTR          ; leave room for value length LE16
+        INX     H
+        INX     H
+        POP     D
+        PUSH    B
+        MVI     B,0
+ESV1:   LDAX    D
+        ORA     A
+        JZ      ESV2
+        MOV     C,A
+        MOV     A,B
+        CPI     255
+        JZ      SVFAIL         ; reject, never silently truncate
+        MOV     M,C
+        INX     H
+        INX     D
+        INR     B
+        JMP     ESV1
+ESV2:   LHLD    EWPTR
+        MOV     M,B
+        INX     H
+        MVI     M,0
+        MOV     E,B
+        MVI     D,0
+        POP     H              ; request length through key
+        DAD     D
+        INX     H
+        INX     H
+        MOV     B,H
+        MOV     C,L
+        JMP     ENONE
+
+EDELK:  MVI     A,ECDEL
+        STA     ESBUF
+        CALL    EKEY
+ENONE:  LXI     H,ESBUF
+        MVI     A,48
+        CALL    SVREQ
+        CALL    SVNONE
+        XRA     A
         RET
 
-EDELK:  CALL    EBEG            ; HL=key, returns status in A
-        CALL    ESSTR
-        MVI     A,ECDEL
-        OUT     ECPRT
-        IN      ECPRT
-        RET
-
-EEXEC:  CALL    EBEG            ; forward raw command tail after leading ws
+EEXEC:  MVI     A,ECEXE         ; forward raw command tail after leading ws
+        STA     ESBUF
         LHLD    ARGPT
         LDA     ARGLN
         MOV     B,A
+        LXI     D,ESBUF+1
 EE1:    MOV     A,B
         ORA     A
         JZ      EE2
         MOV     A,M
-        OUT     EDPRT
+        STAX    D
         INX     H
+        INX     D
         DCR     B
         JMP     EE1
-EE2:    XRA     A
-        OUT     EDPRT
-        MVI     A,ECEXE
-        OUT     ECPRT
-EE3:    IN      ERPRT
+EE2:    LDA     ARGLN
+        MOV     C,A
+        MVI     B,0
+        INX     B
+        CALL    ETEXT
+EE3:    CALL    EBYTE
         ORA     A
-        JZ      EE4
+        RZ
         CALL    PCHR
         JMP     EE3
-EE4:    IN      ECPRT
+
+ETEXT:  MVI     A,48
+        LXI     H,ESBUF
+        CALL    SVREQ
+        CALL    SVTEXT
+        LHLD    SVLEN
+        SHLD    ELEFT
+        LXI     H,SVBUF
+        SHLD    EPTR
+        RET
+
+; Local text cursor only: the entire counted wire frame is already drained.
+EBYTE:  PUSH    B
+        PUSH    H
+        LHLD    ELEFT
+        MOV     A,H
+        ORA     L
+        JZ      EBY0
+        DCX     H
+        SHLD    ELEFT
+        LHLD    EPTR
+        MOV     A,M
+        INX     H
+        SHLD    EPTR
+EBY0:   POP     H
+        POP     B
         RET
 
 ; -- load and parse the environment list -----------------------------------
@@ -174,13 +228,11 @@ LOADAL: XRA     A
         STA     KIDX
         STA     VIDX
         CALL    SETPT
-        CALL    EBEG
         MVI     A,ECLST
-        OUT     ECPRT
-        IN      ECPRT
-        ORA     A
-        RNZ
-LLP:    IN      ERPRT
+        STA     ESBUF
+        LXI     B,1
+        CALL    ETEXT
+LLP:    CALL    EBYTE
         ORA     A
         JZ      LEND
         MOV     C,A
@@ -256,7 +308,7 @@ LEND:   CALL    LTERM
         STA     NVAR
 LRET:   LDA     NVAR
         RET
-LDRAN:  IN      ERPRT           ; consume the rest of an oversized response
+LDRAN:  CALL    EBYTE           ; wire response was drained by ETEXT
         ORA     A
         JNZ     LDRAN
         LDA     NVAR
@@ -608,8 +660,11 @@ BCAN:   LXI     D,MCAN
         RET
 BYES:   LXI     D,MRBOT
         CALL    PSTR
-        MVI     A,0A5H
-        OUT     RBPRT
+        MVI     A,33
+        LXI     H,RBREQ
+        LXI     B,2
+        CALL    SVREQ
+        CALL    SVNONE
         RET
 
 ; -- input and parsing ------------------------------------------------------
@@ -928,4 +983,111 @@ VALS:   DS      MAXVR*VALSZ
         DS      256
 STACK   EQU     $
 
+RBREQ:  DB      2,0A5H
+EWPTR:  DW      0
+ELEFT:  DW      0
+EPTR:   DW      0
+ESBUF:  DS      276
+
+; Standalone bounded, counted service transport. Preserves BC/DE/HL.
+SVREQ:  PUSH    B
+        PUSH    D
+        PUSH    H
+        PUSH    PSW
+        IN      2
+        ORA     A
+        JNZ     SVBAD
+        POP     PSW
+        OUT     2
+        MOV     A,C
+        OUT     3
+        MOV     A,B
+        OUT     3
+SVSEND: MOV     A,B
+        ORA     C
+        JZ      SVPOLL
+        MOV     A,M
+        OUT     3
+        INX     H
+        DCX     B
+        JMP     SVSEND
+SVPOLL: MVI     B,32
+        LXI     D,0
+SVWAIT: IN      2
+        CPI     3
+        JZ      SVTICK
+        CPI     4
+        JNZ     SVSTAT
+SVTICK: DCX     D
+        MOV     A,D
+        ORA     E
+        JNZ     SVWAIT
+        DCR     B
+        JNZ     SVWAIT
+        JMP     SVFAIL
+SVSTAT: STA     SVTYP
+        CPI     1
+        JNZ     SVRESP
+        XRA     A
+        OUT     2
+        LXI     H,0
+        SHLD    SVLEN
+        JMP     SVRET
+SVRESP: CPI     2
+        JZ      SVREAD
+        CPI     255
+        JNZ     SVFAIL
+SVREAD: IN      4
+        MOV     C,A
+        IN      4
+        MOV     B,A
+        CPI     8
+        JC      SVSIZE
+        JNZ     SVFAIL
+        MOV     A,C
+        ORA     A
+        JNZ     SVFAIL
+SVSIZE: MOV     H,B
+        MOV     L,C
+        SHLD    SVLEN
+        LXI     H,SVBUF
+SVLOOP: MOV     A,B
+        ORA     C
+        JZ      SVDONE
+        IN      4
+        MOV     M,A
+        INX     H
+        DCX     B
+        JMP     SVLOOP
+SVDONE: MVI     M,0
+        LDA     SVTYP
+        CPI     255
+        JZ      SVFAIL
+        IN      2
+        ORA     A
+        JNZ     SVFAIL
+SVRET:  POP     H
+        POP     D
+        POP     B
+        RET
+SVBAD:  CPI     255
+        JZ      SVSTAT
+SVFAIL: MVI     A,1
+        OUT     2
+        LXI     D,SVMSG
+        MVI     C,9
+        CALL    5
+        JMP     0
+SVNONE: LDA     SVTYP
+        CPI     1
+        JNZ     SVFAIL
+        RET
+SVTEXT: LDA     SVTYP
+        CPI     2
+        JNZ     SVFAIL
+        RET
+SVMSG:  DB      13,10,'Service error/timeout; transport reset',13,10,'$'
+SVTYP:  DB      0
+SVLEN:  DW      0
+SVBUF:  DS      2049
         END

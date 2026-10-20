@@ -11,10 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TIMER_HIGH_PORT 28
-#define TIMER_LOW_PORT 29
-#define RANDOM_COMMAND_PORT 45
-#define RANDOM_DATA_PORT 200
+#include "../COMMON/DXSVC.H"
 #define FRAME_MILLISECONDS 20
 
 #define BOARD_WIDTH 30
@@ -260,23 +257,17 @@ static void draw_food(void)
 
 static void start_frame_timer(void)
 {
-    outp(TIMER_HIGH_PORT, FRAME_MILLISECONDS >> 8);
-    outp(TIMER_LOW_PORT, FRAME_MILLISECONDS & 0xff);
+    svc_start_timer(2, FRAME_MILLISECONDS);
 }
 
 static bool frame_timer_active(void)
 {
-    return inp(TIMER_LOW_PORT) != 0;
+    return svc_timer_active(2) != 0;
 }
 
 static uint16_t random_word(void)
 {
-    uint16_t value;
-
-    outp(RANDOM_COMMAND_PORT, 1);
-    value = (uint8_t)inp(RANDOM_DATA_PORT);
-    value |= (uint16_t)((uint8_t)inp(RANDOM_DATA_PORT)) << 8;
-    return value;
+    return svc_random_u16();
 }
 
 static int read_key(void)

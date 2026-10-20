@@ -358,6 +358,12 @@ static void emulator_task(void *pvParameters)
     files_io_init();
     chat_io_init();
     weather_io_init();
+    if (!io_ports_init())
+    {
+        printf("Cannot start emulator: I/O service initialization failed\n");
+        vTaskDelete(NULL);
+        return;
+    }
 
     //-------------------------------------------------------------------------
     // Initialize SD card and disk system on Core 1 (same core as emulator)

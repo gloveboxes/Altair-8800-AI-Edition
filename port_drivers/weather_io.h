@@ -106,6 +106,7 @@ size_t weather_output(int port, uint8_t data, char *buffer, size_t buffer_length
  * @brief Handle an Altair IN from a weather port.
  */
 uint8_t weather_input(uint8_t port);
+bool weather_io_has_data(void);
 
 #ifdef __cplusplus
 }

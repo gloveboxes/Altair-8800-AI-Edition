@@ -1,8 +1,8 @@
 # WIP — SHEETS.ASM `sum()` range upper-row bug (PARKED)
 
-Status: **parked**. `SHEETS.SUB` has been reverted to build the **C** version
-(`SHEETS.C` + SDK `string`/`long`), so the shipped `SHEETS.COM` is the known-good
-C build. The MAC/8080 port in `SHEETS.ASM` still has the open bug below.
+Status: **parked**. This is a historical assembly investigation; the former
+BDS SDK/submit workflow has been retired. The maintained app is the dcc build
+from `dccmake.txt`. The MAC/8080 port in `SHEETS.ASM` has the open bug below.
 
 ## Symptom (reproduced live in docker browser terminal)
 

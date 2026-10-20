@@ -1,6 +1,10 @@
 /* Copyright (c) Microsoft Corporation. All rights reserved.
    Licensed under the MIT License. */
 
+/* HISTORICAL, NON-RUNNABLE: Azure Sphere-only data and publishing ports.
+   This source is retained as an archive, not migrated to ROMLESS-SVC/1.
+   Do not compile/run it against ESP32, local/Docker or the ROMless board. */
+
 /* C application to demonstrate use of Intel 8080 IO Ports */
 
 /*

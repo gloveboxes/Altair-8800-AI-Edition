@@ -1253,37 +1253,21 @@ static int load_weights(void)
 }
 
 /* ============================================================ */
-/* Host stopwatch via Z80 port I/O (see port_drivers/time_io.c)  */
-/*                                                               */
-/* inp()/outp() are a dcc extension (not C89) for direct 8-bit   */
-/* port I/O: inp() runs IN A,(port) and outp() runs OUT (port),A */
-/* (only the low 8 bits of port are significant).  We drive the  */
-/* same ports ATTNZ80.MAC uses:                                  */
-/*                                                               */
-/*   OUT 37,0 -> start/reset host stopwatch 0                    */
-/*   OUT 37,2 -> latch elapsed milliseconds (big-endian long)   */
-/*   IN  200  -> read those 4 bytes back, MSB first              */
-/*                                                               */
-/* The ports are no-ops under a bare CP/M emulator that lacks    */
-/* them; the elapsed time is only meaningful on this project's   */
-/* Altair emulator / ESP32 firmware.                             */
+/* Host stopwatch service; response bytes are little-endian.     */
 /* ============================================================ */
 
-extern int  inp(unsigned port);
-extern void outp(unsigned port, unsigned val);
+#include "../COMMON/DXSVC.H"
 
-#define SWPORT 37               /* host stopwatch 0         */
-#define RDPORT 200              /* request-buffer read-back */
-
-/* read the latched 4-byte big-endian elapsed milliseconds */
 static uint32_t elapsed_milliseconds(void)
 {
+    unsigned char bytes[4];
     uint32_t elapsed;
 
-    elapsed = (uint32_t)inp(RDPORT) << 24;
-    elapsed |= (uint32_t)inp(RDPORT) << 16;
-    elapsed |= (uint32_t)inp(RDPORT) << 8;
-    elapsed |= (uint32_t)inp(RDPORT);
+    svc_access_stopwatch(0, 2, bytes);
+    elapsed = (uint32_t)bytes[0];
+    elapsed |= (uint32_t)bytes[1] << 8;
+    elapsed |= (uint32_t)bytes[2] << 16;
+    elapsed |= (uint32_t)bytes[3] << 24;
     return elapsed;
 }
 
@@ -1294,6 +1278,7 @@ static uint32_t elapsed_milliseconds(void)
 int main(int argc, char *argv[])
 {
     int step, sequence_count, validation_count;
+    uint32_t elapsed;
     bool train;
     char *filename;
 
@@ -1368,7 +1353,7 @@ int main(int argc, char *argv[])
     memset(projection_cache_valid, 0, S * V * (int)sizeof(bool));
     projection_cache_state = PCACHE_COLD;
 
-    outp(SWPORT, 0);                /* start host stopwatch 0 */
+    svc_access_stopwatch(0, 0, NULL);
     sequence_count = run_inference_file(filename);
     if (sequence_count == ERROR) {
         if (argc > 1) {
@@ -1381,9 +1366,8 @@ int main(int argc, char *argv[])
         test_random_samples();
         return 0;
     }
-    outp(SWPORT, 2);                /* latch elapsed milliseconds */
-
+    elapsed = elapsed_milliseconds();
     printf("\naccuracy  %2d/%d\n", file_hits, sequence_count);
-    printf("run time  %lu ms\n", (unsigned long)elapsed_milliseconds());
+    printf("run time  %lu ms\n", (unsigned long)elapsed);
     return 0;
 }

@@ -27,6 +27,7 @@ COPY terminal/ terminal/
 RUN cmake -S altair_local -B /tmp/altair-local-build -DCMAKE_BUILD_TYPE=Release \
         -DALTAIR_LOCAL_ENABLE_SENSE_HAT=ON \
     && cmake --build /tmp/altair-local-build --parallel \
+    && ctest --test-dir /tmp/altair-local-build --output-on-failure \
     && strip /tmp/altair-local-build/altair-local
 
 FROM alpine:3.22 AS runtime

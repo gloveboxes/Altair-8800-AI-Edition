@@ -5,7 +5,7 @@
 #   export DCC_DIR=$HOME/GitHub/dcc
 #   export NTVCM_DIR=$HOME/GitHub/ntvcm
 
-dcc-input=TETRIS.C
+dcc-input=TETRIS.C, ../COMMON/DXSVC.C
 dcc-output=TETRIS
 dcc-floatio=false
 dcc-flongio=false
@@ -13,7 +13,7 @@ dcc-peep=true
 dcc-stack-bytes=2048
 dcc-build-dir=build
 dcc-runtime=${DCC_DIR}/DCCRTL.MAC
-dcc-include-directory=${DCC_DIR}
+dcc-include-directory=${DCC_DIR}, ../COMMON
 dcc-tool=${DCC_DIR}/dcc
 dccpeep-tool=${DCC_DIR}/dccpeep
 dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip

@@ -5,6 +5,19 @@ endpoint (Ollama, llama.cpp server, LM Studio, vLLM, etc.). It talks to the
 host through Intel 8080 I/O ports backed by libcurl on the desktop emulator
 and by the ESP-IDF HTTP client on the ESP32 firmware.
 
+The dcc C11 client links `../COMMON/DXSVC.C` and uses ROMLESS-SVC/1 on ports
+2/3/4. ENV requests are self-contained length-delimited group `0x30`
+transactions. Chat group `0x50` receives APPEND blocks of at most 2047 bytes,
+then an explicit SUBMIT; STATUS and READ_CHUNK transactions consume up to
+256 response bytes at a time. No read-port trigger or legacy NUL-terminated
+transport is used. Timer delays use millisecond timer 0 in group `0x10`.
+Transport failures are diagnosed and reset by the shared helper.
+
+Build with `dccmake` for `build/CHAT.COM` without installing a disk image.
+Run `sh ./test-services.sh` for repeatable native tests of APPEND sizing,
+ENV payloads, waiting/status/chunk handling, response formatting and SUBMIT
+errors. These stub service operations; they do not test live HTTP streaming.
+
 All configuration is read from the Altair env store via the `ENV` app
 (set with `ENV NAME=value`) or, on the device, from the web config portal.
 Both sides share the NVS namespace `ENVIRONMENT` on the ESP32, and

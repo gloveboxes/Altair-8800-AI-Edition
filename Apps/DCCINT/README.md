@@ -6,7 +6,7 @@ both languages:
 1. C initializes state and calls the assembly installation routine.
 2. Assembly saves the original IM 1 vector at `0038H`, installs a jump to the
    ISR, binds the C counter and handler addresses passed through the dcc ABI,
-   and enables the timer through port 52.
+   and enables the timer through physical port 7.
 3. The ISR preserves the complete primary and alternate Z80 register state,
    then calls the ordinary C function `irq_tick()`.
 4. The C handler increments `irq_ticks` in memory.
@@ -32,5 +32,6 @@ source uses dcc's supported `#asm` block, so the regular `dccmake` pipeline
 compiles, assembles, and links both languages as one module.
 
 The example is verified on both the ESP32 Altair and the desktop
-`altair-local` emulator, where I/O port 52 provides the periodic interrupt
-source. Generic ntvcm builds without the port 52 device cannot drive it.
+`altair-local` emulator, where physical I/O port 7 provides the periodic
+interrupt source independently of shared services. Generic ntvcm builds
+without this device cannot drive it.

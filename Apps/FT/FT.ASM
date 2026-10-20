@@ -9,15 +9,15 @@
 ;
 ; The download path is the original path sent to the server (e.g.
 ; SUBDIR/FOO.C); the file is saved locally under its basename (FOO.C). The
-; transfer uses host I/O ports 60 (command/status) and 61 (data), exactly as
+; transfer uses host I/O ports 21 (command/status) and 22 (data), exactly as
 ; the C version:
 ;
-;   OUT 60,1   start a filename transfer (SETFN)
-;   OUT 61,c   send each filename character, then OUT 61,0 (NUL terminator)
-;   IN  60     poll status: 0=IDLE 1=DATA 2=EOF 3=BUSY 255=ERR
-;   OUT 60,3   request the next data chunk (GETCH)
-;   IN  61     read the chunk length byte (0 means 256), then that many bytes
-;   OUT 60,4   close the transfer (CLOSE)
+;   OUT 21,1   start a filename transfer (SETFN)
+;   OUT 22,c   send each filename character, then OUT 22,0 (NUL terminator)
+;   IN  21     poll status: 0=IDLE 1=DATA 2=EOF 3=BUSY 255=ERR
+;   OUT 21,3   request the next data chunk (GETCH)
+;   IN  22     read the chunk length byte (0 means 256), then that many bytes
+;   OUT 21,4   close the transfer (CLOSE)
 ;
 ; Received bytes are written to a freshly created CP/M file via the BDOS
 ; sequential-write calls. fopen write mode is reproduced as delete-then-make.
@@ -52,8 +52,8 @@ FMAKE   EQU     22              ; func 22: make (create) file
 FSDMA   EQU     26              ; func 26: set DMA address
 
 ; -- host file-transfer ports (decimal) and protocol values -----------------
-CPRT    EQU     60              ; command (OUT) / status (IN) port
-DPRT    EQU     61              ; data (OUT filename / IN file bytes) port
+CPRT    EQU     21              ; command (OUT) / status (IN) port
+DPRT    EQU     22              ; data (OUT filename / IN file bytes) port
 
 CSETFN  EQU     1               ; command: start filename transfer
 CGETCH  EQU     3               ; command: request next chunk

@@ -1,15 +1,14 @@
 #include <stdio.h>
 
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned value);
+#include "../COMMON/DXSVC.H"
 
 int main(void)
 {
-    unsigned character;
+    char date[80];
 
-    outp(31, 0);
-    while ((character = (unsigned)inp(200)) != 0)
-        putchar((int)character);
+    if (svc_get_text(SERVICE_GROUP_CLOCK, 4, date, sizeof(date)) < 0)
+        return 1;
+    printf("%s", date);
 
     putchar('\r');
     putchar('\n');

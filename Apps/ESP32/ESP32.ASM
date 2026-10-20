@@ -1,7 +1,7 @@
 ; ============================================================================
 ; ESP32 - ESP32 Stats CLI Tool for CP/M (MAC assembly port)
 ; ============================================================================
-; Prints system and network statistics from the emulator's ESP32 I/O ports.
+; Prints system/network statistics via grouped utility/clock services.
 ; Plain CLI output: no screen layout, colors, or cursor control.
 ;
 ; Build (CP/M):  mac esp32 / load esp32  ->  ESP32.COM
@@ -12,11 +12,6 @@
 BDOS    EQU     5               ; CP/M BDOS entry point
 FCONO   EQU     2               ; console output, char in E
 FPRST   EQU     9               ; print '$'-terminated string at DE
-
-INFOP   EQU     48              ; system info selector port
-UPORT   EQU     41              ; uptime selector port
-VPORT   EQU     70              ; emulator version selector port
-RPORT   EQU     200             ; shared response port
 
 CR      EQU     0DH
 LF      EQU     0AH
@@ -37,31 +32,35 @@ START:  LXI     H,0             ; save CCP stack and use our own
         CALL    PSTR
 
         MVI     A,0             ; hostname
-        OUT     INFOP
+        CALL    INFO
         CALL    RDSTR
         LXI     D,LHOST
         CALL    FIELD
 
         MVI     A,1             ; WiFi IP address
-        OUT     INFOP
+        CALL    INFO
         CALL    RDSTR
         LXI     D,LWIFI
         CALL    FIELD
 
         MVI     A,2             ; device ID
-        OUT     INFOP
+        CALL    INFO
         CALL    RDSTR
         LXI     D,LDEVID
         CALL    FIELD
 
-        MVI     A,0             ; emulator version
-        OUT     VPORT
+        MVI     A,33            ; utilities VERSION operation
+        LXI     H,VREQ
+        LXI     B,1
+        CALL    SVREQ
         CALL    RDSTR
         LXI     D,LEMU
         CALL    FIELD
 
-        MVI     A,1             ; uptime in seconds
-        OUT     UPORT
+        MVI     A,32            ; clock BOOT_SECONDS operation
+        LXI     H,UREQ
+        LXI     B,1
+        CALL    SVREQ
         CALL    RDSTR
         CALL    CRLF
         LXI     D,MUPH
@@ -85,19 +84,31 @@ EXIT:   LHLD    OLDSP
         RET
 
 ; -- ESP32 response helpers -------------------------------------------------
-RDSTR:  LXI     H,BUF           ; read NUL-terminated response into BUF
-        MVI     B,255
-RDS1:   IN      RPORT
+INFO:   STA     IREQ+1
+        MVI     A,33
+        LXI     H,IREQ
+        LXI     B,2
+        JMP     SVREQ
+
+RDSTR:  CALL    SVTEXT          ; wire frame has already been fully drained
+        LHLD    SVLEN
+        MOV     A,H
+        ORA     A
+        JNZ     SVFAIL         ; do not silently truncate a long response
+        MOV     B,L
+        LXI     H,SVBUF
+        LXI     D,BUF
+RDS1:   MOV     A,B
         ORA     A
         JZ      RDS0
-        MOV     M,A
+        MOV     A,M
+        STAX    D
+        INX     D
         INX     H
         DCR     B
-        JNZ     RDS1
-RDS2:   IN      RPORT           ; consume any oversized response tail
-        ORA     A
-        JNZ     RDS2
-RDS0:   MVI     M,0
+        JMP     RDS1
+RDS0:   XRA     A
+        STAX    D              ; local text terminator, not a wire byte
         RET
 
 FIELD:  CALL    PSTR            ; DE -> padded field label, value is BUF
@@ -266,4 +277,105 @@ QBUF:   DS      12
         DS      128
 STACK   EQU     $
 
+IREQ:   DB      1,0
+VREQ:   DB      3
+UREQ:   DB      0
+
+; Standalone bounded, counted service transport. Preserves BC/DE/HL.
+SVREQ:  PUSH    B
+        PUSH    D
+        PUSH    H
+        PUSH    PSW
+        IN      2
+        ORA     A
+        JNZ     SVBAD
+        POP     PSW
+        OUT     2
+        MOV     A,C
+        OUT     3
+        MOV     A,B
+        OUT     3
+SVSEND: MOV     A,B
+        ORA     C
+        JZ      SVPOLL
+        MOV     A,M
+        OUT     3
+        INX     H
+        DCX     B
+        JMP     SVSEND
+SVPOLL: MVI     B,32
+        LXI     D,0
+SVWAIT: IN      2
+        CPI     3
+        JZ      SVTICK
+        CPI     4
+        JNZ     SVSTAT
+SVTICK: DCX     D
+        MOV     A,D
+        ORA     E
+        JNZ     SVWAIT
+        DCR     B
+        JNZ     SVWAIT
+        JMP     SVFAIL
+SVSTAT: STA     SVTYP
+        CPI     1
+        JNZ     SVRESP
+        XRA     A
+        OUT     2
+        LXI     H,0
+        SHLD    SVLEN
+        JMP     SVRET
+SVRESP: CPI     2
+        JZ      SVREAD
+        CPI     255
+        JNZ     SVFAIL
+SVREAD: IN      4
+        MOV     C,A
+        IN      4
+        MOV     B,A
+        CPI     8
+        JC      SVSIZE
+        JNZ     SVFAIL
+        MOV     A,C
+        ORA     A
+        JNZ     SVFAIL
+SVSIZE: MOV     H,B
+        MOV     L,C
+        SHLD    SVLEN
+        LXI     H,SVBUF
+SVLOOP: MOV     A,B
+        ORA     C
+        JZ      SVDONE
+        IN      4
+        MOV     M,A
+        INX     H
+        DCX     B
+        JMP     SVLOOP
+SVDONE: MVI     M,0
+        LDA     SVTYP
+        CPI     255
+        JZ      SVFAIL
+        IN      2
+        ORA     A
+        JNZ     SVFAIL
+SVRET:  POP     H
+        POP     D
+        POP     B
+        RET
+SVBAD:  CPI     255
+        JZ      SVSTAT
+SVFAIL: MVI     A,1
+        OUT     2
+        LXI     D,SVMSG
+        MVI     C,9
+        CALL    5
+        JMP     0
+SVTEXT: LDA     SVTYP
+        CPI     2
+        JNZ     SVFAIL
+        RET
+SVMSG:  DB      13,10,'Service error/timeout; transport reset',13,10,'$'
+SVTYP:  DB      0
+SVLEN:  DW      0
+SVBUF:  DS      2049
         END

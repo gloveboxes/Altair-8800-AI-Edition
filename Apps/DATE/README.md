@@ -26,17 +26,11 @@ built-in command, this `DATE.COM` also shadows the buggy CP/M 3 built-in `DATE`.
 
 ## How it works
 
-The Altair emulator exposes the host clock through two I/O ports, implemented in
-[`altair_local/PortDrivers/time_io.c`](../../altair_local/PortDrivers/time_io.c)
-(`format_now_string`):
-
-| Port | Dir | Purpose |
-|------|-----|---------|
-| 31   | OUT | Capture host local date/time; stage a printable NUL-terminated string |
-| 200  | IN  | Read the staged string back, one byte at a time (0 byte = end) |
-
-The staged string is formatted as `%a %m/%d/%Y %H:%M:%S`. `DATE.COM` does
-`OUT 31`, then loops `IN 200` printing each character until it reads a `0`.
+The dcc client links `../COMMON/DXSVC.C` and requests clock group `0x20`,
+operation `0x04`, through the framed ROMLESS-SVC/1 interface on ports 2/3/4.
+The response is formatted as `%a %m/%d/%Y %H:%M:%S`; the SDK supplies the
+local trailing NUL. Unsynchronized clocks and unavailable services produce
+an explicit error and nonzero exit status, not a fabricated date.
 
 ## Build
 
@@ -51,9 +45,8 @@ pwsh ./build-app.ps1
 After a successful build, the script installs `DATE.COM` into the default C:
 disk image.
 
-The stripped, peephole-optimized C build is 640 bytes with the current dcc
-toolchain. Runtime stripping keeps only the small `putchar` output path; no
-formatting or buffered stdio code is linked.
+To build without modifying a disk image, use `dccmake` directly; the result
+is written to `build/DATE.COM`.
 
 Alternatively, build the assembly version under CP/M:
 

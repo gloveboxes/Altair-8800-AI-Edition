@@ -17,10 +17,8 @@
 ;   Q16 weights on disk      32-bit signed, big-endian (LONG package)
 ; The 8080 has no multiply/divide/shift, so all of that is open coded.
 ;
-; Timing (see port_drivers/time_io.c):
-;   OUT 37,0 -> start/reset host stopwatch 0
-;   OUT 37,1 -> latch elapsed seconds as a 4-byte big-endian unsigned long
-;   IN  200  -> read those 4 bytes back (MSB first)
+; Timing: dedicated port 23, command 64 resets stopwatch 0;
+; command 80 latches seconds as four little-endian bytes on IN 23.
 ; The total run time is printed in whole seconds after the accuracy line.
 ;
 ; Build:  mac attninf  ->  load attninf  ->  ATTNINFR.COM
@@ -41,8 +39,6 @@ FOPEN   EQU     15              ; open file (DE = FCB)
 FRDSEQ  EQU     20              ; read sequential
 FSDMA   EQU     26              ; set DMA address
 
-SWPORT  EQU     37              ; host stopwatch 0 (see time_io.c)
-RDPORT  EQU     200             ; request/string read-back port
 
 CPMEOF  EQU     1AH             ; ^Z text terminator
 
@@ -107,7 +103,7 @@ TDONE:
 
 ; --- start the host stopwatch to time the whole run ----------------------
         XRA     A
-        OUT     SWPORT          ; OUT 37,0 -> start/reset stopwatch 0
+        CALL    SWATCH
 
 ; --- load and convert the weights -----------------------------------------
         CALL    LOADW
@@ -152,13 +148,8 @@ INOK:
 
 ; --- latch and report total run time (whole seconds) ---------------------
         MVI     A,1
-        OUT     SWPORT          ; OUT 37,1 -> latch elapsed seconds
-        IN      RDPORT          ; byte 0 (MSB) - ignore
-        IN      RDPORT          ; byte 1       - ignore
-        IN      RDPORT          ; byte 2
-        MOV     H,A
-        IN      RDPORT          ; byte 3 (LSB)
-        MOV     L,A             ; HL = elapsed seconds (low 16 bits)
+        CALL    SWATCH          ; drains all four bytes before using low word
+        LHLD    SVBUF           ; low 16 bits, little-endian
         LXI     D,MTIME
         CALL    PSTR
         CALL    PRDEC
@@ -1584,4 +1575,27 @@ WAB     EQU     WORKB+768
         DS      512
 STACK:
 
+SWATCH: PUSH    B
+        PUSH    H
+        MOV     B,A
+        RLC
+        RLC
+        RLC
+        RLC
+        ADI     64
+        OUT     23
+        MOV     A,B
+        ORA     A
+        JZ      SWDONE
+        LXI     H,SVBUF
+        MVI     B,4
+SWBYTE: IN      23
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     SWBYTE
+SWDONE: POP     H
+        POP     B
+        RET
+SVBUF:  DS      4
         END     START

@@ -16,7 +16,8 @@ add_executable(altair-cpm-mcp
     mcp_server.c
     json_util.c
     jsonrpc.c
-    ${LOCAL_DIR}/PortDrivers/io_ports.c
+    ${LOCAL_DIR}/../port_drivers/io_ports.c
+    ${LOCAL_DIR}/../port_drivers/io_service.c
     ${LOCAL_DIR}/PortDrivers/host_chat_io.c
     ${LOCAL_DIR}/PortDrivers/environment_io.c
     ${LOCAL_DIR}/PortDrivers/host_files_io.c
@@ -52,6 +53,7 @@ set_source_files_properties(
 )
 
 target_link_libraries(altair-cpm-mcp PRIVATE Threads::Threads)
+target_compile_definitions(altair-cpm-mcp PRIVATE ALTAIR_LOCAL_SERVICE_SENSE_HAT=1)
 
 if(CURL_FOUND)
     target_compile_definitions(altair-cpm-mcp PRIVATE HAVE_LIBCURL=1)

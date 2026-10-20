@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "SHEETS.H"
+#include "../COMMON/DXSVC.H"
 
 /*
  * Formula engine and cell storage for SHEETS.
@@ -219,12 +220,7 @@ static bool parse_cell_reference(int *row, int *column)
 
 static uint16_t random_number(void)
 {
-    uint16_t value;
-
-    outp(45, 1);
-    value = (uint8_t)inp(200);
-    value |= (uint16_t)((uint8_t)inp(200)) << 8;
-    return value & 0x7fff;
+    return svc_random_u16() & 0x7fff;
 }
 
 static bool evaluate_cell(int row, int column, long *result)

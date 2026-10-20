@@ -61,6 +61,11 @@ static inline uint64_t get_elapsed_ms(void)
     return esp_timer_get_time() / 1000ULL;
 }
 
+uint64_t time_elapsed_ms(void)
+{
+    return get_elapsed_ms();
+}
+
 /**
  * @brief Map port number to timer index
  */

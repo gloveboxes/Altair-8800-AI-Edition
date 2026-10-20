@@ -2,25 +2,16 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../COMMON/DXSVC.H"
 
 /*
  * CLOCK.C - dcc C11 port of the BDS C CLOCK app.
  *
- * Reads ESP32 local wall clock through port 43, ticks every 50 ms,
+ * Reads the local wall clock through the clock service, ticks every 50 ms,
  * and redraws HH:MM as chunky VT100 character blocks. Output goes
  * through stdio with a 2 KB fully buffered console buffer; only actual
  * VT100 update batches are flushed so idle timer polls do not drain it.
  */
-
-#define TIMER_HIGH_PORT 28
-#define TIMER_LOW_PORT 29
-#define TIME_PORT 43
-#define DATE_PORT 44
-#define UPTIME_PORT 41
-#define RESPONSE_PORT 200
-
-#define WEATHER_FIELD_PORT 46
-#define WEATHER_STATUS_PORT 47
 
 enum weather_status {
     WS_UNKNOWN = -1,
@@ -62,8 +53,6 @@ enum weather_field {
 #define SCREEN_HEIGHT 30
 #define CONSOLE_BUFFER_SIZE 2048
 
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned val);
 extern int getch(void);
 extern int kbhit(void);
 
@@ -191,47 +180,22 @@ static void clear_screen(void)
 
 static void timer_set(unsigned ms)
 {
-    unsigned hi_byte;
-    unsigned lo_byte;
-
-    hi_byte = (ms >> 8) & 0xFF;
-    lo_byte = ms & 0xFF;
-    outp(TIMER_HIGH_PORT, hi_byte);
-    outp(TIMER_LOW_PORT, lo_byte);
+    svc_start_timer(2, ms);
 }
 
 static bool timer_expired(void)
 {
-    return inp(TIMER_LOW_PORT) == 0;
-}
-
-static int read_string(char *buffer, int max_len)
-{
-    int index;
-    int ch;
-
-    index = 0;
-    ch = inp(RESPONSE_PORT);
-    while (ch != 0 && index < max_len - 1)
-    {
-        buffer[index] = (char)ch;
-        index++;
-        ch = inp(RESPONSE_PORT);
-    }
-    buffer[index] = '\0';
-    return index;
+    return svc_timer_active(2) == 0;
 }
 
 static int get_time(void)
 {
-    outp(TIME_PORT, 0);
-    return read_string(time_buffer, (int)sizeof(time_buffer));
+    return svc_get_text(SERVICE_GROUP_CLOCK, 2, time_buffer, sizeof(time_buffer));
 }
 
 static int get_date(void)
 {
-    outp(DATE_PORT, 0);
-    return read_string(date_buffer, (int)sizeof(date_buffer));
+    return svc_get_text(SERVICE_GROUP_CLOCK, 3, date_buffer, sizeof(date_buffer));
 }
 
 static void show_uptime(int row)
@@ -243,8 +207,8 @@ static void show_uptime(int row)
     int seconds;
     int col;
 
-    outp(UPTIME_PORT, 1);
-    read_string(uptime_buffer, (int)sizeof(uptime_buffer));
+    if (svc_get_text(SERVICE_GROUP_CLOCK, 0, uptime_buffer, sizeof(uptime_buffer)) < 0)
+        return;
     uptime_seconds = atol(uptime_buffer);
     hours = (int)(uptime_seconds / 3600L);
     minutes = (int)((uptime_seconds % 3600L) / 60L);
@@ -258,8 +222,19 @@ static void show_uptime(int row)
 
 static void weather_read(enum weather_field field, char *buffer, int capacity)
 {
-    outp(WEATHER_FIELD_PORT, (unsigned)field);
-    read_string(buffer, capacity);
+    if (svc_query_text(SERVICE_GROUP_WEATHER, 0, field, buffer, capacity) < 0)
+        buffer[0] = '\0';
+}
+
+static enum weather_status weather_status_read(void)
+{
+    unsigned char request[1];
+    unsigned char response[1];
+
+    request[0] = 1;
+    if (svc_call_service(SERVICE_GROUP_WEATHER, request, 1, response, 1) != 1)
+        return WS_ERR;
+    return (enum weather_status)response[0];
 }
 
 static int centered_col(int width)
@@ -531,8 +506,7 @@ static void refresh_display(void)
         screen_dirty = true;
     }
 
-    enum weather_status weather_now =
-        (enum weather_status)inp(WEATHER_STATUS_PORT);
+    enum weather_status weather_now = weather_status_read();
     if (weather_now == WS_OK)
         weather_tick++;
     else

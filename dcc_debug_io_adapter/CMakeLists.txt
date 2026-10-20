@@ -14,7 +14,8 @@ configure_file(assets/altair_env.example.txt ${DEFAULT_ENV_FILE} COPYONLY)
 set(ADAPTER_SOURCES
     src/dcc_debug_io_adapter.c
     src/dcc_debug_terminal_input.c
-    host/PortDrivers/io_ports.c
+    ../port_drivers/io_ports.c
+    ../port_drivers/io_service.c
     host/PortDrivers/host_chat_io.c
     host/PortDrivers/environment_io.c
     host/PortDrivers/host_files_io.c
@@ -31,6 +32,7 @@ target_include_directories(dcc-debug-io-adapter PRIVATE
     host
     host/PortDrivers
     port_drivers
+    ../port_drivers
 )
 target_compile_definitions(dcc-debug-io-adapter PRIVATE
     DCC_DEBUG_IO_ADAPTER_BUILD=1
@@ -59,8 +61,9 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_subdirectory(../port_drivers/tests io-service-tests)
     add_executable(io-adapter-test tests/io_adapter_test.c)
-    target_include_directories(io-adapter-test PRIVATE include)
+    target_include_directories(io-adapter-test PRIVATE include ../port_drivers)
     target_link_libraries(io-adapter-test PRIVATE dcc-debug-io-adapter)
     add_test(NAME io-adapter-lifecycle COMMAND io-adapter-test
              ${DEFAULT_ENV_FILE} ${CMAKE_CURRENT_BINARY_DIR})

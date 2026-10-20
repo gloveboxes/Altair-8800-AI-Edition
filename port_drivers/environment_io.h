@@ -2,7 +2,7 @@
  * @file environment_io.h
  * @brief NVS-backed environment variable I/O port driver.
  *
- * Port map:
+ * Private legacy driver selectors, translated by io_service.c (not CPU ports):
  *   OUT 71, 0      reset request buffer
  *   OUT 71, cmd    execute ENV command/API request
  *   OUT 72, byte   append request byte

@@ -12,10 +12,7 @@
 #define RIGHT_KEY 4
 #define LEFT_KEY 19
 
-#define TIMER_HIGH_PORT 26
-#define TIMER_LOW_PORT 27
-#define RANDOM_COMMAND_PORT 45
-#define RESPONSE_PORT 200
+#include "../COMMON/DXSVC.H"
 #define INITIAL_BALL_DELAY_MS 80
 #define MEDIUM_BALL_DELAY_MS 70
 #define FAST_BALL_DELAY_MS 60
@@ -47,8 +44,6 @@ enum game_state {
     GAME_WON
 };
 
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned value);
 extern int bdos(int function, int argument);
 
 static char console_buffer[CONSOLE_BUFFER_SIZE];
@@ -125,22 +120,17 @@ static void erase_to_end_of_line(void)
 
 static void timer_start(void)
 {
-    outp(TIMER_HIGH_PORT, 0);
-    outp(TIMER_LOW_PORT, ball_delay_ms);
+    svc_start_timer(1, ball_delay_ms);
 }
 
 static bool timer_expired(void)
 {
-    return inp(TIMER_LOW_PORT) == 0;
+    return svc_timer_active(1) == 0;
 }
 
 static unsigned random_word(void)
 {
-    unsigned low;
-
-    outp(RANDOM_COMMAND_PORT, 1);
-    low = (unsigned)inp(RESPONSE_PORT);
-    return low | ((unsigned)inp(RESPONSE_PORT) << 8);
+    return svc_random_u16();
 }
 
 static int read_key(void)

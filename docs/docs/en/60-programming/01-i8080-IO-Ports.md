@@ -6,15 +6,37 @@ The Intel 8080 CPU can address up to 256 input ports and 256 output ports; allow
 
 ## Altair emulator software-enabled ports
 
+The current firmware and local/Docker drivers use the
+[ROMless shared-service interface](01-ROMless-IO-Mapping.md): ports `0x02`
+(command/status), `0x03` (request), `0x04` (response), `0x07` (interrupt timer),
+`0x15/0x16` (file transfer), and `0x17` (all countdown/stopwatch operations).
+Terminal and disk routing is unchanged.
+There are **no legacy service-port aliases**. Maintained CP/M samples and
+[shared client](https://github.com/gloveboxes/Altair-8800-AI-Edition/blob/main/Apps/COMMON/README.md)
+use the new protocol; rebuild and install them before upgrading the drivers.
+The Azure JSON examples below remain historical, not runnable applications.
+
+## Legacy service port reference
+
+The tables and examples below describe the **pre-migration** interface for
+comparison and application migration. Do not use these port numbers with the
+new drivers; use the linked shared-service reference instead.
+
 The Altair emulator uses Intel 8080 IO ports to provide time services, random numbers, system information, file transfer, persistent environment variables, weather data, and an OpenAI-compatible chat client.
 
 - You can access Intel 8080 IO ports from BASIC, C, and Assembly programming languages, and directly using Intel 8080 opcodes. See [Using Intel 8080 Input Output ports](#using-intel-8080-input-output-ports).
 - I/O is routed by [port_drivers/io_ports.c](https://github.com/gloveboxes/esp32-altair-8800/blob/main/port_drivers/io_ports.c){:target=_blank} to per-feature drivers in the same folder (`time_io.c`, `utility_io.c`, `weather_io.c`, `files_io.c`, `environment_io.c`, `chat_io.c`).
 - You can extend the Altair 8800 by adding additional IO port functions — drop a new `*_io.c` driver into `port_drivers/` and route the port range from `io_ports.c`.
 
-### Altair Emulator IO Port SDK
+### Shared client for current applications
 
-Sample code in the `Apps/SDK` folder demonstrates how to call these IO ports from BDS C. See for example `DXENV.C` (environment variables) and `DXTERM.C` (terminal helpers). These examples are also useful references for LLM-assisted development.
+`Apps/COMMON/DXSVC.C` and `DXSVC.H` implement the framed interface and dedicated
+timer port used by the current dcc apps. `svc_start_timer`, `svc_timer_active` and `svc_access_stopwatch` use
+port 23 directly, independently of shared-service traffic. Framed timer groups
+remain compatible and share the same state. The legacy BDS C SDK and apps have
+been removed.
+The remaining tables/examples on this page are a historical port reference,
+not current build instructions.
 
 ### Response read port
 
@@ -128,7 +150,8 @@ The Altair emulator can pull files from a remote FT server (or from the bundled 
 
 ### Environment variable ports (environment_io)
 
-Persistent key/value storage backed by ESP32 NVS. The `ENV` CP/M command and the `DXENV.C` SDK wrapper use these ports.
+Persistent key/value storage backed by ESP32 NVS. Historically, the `ENV`
+command and the now-removed `DXENV.C` wrapper used these ports.
 
 | Port | Dir | Port data | Loads |
 |------|-----|-----------|-------|
@@ -179,7 +202,9 @@ BACK: RET
 
 ### BSD C access to Intel 8080 IO Ports
 
-The following C code demonstrates the use of the Intel 8080 IO port 30 timer. The code sets a 1-second delay, and then waits for the timer to expire. This is a snippet of the **HW.C** sample included on drive B: of the Altair emulator.
+The following historical C code demonstrates the former port 30 timer.
+It came from the retired **HW.C** sample and must not be used with the
+current shared-service drivers.
 
 ```c
 outp(30,1);      /* Enable delay for 1 second */

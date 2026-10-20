@@ -5,6 +5,14 @@
 utility, weather, chat, file-transfer, environment, and interrupt-timer ports.
 The debugger host itself has no compiled-in port assignments.
 
+The adapter compiles the same
+[shared-service transport](../docs/docs/en/60-programming/01-ROMless-IO-Mapping.md)
+as ESP32 and local/Docker: ports `0x02-0x04`, interrupt timer `0x07`, and file
+transfer `0x15/0x16`. Legacy service addresses are no longer routed.
+Maintained CP/M apps and the [SDK](../Apps/COMMON/README.md) use this interface;
+rebuild older binaries before running them. Reboot and Sense HAT are
+explicitly unavailable in this adapter.
+
 ## Build and test
 
 ```sh

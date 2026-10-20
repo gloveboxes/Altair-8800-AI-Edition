@@ -10,7 +10,8 @@
  *   OUT 71, cmd    execute ENV command/API request
  *   OUT 72, byte   append request byte
  *   IN  71         last ENV status code
- *   IN  200        response bytes, NUL-terminated by io_ports
+ *   These are private legacy selectors used by io_service.c. CPU requests
+ *   use shared group 0x30 on ports 0x02-0x04 instead.
  */
 
 #pragma once

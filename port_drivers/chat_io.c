@@ -4,11 +4,13 @@
  */
 
 #include "port_drivers/chat_io.h"
+#include "io_ports.h"
 
 #include "config.h"
 #include "wifi.h"
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,6 +156,7 @@ static char s_chat_max_tokens[CHAT_MAX_TOKENS_MAX + 1];
 static char s_chat_temperature[CHAT_TEMPERATURE_MAX + 1];
 static bool s_network_available = false;
 static bool s_initialized = false;
+static atomic_bool service_busy;
 
 static struct
 {
@@ -174,7 +177,7 @@ static void chat_client_task(void *arg);
 static void chat_reset_request(void);
 static void chat_reset_response(void);
 static void chat_request_add_char(uint8_t data);
-static void chat_trigger_request(void);
+static uint8_t chat_trigger_request(void);
 static bool chat_load_next_char(void);
 static void chat_queue_char(chat_parse_t *parser, uint32_t generation, uint8_t data, bool force);
 static void chat_queue_text(uint32_t generation, const char *text);
@@ -679,7 +682,7 @@ void chat_io_init(void)
     }
 
     s_initialized = true;
-    printf("[Chat] Chat port driver initialized on ports 120-124\n");
+    printf("[Chat] Chat service initialized (group 0x50)\n");
 }
 
 void chat_io_set_network_available(bool available)
@@ -824,15 +827,13 @@ static void chat_request_add_char(uint8_t data)
     }
 }
 
-static void chat_trigger_request(void)
+static uint8_t chat_trigger_request(void)
 {
     chat_reset_response();
 
     if (port_state.request_overflow || port_state.request_len == 0)
     {
-        chat_queue_text(port_state.generation, "Chat request buffer error\n");
-        chat_queue_eof(NULL, port_state.generation);
-        return;
+        return IO_SERVICE_INVALID_PARAMETER;
     }
 
     chat_request_t *request = heap_caps_malloc(sizeof(chat_request_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -843,9 +844,7 @@ static void chat_trigger_request(void)
 
     if (!request)
     {
-        chat_queue_text(port_state.generation, "Chat out of memory\n");
-        chat_queue_eof(NULL, port_state.generation);
-        return;
+        return IO_SERVICE_CAPACITY;
     }
 
     memset(request, 0, sizeof(*request));
@@ -853,12 +852,28 @@ static void chat_trigger_request(void)
     request->len = port_state.request_len;
     memcpy(request->json, port_state.request, port_state.request_len + 1);
 
+    atomic_store(&service_busy, true);
     if (!s_chat_request_queue || xQueueSend(s_chat_request_queue, &request, 0) != pdTRUE)
     {
+        atomic_store(&service_busy, false);
         free(request);
-        chat_queue_text(port_state.generation, "Chat request queue busy\n");
-        chat_queue_eof(NULL, port_state.generation);
+        return IO_SERVICE_BUSY_ERROR;
     }
+    return IO_SERVICE_OK;
+}
+
+bool chat_io_available(void)
+{
+    return s_initialized;
+}
+
+uint8_t chat_service_submit(void)
+{
+    if (!s_initialized || !s_network_available)
+        return IO_SERVICE_UNAVAILABLE;
+    if (atomic_load(&service_busy))
+        return IO_SERVICE_BUSY_ERROR;
+    return chat_trigger_request();
 }
 
 size_t chat_output(int port, uint8_t data, char *buffer, size_t buffer_length)
@@ -962,6 +977,7 @@ static void chat_client_task(void *arg)
 
         chat_process_request(request);
         free(request);
+        atomic_store(&service_busy, false);
     }
 }
 

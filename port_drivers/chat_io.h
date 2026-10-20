@@ -25,6 +25,8 @@ void chat_io_run_boot_shell(void);
 void chat_io_set_network_available(bool available);
 size_t chat_output(int port, uint8_t data, char *buffer, size_t buffer_length);
 uint8_t chat_input(uint8_t port);
+bool chat_io_available(void);
+uint8_t chat_service_submit(void);
 
 #ifdef __cplusplus
 }

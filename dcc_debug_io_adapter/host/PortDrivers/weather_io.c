@@ -754,3 +754,13 @@ uint8_t weather_input(uint8_t port)
     pthread_mutex_unlock(&s_mutex);
     return s;
 }
+
+bool weather_io_has_data(void)
+{
+    if (!s_initialized)
+        return false;
+    pthread_mutex_lock(&s_mutex);
+    bool available = s_state.last_fetch_us > 0;
+    pthread_mutex_unlock(&s_mutex);
+    return available;
+}

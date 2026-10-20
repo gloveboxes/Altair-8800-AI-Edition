@@ -43,10 +43,10 @@ void sense_hat_panel_shutdown(void);
 /* True when the panel is compiled in, enabled and successfully initialised. */
 bool sense_hat_panel_is_active(void);
 
-/* Handle an OUT to any Sense HAT port, dispatched from io_ports.c exactly like
- * the other port drivers (time_output, weather_output, ...). Port 63 reads an
+/* Handle a private Sense HAT selector, dispatched by shared service group
+ * 0x60 in io_service.c. Selector 63 reads an
  * onboard sensor (the selector in `data` chooses temperature/pressure/light/
  * humidity), writes the formatted reading to `buffer`, and returns the byte
- * count (read back via port 200). Ports 65, 80, 81, 85 and 90-102 drive the
+ * count (returned in a framed service response). Selectors 65, 80, 81, 85 and 90-102 drive the
  * 8x8 LED matrix and return 0. Inert (returns 0) when the panel is not active. */
 size_t sense_hat_panel_output(uint8_t port, uint8_t data, char *buffer, size_t buffer_length);

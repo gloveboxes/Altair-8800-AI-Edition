@@ -66,13 +66,12 @@ needed during training.
 | File | What it is |
 | --- | --- |
 | `attnc11.c` | The C11 implementation for the **dcc** compiler (CP/M 2.2 / Z80). Trains *and* infers. This is the recommended version. |
-| `ATTN.C` | The earlier **BDS C 1.6** implementation. Functionally equivalent; uses the BDS C `LONG` package for 32-bit math. Kept for reference. |
 | `ATTNZ80.MAC` | A **Z80 (M80/L80) inference-only** port. Loads trained weights and reverses sequences; does not train. |
 | `ATTNZ80.SUB` | CP/M `SUBMIT` script that assembles `ATTNZ80.MAC` with M80/L80. |
 | `ATTN.IN` | Sample input: one 8-digit sequence per line. |
 | `ATTN.WTS` | Trained weights produced by `ATTNC11 -t`, reloaded for inference. |
 
-`attnc11.c` is a from-scratch optimization of `ATTN.C` for the dcc toolchain:
+`attnc11.c` is a from-scratch optimization of the retired BDS implementation:
 because dcc has a native 32-bit `long`, the hot fixed-point routines (`vdot`,
 `mvmul`, `vtmul`, …) use ordinary arithmetic instead of the BDS C `LONG`
 function-call package, so it is both smaller and considerably faster.
@@ -122,8 +121,32 @@ once it reaches 100% validation accuracy on `ATTN.IN`.
 ntvcm ATTNC11.COM -t       # train + self-test under the emulator
 ```
 
-On this project's Altair emulator, inference reports elapsed milliseconds using
-stopwatch port 37 so emulator performance changes below one second are visible.
+On this project's Altair emulator, C11 inference reports elapsed milliseconds
+using stopwatch 0 on dedicated port 23 through `../COMMON/DXSVC.C`.
+The C helpers retain their signatures; the assembly inference variants also
+use the dedicated interface. No shared-service framing or worker polling is
+needed to reset or read a stopwatch.
+The four response bytes are decoded little-endian (the retired stopwatch
+interface used big-endian bytes).
+
+For a native inference check, build the framed-service adapter with host
+standard headers and the test-only C transport reference. Production dcc
+builds use the assembly embedded in `DXSVC.C`.
+
+```sh
+mkdir -p build
+cc -std=c11 -O2 -Wno-deprecated-non-prototype \
+  -Wno-implicit-function-declaration -include stdlib.h -x c \
+  -I ../COMMON attnhost.c ../COMMON/DXSVC.C ../COMMON/tests/SVCCORE.C \
+  -o build/attnhost
+build/attnhost ATTN.IN
+```
+
+`sh ./test-services.sh` repeats native inference and also checks the actual
+shared helper against the framed adapter: reset/ACK, little-endian elapsed
+milliseconds/seconds, and invalid-selector error/reset recovery. Expected
+inference accuracy is `15/15`; the intentional invalid selector prints
+`Service I/O error 4` before the test-success line.
 
 **Z80 inference port (`ATTNZ80.MAC`)** with M80/L80:
 

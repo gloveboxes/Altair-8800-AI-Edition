@@ -14,8 +14,10 @@
 
 #include "chat_io.h"
 #include "environment_io.h"
+#include "io_ports.h"
 
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,6 +98,8 @@ static int pthread_detach(pthread_t thread)
 #endif
 
 #define CHAT_REQUEST_MAX 8192
+
+static atomic_bool service_busy;
 #define CHAT_RING_SIZE 16384
 #define CHAT_SSE_LINE_MAX 4096
 
@@ -141,6 +145,7 @@ static void ring_init(void)
     ring.eof = false;
 }
 
+#ifdef HAVE_LIBCURL
 static void ring_put_locked(uint8_t b, bool force)
 {
     size_t next = (ring.head + 1) % CHAT_RING_SIZE;
@@ -158,6 +163,8 @@ static void ring_put_locked(uint8_t b, bool force)
     ring.head = next;
 }
 
+#endif
+
 static uint32_t ring_reset(void)
 {
     pthread_mutex_lock(&ring.lock);
@@ -170,6 +177,7 @@ static uint32_t ring_reset(void)
     return generation;
 }
 
+#ifdef HAVE_LIBCURL
 static void ring_put(uint32_t generation, uint8_t b)
 {
     pthread_mutex_lock(&ring.lock);
@@ -206,6 +214,8 @@ static void ring_set_eof(uint32_t generation)
     }
     pthread_mutex_unlock(&ring.lock);
 }
+
+#endif
 
 static int ring_status(void)
 {
@@ -479,6 +489,7 @@ static void* chat_worker(void* arg)
         ring_put_str(generation, "OpenAI curl init failed\n");
         ring_set_eof(generation);
         free(request_body);
+        atomic_store(&service_busy, false);
         return NULL;
     }
 
@@ -503,6 +514,7 @@ static void* chat_worker(void* arg)
         ring_put_str(generation, "Chat out of memory\n");
         ring_set_eof(generation);
         free(request_body);
+        atomic_store(&service_busy, false);
         return NULL;
     }
 
@@ -542,6 +554,7 @@ static void* chat_worker(void* arg)
     curl_easy_cleanup(curl);
     ring_set_eof(generation);
     free(request_body);
+    atomic_store(&service_busy, false);
     return NULL;
 }
 
@@ -636,31 +649,25 @@ static void request_add_char(uint8_t data)
     }
 }
 
-static void trigger_request(void)
+static uint8_t trigger_request(void)
 {
     uint32_t generation = ring_reset();
 
     if (port_state.request_overflow || port_state.request_len == 0)
     {
-        ring_put_str(generation, "OpenAI request buffer error\n");
-        ring_set_eof(generation);
-        return;
+        return IO_SERVICE_INVALID_PARAMETER;
     }
 
     if (chat_api_key[0] == '\0' && strcmp(chat_provider, "compatible") != 0)
     {
-        ring_put_str(generation, "Chat: CHAT_OPENAI_KEY not configured\n");
-        ring_set_eof(generation);
-        return;
+        return IO_SERVICE_UNAVAILABLE;
     }
 
 #ifdef HAVE_LIBCURL
     char* body = (char*)malloc(port_state.request_len + 1);
     if (!body)
     {
-        ring_put_str(generation, "OpenAI out of memory\n");
-        ring_set_eof(generation);
-        return;
+        return IO_SERVICE_CAPACITY;
     }
     memcpy(body, port_state.request, port_state.request_len + 1);
 
@@ -668,27 +675,44 @@ static void trigger_request(void)
     if (!worker_arg)
     {
         free(body);
-        ring_put_str(generation, "OpenAI out of memory\n");
-        ring_set_eof(generation);
-        return;
+        return IO_SERVICE_CAPACITY;
     }
     worker_arg->request_body = body;
     worker_arg->generation = generation;
 
     pthread_t worker;
+    atomic_store(&service_busy, true);
     if (pthread_create(&worker, NULL, chat_worker, worker_arg) != 0)
     {
+        atomic_store(&service_busy, false);
         free(worker_arg);
         free(body);
-        ring_put_str(generation, "OpenAI thread create failed\n");
-        ring_set_eof(generation);
-        return;
+        return IO_SERVICE_UNAVAILABLE;
     }
     pthread_detach(worker);
+    return IO_SERVICE_OK;
 #else
-    ring_put_str(generation, "OpenAI chat unavailable (no libcurl)\n");
-    ring_set_eof(generation);
+    (void)generation;
+    return IO_SERVICE_UNAVAILABLE;
 #endif
+}
+
+bool chat_io_available(void)
+{
+#ifdef HAVE_LIBCURL
+    return true;
+#else
+    return false;
+#endif
+}
+
+uint8_t chat_service_submit(void)
+{
+    if (!chat_io_available())
+        return IO_SERVICE_UNAVAILABLE;
+    if (atomic_load(&service_busy))
+        return IO_SERVICE_BUSY_ERROR;
+    return trigger_request();
 }
 
 size_t chat_output(int port, uint8_t data, char* buffer, size_t buffer_length)

@@ -6,7 +6,7 @@
 # e.g., export DCC_DIR=$HOME/GitHub/dcc
 # Note: dccmake.txt values are literal; ${...} is not expanded here.
 
-dcc-input=manc11.c
+dcc-input=manc11.c, ../COMMON/DXSVC.C
 dcc-output=MANC11
 dcc-floatio=false
 dcc-flongio=false
@@ -14,7 +14,7 @@ dcc-peep=true
 dcc-stack-bytes=8192
 dcc-build-dir=build
 dcc-runtime=${DCC_DIR}/DCCRTL.MAC
-dcc-include-directory=${DCC_DIR}
+dcc-include-directory=${DCC_DIR}, ../COMMON
 dcc-tool=${DCC_DIR}/dcc
 dccpeep-tool=${DCC_DIR}/dccpeep
 dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip

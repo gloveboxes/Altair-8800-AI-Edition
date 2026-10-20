@@ -3,12 +3,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../COMMON/DXSVC.H"
 
 /*
  * CHATC11 - dcc C11 CP/M 2.2 chat client for the Altair 8800 emulator.
  *
  * This is the C11/Z80 port of the BDS C CHAT app.  It keeps the OpenAI
- * compatible port protocol, includes its JSON request builder, and sends
+ * compatible JSON requests over framed chat services, and sends
  * console output through a fully buffered stdout stream.
  *
  * Build with dccmake:
@@ -43,24 +44,11 @@ enum {
 
     ENV_VALUE_LENGTH = 256,
     ENV_STATUS_OK = 0,
-    ENV_COMMAND_PORT = 71,
-    ENV_DATA_PORT = 72,
-    ENV_RESPONSE_PORT = 200,
-    ENV_COMMAND_RESET = 0,
     ENV_COMMAND_INITIALIZE = 1,
     ENV_COMMAND_GET = 2,
-    ENV_COMMAND_SET = 3,
-
-    TIMER0_HIGH_PORT = 24,
-    TIMER0_LOW_PORT = 25,
-    TIMER1_HIGH_PORT = 26,
-    TIMER1_LOW_PORT = 27,
-    TIMER2_HIGH_PORT = 28,
-    TIMER2_LOW_PORT = 29
+    ENV_COMMAND_SET = 3
 };
 
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned val);
 extern int bdos(int func, int val);
 
 static char console_buffer[CONSOLE_BUFFER_SIZE];
@@ -85,7 +73,6 @@ static char wrap_word_buffer[WRAP_WORD_BUFFER_SIZE];
 static int install_console_buffer(void);
 static int console_write_char(int code);
 static int console_read_char(void);
-static int timer_port_for(uint8_t timer, bool high);
 static int timer_delay_milliseconds(uint8_t timer, uint16_t milliseconds);
 static int console_move_cursor(int row, int col);
 static int console_clear_screen(void);
@@ -142,30 +129,13 @@ static int console_read_char(void)
     return bdos(1, 0) & 0xff;
 }
 
-static int timer_port_for(uint8_t timer, bool high)
-{
-    if (timer == 0)
-        return high ? TIMER0_HIGH_PORT : TIMER0_LOW_PORT;
-    if (timer == 1)
-        return high ? TIMER1_HIGH_PORT : TIMER1_LOW_PORT;
-    if (timer == 2)
-        return high ? TIMER2_HIGH_PORT : TIMER2_LOW_PORT;
-    return -1;
-}
-
 static int timer_delay_milliseconds(uint8_t timer, uint16_t milliseconds)
 {
-    int hi_port;
-    int lo_port;
-
-    hi_port = timer_port_for(timer, true);
-    lo_port = timer_port_for(timer, false);
-    if (hi_port < 0 || lo_port < 0)
+    if (timer > 2)
         return -1;
 
-    outp((unsigned)hi_port, (milliseconds >> 8) & UINT8_MAX);
-    outp((unsigned)lo_port, milliseconds & UINT8_MAX);
-    while (inp((unsigned)lo_port) != 0)
+    svc_start_timer(timer, milliseconds);
+    while (svc_timer_active(timer))
         ;
     return 0;
 }
@@ -196,83 +166,51 @@ static int console_reset_color(void)
     return 0;
 }
 
-static int env_reset_request(void)
-{
-    outp(ENV_COMMAND_PORT, ENV_COMMAND_RESET);
-    return 0;
-}
-
-static int env_read_status(void)
-{
-    return (int8_t)inp(ENV_COMMAND_PORT);
-}
-
-static int env_send_string(const char *value)
-{
-    while (*value != '\0') {
-        outp(ENV_DATA_PORT, (unsigned)(*value & 0xff));
-        value++;
-    }
-    outp(ENV_DATA_PORT, 0);
-    return 0;
-}
-
-static int env_send_value(const char *value)
-{
-    for (int index = 0; *value != '\0' && index < ENV_VALUE_LENGTH - 1; index++) {
-        outp(ENV_DATA_PORT, (unsigned)(*value & 0xff));
-        value++;
-    }
-    outp(ENV_DATA_PORT, 0);
-    return 0;
-}
-
-static int env_read_string(char *destination, int destination_size)
-{
-    int index;
-    uint8_t response_byte;
-
-    index = 0;
-    while (index < destination_size - 1) {
-        response_byte = (uint8_t)inp(ENV_RESPONSE_PORT);
-        if (response_byte == 0)
-            break;
-        destination[index] = (char)(response_byte & 0x7f);
-        index++;
-    }
-    destination[index] = '\0';
-    return index;
-}
-
 static int env_initialize(void)
 {
-    env_reset_request();
-    outp(ENV_COMMAND_PORT, ENV_COMMAND_INITIALIZE);
-    return env_read_status();
+    return svc_operation_send(SERVICE_GROUP_ENVIRONMENT, ENV_COMMAND_INITIALIZE, NULL, 0, NULL, 0);
 }
 
 static int env_get_value(const char *key, char *val, int maxlen)
 {
-    int status_code;
+    unsigned char request[17];
+    char response[ENV_VALUE_LENGTH];
+    int key_length = strlen(key);
+    int length;
+    int index;
 
-    env_reset_request();
-    env_send_string(key);
-    outp(ENV_COMMAND_PORT, ENV_COMMAND_GET);
-    status_code = env_read_status();
-    if (status_code == ENV_STATUS_OK)
-        env_read_string(val, maxlen);
-    else
-        val[0] = '\0';
-    return status_code;
+    val[0] = '\0';
+    if (key_length < 1 || key_length > 16)
+        return -1;
+    request[0] = key_length;
+    memcpy(request + 1, key, key_length);
+    length = svc_operation_send(SERVICE_GROUP_ENVIRONMENT, ENV_COMMAND_GET, request, key_length + 1,
+                    response, ENV_VALUE_LENGTH - 1);
+    if (length < 0)
+        return length;
+    if (length >= maxlen)
+        length = maxlen - 1;
+    for (index = 0; index < length; index++)
+        val[index] = response[index] & 0x7f;
+    val[length] = '\0';
+    return ENV_STATUS_OK;
 }
 
 static int env_set_value(const char *key, const char *val)
 {
-    env_reset_request();
-    env_send_string(key);
-    env_send_value(val);
-    outp(ENV_COMMAND_PORT, ENV_COMMAND_SET);
-    return env_read_status();
+    unsigned char request[274];
+    int key_length = strlen(key);
+    int value_length = strlen(val);
+
+    if (key_length < 1 || key_length > 16 || value_length > 255)
+        return -1;
+    request[0] = key_length;
+    memcpy(request + 1, key, key_length);
+    request[key_length + 1] = value_length;
+    request[key_length + 2] = 0;
+    memcpy(request + key_length + 3, val, value_length);
+    return svc_operation_send(SERVICE_GROUP_ENVIRONMENT, ENV_COMMAND_SET, request, key_length + value_length + 3,
+                  NULL, 0);
 }
 
 static int json_append_text(char *buffer, int *pos, int buffer_size, const char *text)
@@ -787,14 +725,19 @@ static int chat_send_request(void)
         fflush(stdout);
     }
 
-    outp(120, 1);
-    outp(122, 1);
-
-    for (int index = 0; index < request_length; index++)
-        outp(121, (unsigned)(request_buffer[index] & 0xff));
-    outp(121, 0);
-
-    inp(120);
+    if (svc_operation_send(SERVICE_GROUP_CHAT, 0, NULL, 0, NULL, 0) < 0 ||
+        svc_operation_send(SERVICE_GROUP_CHAT, 2, NULL, 0, NULL, 0) < 0)
+        return -1;
+    for (int index = 0; index < request_length; ) {
+        int count = request_length - index;
+        if (count > 2047)
+            count = 2047;
+        if (svc_operation_send(SERVICE_GROUP_CHAT, 1, request_buffer + index, count, NULL, 0) < 0)
+            return -1;
+        index += count;
+    }
+    if (svc_operation_send(SERVICE_GROUP_CHAT, 3, NULL, 0, NULL, 0) < 0)
+        return -1;
 
     response_length = chat_receive_response(response_buffer, ASSISTANT_RESPONSE_LENGTH, true);
     if (response_length > 0) {
@@ -813,6 +756,11 @@ static int chat_send_request(void)
 static int chat_receive_response(char *buffer, int bufsize, bool echo)
 {
     int status;
+    unsigned char chunk[259];
+    unsigned char maximum[2];
+    int chunk_length;
+    int chunk_count;
+    int chunk_index;
     uint8_t character_value;
     int pos;
     int timeout;
@@ -830,18 +778,29 @@ static int chat_receive_response(char *buffer, int bufsize, bool echo)
         wrap_reset();
 
     while (pos < bufsize - 1) {
-        status = inp(123);
+        if (svc_operation_send(SERVICE_GROUP_CHAT, 4, NULL, 0, chunk, 1) != 1)
+            return -1;
+        status = chunk[0];
         if (status == OPENAI_STATUS_DATA_READY) {
-            while (status == OPENAI_STATUS_DATA_READY && pos < bufsize - 1) {
-                character_value = (uint8_t)inp(124) & 0x7f;
+            maximum[0] = 0;
+            maximum[1] = 1;
+            chunk_length = svc_operation_send(SERVICE_GROUP_CHAT, 5, maximum, 2, chunk, sizeof(chunk));
+            if (chunk_length < 3)
+                return -1;
+            chunk_count = chunk[1] | ((unsigned)chunk[2] << 8);
+            if (chunk_count > 256 || chunk_length != chunk_count + 3) {
+                printf("Error: malformed chat chunk\n");
+                return -1;
+            }
+            status = chunk[0];
+            for (chunk_index = 0; chunk_index < chunk_count &&
+                 pos < bufsize - 1; chunk_index++) {
+                character_value = chunk[chunk_index + 3] & 0x7f;
 
-                if (character_value == '\r') {
-                    status = inp(123);
+                if (character_value == '\r')
                     continue;
-                }
                 if (character_value == '\n') {
                     pending_newlines++;
-                    status = inp(123);
                     continue;
                 }
 
@@ -882,11 +841,18 @@ static int chat_receive_response(char *buffer, int bufsize, bool echo)
                         buffered_echo_count = 0;
                     }
                 }
-                status = inp(123);
             }
-            if (status == OPENAI_STATUS_DATA_READY && pos >= bufsize - 1)
+            if (pos >= bufsize - 1)
                 response_truncated = true;
-            timeout = 0;
+            if (chunk_count > 0)
+                timeout = 0;
+            else if (status == OPENAI_STATUS_EOF)
+                break;
+            else {
+                if (++timeout > 3000)
+                    break;
+                timer_delay_milliseconds(0, 10);
+            }
         } else if (status == OPENAI_STATUS_EOF) {
             break;
         } else {

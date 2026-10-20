@@ -12,176 +12,40 @@ Follow this fast loop for most development:
 1. **Pick an editor** – Example: [Visual Studio Code](https://code.visualstudio.com/){:target=_blank} (with optional Copilot / LLM assistance).
 2. Create a folder on your host computer to hold your source files.
 3. **Create or modify your source** – Edit as normal on your host (BASIC, C, ASM, etc.).
-4. **Expose the directory over HTTP** – Either:
-    * Use the VS Code Use the [Visual Code Live Server (Five Server) extension](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer){:target=_blank} extension, or
-    * Use a simple built‑in Python server:
-
-      ```bash
-      python -m http.server 5500
-      ```
-
-5. **Tell the Altair side where to fetch files** – In the Altair web terminal, set the HTTP endpoint (only needed once per session):
-
-    Change to the `B:` drive first if not already there.
+4. **Build C on the host** using dcc and the app's `build-app.ps1`, or use
+   `dccmake` for a build without installing into a disk image. See
+   [C Programming](03-C-programming.md).
+5. **Make text/assembly files available to FT**. Local/Docker builds serve
+   the configured `Apps` root; ESP32 uses its configured remote FT server.
+   The retired GF HTTP utility and BDS build workflows are not supported.
+6. **Transfer a file into CP/M** with the current FT client:
 
     ```cpm
-    gf -e <your_ip_address>:5500
-    ```
-
-    This corresponds to `http://<your_ip_address>:5500`.
-
-    Note, the endpoint is stored in a file on the emulated disk called `gf.txt` so it persists across emulator restarts.
-
-6. **Transfer a file into CP/M** – From the CP/M prompt:
-
-    ```cpm
-    gf -f hello.bas
+    ft -g games/awari.bas
     ```
 
     (File names are case‑insensitive; CP/M convention is uppercase.)
 
 7. **Run or build** – Examples:
-    * BASIC: `mbasic hello`
+    * BASIC: `mbasic awari`.
 
-Repeat steps 2, 5, and 6 as you refine your program.
-
-### GF Command Reference
-
-The `gf` (Get File) utility is a versatile file transfer tool with multiple options for downloading files from web endpoints or the built-in games repository.
-
-#### Getting Help
-
-To see all available options and usage information:
-
-```cpm
-gf --help
-```
-
-This displays the full help message with examples.
-
-#### Setting the HTTP Endpoint
-
-Set a custom HTTP or HTTPS endpoint URL for file transfers:
-
-```cpm
-gf -e http://192.168.1.100:5500
-gf -e https://example.com/files
-```
-
-The endpoint URL is automatically saved to `gf.txt` on the emulated disk and persists across emulator restarts.
-
-#### Downloading Files from Your Endpoint
-
-Download a specific file from the configured endpoint:
-
-```cpm
-gf -f myfile.txt
-gf -f hello.bas
-gf -f program.c
-```
-
-File names are case-insensitive, following CP/M conventions.
-
-#### Downloading Games from Built-in Repository
-
-The `gf` utility includes access to a built-in games repository. Download games using:
-
-```cpm
-gf -g love.bas
-gf -g adventure.bas
-```
-
-This feature provides quick access to classic games without needing to set up your own web server.
-
-#### Version Information
-
-Check the current version of the GF utility:
-
-```cpm
-gf --version
-```
-
-#### Complete Command Summary
-
-```plaintext
-GF (Get File) - File Transfer Utility v1.3
-Transfer files from web over HTTP(s)
-
-Usage: gf [--help] [--version] [-e <url>] [-f <filename>] [-g <gamefile>]
-
-Options:
-  --help       Show this help message
-  --version    Show version information
-  -e <url>     Set a custom HTTP/HTTPS endpoint URL
-  -f <filename> Download a specific file from the configured endpoint
-  -g <gamefile> Download a game file from the built-in games repository
-
-Examples:
-  gf -e http://localhost:5500     Set local development server
-  gf -e https://example.com/files Set remote HTTPS endpoint
-  gf -f myfile.txt                Download myfile.txt from configured endpoint
-  gf -g love.bas                  Download love.bas from games repository
-```
+Repeat the edit/build/transfer steps as you refine your program. FT `-g`
+normalizes text to CP/M line endings; use `-gb` for a prebuilt `.COM` file.
+FT is not an arbitrary HTTP/GitHub downloader.
 
 ### Automating Transfers & Builds with CP/M SUBMIT
 
-The Submit command automates file transfer and build steps and is a a time-saver.
-
-Prerequisite: Ensure the endpoint is already set (`gf -e <your_ip_address>:5500`).
-
-On the `B:` drive there are two helper submit files: `C.SUB` and `ASM.SUB`.
-
-They perform (a) fetch via `gf -f`, then (b) compile / assemble, then (c) link.
-
-Examples:
-
-#### Transfer, compile, and link a C source file
+Current `.SUB` workflows fetch and assemble the retained assembly apps.
+For example:
 
 ```cpm
-submit c hello
+b:
+ft -g date/date.sub
+submit date
 ```
 
-!!! info
-
-    The `c.sub` file fetches the source file, compiles it with BDS C, then links it to create `hello.com`.
-
-    ```plaintext
-    gf -f $1.c
-    cc $1   
-    clink $1 dxweb dxtimer
-    ```
-
-Now you can run the program:
-
-```cpm
-hello
-```
-
-#### Transfer, assemble, and link an assembly source file
-
-Change to the `B:` drive first if not already there.
-
-```cpm
-submit asm vibe
-```
-
-!!! info
-
-    The `asm.sub` file fetches the source file, assembles it with ASM80, then links it to create `demo.com`.
-
-    ```plaintext
-    gf -f $1.asm
-    d:asm $1
-    d:load $1
-    era $1.prn
-    era $1.hex
-    ```
-
-Now you can run the program:
-
-```cpm
-vibe
-```
+The MCP build server can run these workflows automatically. C applications
+are built with dcc on the host, not with the removed BDS SDK/compiler.
 
 ## Editing Files with the Word-Master Text Editor
 
@@ -189,7 +53,8 @@ The emulator bundles [MicroPro Word-Master](https://github.com/AzureSphereCloudE
 
 ### Ten‑minute video introduction
 
-Fastest workflow: edit with Visual Studio Code, then copy using `gf`. Watch the video for an overview:
+Fastest workflow: edit with Visual Studio Code, then transfer with FT. The
+historical video uses an older transfer workflow:
 
 [▶ Video: Editing Files Workflow (YouTube)](https://www.youtube.com/watch?v=3C_5WcSWqro){:target=_blank}
 
@@ -197,7 +62,7 @@ If embedding is required later, update the markdown linter configuration to allo
 
 ### Editing inside Word-Master
 
-Preferred path remains: local edit + `gf` transfer. But if you want the authentic experience:
+Preferred path remains: local editing and FT transfer. For the authentic experience:
 
 1. Toggle the web terminal to character mode (`Ctrl+L`).
 2. Launch Word-Master (e.g., `wm filename.asm`).

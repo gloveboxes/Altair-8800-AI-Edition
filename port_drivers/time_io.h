@@ -26,6 +26,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Monotonic milliseconds in the same boot-relative domain as clock output. */
+uint64_t time_elapsed_ms(void);
+
 /**
  * @brief Handle output to time ports
  *

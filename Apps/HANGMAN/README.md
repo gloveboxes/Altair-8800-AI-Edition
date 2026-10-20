@@ -2,7 +2,9 @@
 
 A C11 Hangman game for CP/M 2.2 on the Z80, built with dcc. The game uses a
 bordered VT100 interface sized for an 80-by-24 terminal, CP/M direct console
-input, and the Altair emulator hardware random-number port.
+input, and the Altair utility random-number service. The dcc target links
+`../COMMON/DXSVC.C` and requires ROMLESS-SVC/1 group `0x21`, operation 0, on
+shared ports 2/3/4.
 
 ## Build
 

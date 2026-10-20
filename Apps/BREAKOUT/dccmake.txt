@@ -5,14 +5,14 @@
 # e.g., export DCC_DIR=$HOME/GitHub/dcc
 # Note: dccmake.txt values are literal; ${...} is not expanded here.
 
-dcc-input=breakc11.c
+dcc-input=breakc11.c, ../COMMON/DXSVC.C
 dcc-output=BREAKOUT
 dcc-floatio=false
 dcc-flongio=false
 dcc-peep=true
 dcc-build-dir=build
 dcc-runtime=${DCC_DIR}/DCCRTL.MAC
-dcc-include-directory=${DCC_DIR}
+dcc-include-directory=${DCC_DIR}, ../COMMON
 dcc-tool=${DCC_DIR}/dcc
 dccpeep-tool=${DCC_DIR}/dccpeep
 dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip

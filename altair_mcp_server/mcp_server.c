@@ -285,6 +285,8 @@ static bool emulator_boot(const char *drive_a, const char *drive_b, const char *
 {
     disk_controller_t controller;
 
+    /* Join any old service job before resetting its drivers and guest. */
+    io_ports_shutdown();
     host_disk_close();
     g_input_read = 0;
     g_input_write = 0;
@@ -297,6 +299,10 @@ static bool emulator_boot(const char *drive_a, const char *drive_b, const char *
     }
     host_files_init(g_apps_root);
     time_reset();
+    if (!io_ports_init()) {
+        fprintf(stderr, "failed to initialize shared service worker\n");
+        return false;
+    }
 
     controller = host_disk_controller();
     memset(memory, 0, 64 * 1024);
@@ -1100,10 +1106,10 @@ int main(int argc, char **argv)
     g_drive_b = (argc > 2) ? argv[2] : "disks/bdsc-v1.60.dsk";
     g_drive_c = (argc > 3) ? argv[3] : "disks/blank.dsk";
     g_drive_d = (argc > 4) ? argv[4] : "disks/blank_d.dsk";
-    g_pristine_a = (argc > 5) ? argv[5] : "../disk_archive/cpm63k.dsk";
-    g_pristine_b = (argc > 6) ? argv[6] : "../disk_archive/bdsc-v1.60.dsk";
-    g_pristine_c = (argc > 7) ? argv[7] : "../disk_archive/blank.dsk";
-    g_pristine_d = (argc > 8) ? argv[8] : "../disk_archive/blank.dsk";
+    g_pristine_a = (argc > 5) ? argv[5] : "pristine/cpm63k.dsk";
+    g_pristine_b = (argc > 6) ? argv[6] : "pristine/bdsc-v1.60.dsk";
+    g_pristine_c = (argc > 7) ? argv[7] : "pristine/blank.dsk";
+    g_pristine_d = (argc > 8) ? argv[8] : "pristine/blank.dsk";
     g_apps_root = (argc > 9) ? argv[9] : "../Apps";
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -1138,6 +1144,7 @@ int main(int argc, char **argv)
 
     jsonrpc_run(&server);
 
+    io_ports_shutdown();
     host_disk_close();
     return 0;
 }

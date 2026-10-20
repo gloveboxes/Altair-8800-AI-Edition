@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(altair_local C CXX)
 
+include(CTest)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -85,7 +87,8 @@ set(ALTAIR_LOCAL_COMMON_SOURCES
     ansi_input.c
     websocket_console.c
     web_terminal.c
-    PortDrivers/io_ports.c
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/io_ports.c
+    ${CMAKE_CURRENT_LIST_DIR}/../port_drivers/io_service.c
     PortDrivers/host_chat_io.c
     PortDrivers/environment_io.c
     PortDrivers/host_files_io.c
@@ -123,6 +126,7 @@ function(configure_altair_local target)
 
     target_compile_definitions(${target} PRIVATE
         LOCAL_RUNNER_REPO_ROOT="${CMAKE_CURRENT_LIST_DIR}/.."
+        ALTAIR_LOCAL_SERVICE_SENSE_HAT=1
     )
 
     target_link_libraries(${target} PRIVATE Threads::Threads)
@@ -149,6 +153,12 @@ function(configure_altair_local target)
     if(ALTAIR_LOCAL_HAVE_LIBCURL)
         target_compile_definitions(${target} PRIVATE HAVE_LIBCURL=1)
         target_link_libraries(${target} PRIVATE CURL::libcurl)
+    endif()
+
+    if(BUILD_TESTING)
+        add_subdirectory(../port_drivers/tests io-service-tests)
+        add_test(NAME x80-interrupts COMMAND x80-interrupt-test)
+        add_test(NAME x80-correctness COMMAND x80-correctness-test)
     endif()
 
     if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")

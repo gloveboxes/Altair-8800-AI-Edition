@@ -1,6 +1,6 @@
 ; INTTEST - exercise the emulator's periodic Z80 interrupt source.
 ;
-; OUT 52,n selects n maskable interrupts per second; zero disables it.
+; OUT 7,n selects n maskable interrupts per second; zero disables it.
 ; The device supplies FFH during interrupt acknowledge. This program uses
 ; Z80 interrupt mode 1, so accepted interrupts enter through 0038H.
 ;
@@ -10,7 +10,7 @@
 
 BDOS    EQU     5
 FPRINT  EQU     9
-INTPRT  EQU     52
+INTPRT  EQU     7
 INTVEC  EQU     0038H
 TARGET  EQU     50
 

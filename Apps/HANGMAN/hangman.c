@@ -16,8 +16,7 @@
 #define FIELD_WIDTH 68
 
 extern int bdos(int function, int value);
-extern int inp(unsigned port);
-extern void outp(unsigned port, unsigned value);
+#include "../COMMON/DXSVC.H"
 
 static const char *const words[WORD_COUNT] = {
     "ALTAIR", "ASSEMBLER", "BASIC", "BINARY",
@@ -196,12 +195,7 @@ static int upper_letter(int key)
 
 static uint16_t random_word(void)
 {
-    uint16_t value;
-
-    outp(45, 1);
-    value = (uint16_t)inp(200);
-    value |= (uint16_t)(inp(200) << 8);
-    return value;
+    return svc_random_u16();
 }
 
 static bool word_complete(const char *word, const bool guessed[])

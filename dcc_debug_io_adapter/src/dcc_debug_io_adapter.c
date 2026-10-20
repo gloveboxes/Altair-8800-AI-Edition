@@ -62,6 +62,7 @@ static void adapter_close(void *context)
     (void)context;
     if (!s_initialized)
         return;
+    io_ports_shutdown();
     interrupt_timer_close();
     weather_io_close();
     chat_io_close();
@@ -111,6 +112,16 @@ int dcc_debug_io_adapter_init(const dcc_debug_io_adapter_config_t *config,
     chat_io_init();
     weather_io_init();
     time_reset();
+    if (!io_ports_init())
+    {
+        interrupt_timer_close();
+        weather_io_close();
+        chat_io_close();
+        host_files_close();
+        environment_io_close();
+        set_error(error, error_size, "cannot initialize I/O services");
+        return 0;
+    }
     s_initialized = 1;
 
     memset(adapter, 0, sizeof(*adapter));

@@ -2,6 +2,11 @@
 
 A VT100 spreadsheet written in dcc C11 for CP/M 2.2 on the Z80.
 
+The formula engine's `RAND` uses ROMLESS-SVC/1 utility group `0x21`,
+operation 0, through `../COMMON/DXSVC.C` on shared ports 2/3/4. The result
+retains the existing 0–32767 range. Both 8.3 entry-point sources and the
+service helper are linked by `dccmake.txt`.
+
 ## Implementation
 
 - `sheets_ui_c11.c`: display, keyboard handling, file I/O, grid operations,

@@ -4,8 +4,8 @@ This directory contains a CP/M/Z80 implementation for dcc:
 
 - `breakc11.c`: optimized C11 source for dcc
 
-The C11 version is self-contained and talks directly to the Altair timer and
-random-number ports. It uses descriptive C11 identifiers, byte-sized game
+The C11 version links `../COMMON/DXSVC.C` for framed timer and random-number
+services. It uses descriptive C11 identifiers, byte-sized game
 state, a precomputed brick-column collision map, and a 4096-byte fully buffered
 console stream. Output is flushed before keyboard polling and after rendered
 frames so controls remain responsive.
@@ -36,5 +36,6 @@ installs it into the default C: disk image.
 - Space or Enter: launch ball
 - Escape or Ctrl-C: quit
 
-The host emulator must provide the Altair timer ports 26/27 and random-number
-ports 45/200. With ntvcm, load this repository's Altair I/O library.
+The host must implement ROMLESS-SVC/1 on ports 2/3/4: timer group `0x10`
+(millisecond timer 1) and utility group `0x21` (random operation 0).
+With ntvcm, load this repository's Altair I/O library.

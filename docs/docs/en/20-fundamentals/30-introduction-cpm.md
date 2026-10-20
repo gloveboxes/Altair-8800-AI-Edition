@@ -49,29 +49,32 @@ Here are some CP/M commands to get you started:
 - List the contents of a file.
 
     ```cpm
-    type hw.c
+    type lunar.bas
     ```
 
 - Rename a file.
 
     ```cpm
-    ren hello.c=hw.c
+    ren lander.bas=lunar.bas
     ```
 
 ## Get started with retro gaming
 
 ## Download a retro game
 
-The `gf` (Get File) utility provides easy access to a built-in games repository. You can download classic retro games directly without needing to set up your own web server or navigate through GitHub repositories.
+The `Apps/GAMES` folder contains classic BASIC games. The local/Docker
+FT service can copy them from the configured Apps root into CP/M.
+On ESP32, make them available through the configured remote FT server.
+The obsolete GF HTTP downloader has been retired.
 
 ### Using the Built-in Games Repository
 
-The simplest way to download retro games is using the `-g` option:
+Use the current FT client's text-transfer option:
 
-1. From the Altair web terminal CP/M command prompt, use the **Get File** command with the game option:
+1. From the CP/M command prompt:
 
     ```cpm
-    gf -g love.bas
+    ft -g games/awari.bas
     ```
 
 2. The game file will be downloaded directly to your CP/M filesystem.
@@ -79,7 +82,7 @@ The simplest way to download retro games is using the `-g` option:
 3. Start the game from the CP/M command line:
 
     ```cpm
-    mbasic love
+    mbasic awari
     ```
 
 ### Common Games Available
@@ -87,21 +90,17 @@ The simplest way to download retro games is using the `-g` option:
 Here are some popular games you can download:
 
 ```cpm
-gf -g love.bas          # The classic Love game
-gf -g menu.bas          # Menu system for games
-gf -g adventure.bas     # Text adventure game
-gf -g lunar.bas         # Lunar Lander simulation
+ft -g games/awari.bas
+ft -g games/bagels.bas
+ft -g games/animal.bas
 ```
 
 ### Alternative: Manual Repository Access
 
 You can also browse and download games manually from the [Retro Games](https://github.com/AzureSphereCloudEnabledAltair8800/RetroGames){:target=_blank} repository if you prefer to see what's available before downloading.
 
-**Important Note:** Many retro games expect to find `MENU.BAS` in the CP/M filesystem. Be sure to download it as well:
-
-```cpm
-gf -g menu.bas
-```
+If a game requires additional files, make those available through the same
+FT server and transfer them too.
 
 ## Retro game acknowledgments
 

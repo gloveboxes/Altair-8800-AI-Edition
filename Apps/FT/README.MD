@@ -1,19 +1,10 @@
 # Altair FT (File Transfer) App
 
-A CP/M application that downloads files from a Remote FT Server. Two
-feature-for-feature implementations live in this folder:
-
-- `FT.C` - the original BDS C source.
-- `FT.ASM` - an 8080 macro-assembler (MAC) port with identical behaviour.
+A CP/M application that downloads files from a Remote FT Server.
+`FT.ASM` is the maintained 8080 macro-assembler (MAC) implementation.
+The legacy BDS C alternative has been removed.
 
 ## Building
-
-BDS C:
-
-```
-A> cc ft.c
-A> clink ft
-```
 
 MAC (macro assembler):
 
@@ -23,7 +14,7 @@ A> load ft
 ```
 
 `FT.SUB` builds the assembler version end-to-end (fetch, `mac`, `load`, copy
-to `A:`, clean up) for the CP/M MCP build server.
+to `C:`, clean up) for the CP/M MCP build server.
 
 ## Usage
 
@@ -61,12 +52,18 @@ Done (3072 bytes)
 
 ## Protocol
 
-The FT app uses I/O ports 60 and 61 to communicate with the firmware:
+The FT app uses dedicated I/O ports **21 (0x15)** and **22 (0x16)**:
 
-- **Port 60 (OUT)**: Command port - sends commands to start transfer, request chunks, close
-- **Port 60 (IN)**: Status port - returns transfer status (IDLE, DATAREADY, EOF, ERROR)
-- **Port 61 (OUT)**: Data port - sends filename characters
-- **Port 61 (IN)**: Data port - reads file data bytes
+- **Port 21 (OUT)**: Command port - sends commands to start transfer, request chunks, close
+- **Port 21 (IN)**: Status port - returns IDLE=0, DATAREADY=1, EOF=2, BUSY=3, ERROR=255
+- **Port 22 (OUT)**: Data port - sends filename characters, then NUL
+- **Port 22 (IN)**: Data port - reads count byte (zero means 256), then exactly that many bytes
+
+FT does **not** use shared-service length framing. Older FT binaries using
+ports 60/61 cannot fetch their own replacement from the migrated firmware:
+install the newly assembled `FT.COM` into the boot/tools images first using
+the host-side `scripts/cpm-install.ps1` helper. The MCP pristine tools image
+must contain the new client before any submit workflow can run.
 
 ## Requirements
 
