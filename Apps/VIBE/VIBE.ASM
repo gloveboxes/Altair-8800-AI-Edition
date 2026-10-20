@@ -19,7 +19,7 @@
 ; Hardware Requirements:
 ;   - Intel 8080 CPU
 ;   - CP/M operating system
-;   - Hardware timer on ports 28-29 (decimal)
+;   - Dedicated timer interface on port 23 (decimal), countdown timer 2
 ; ============================================================================
 
         ORG     0100H          ; Standard CP/M program load address (TPA start)
@@ -28,13 +28,17 @@
 ; CONSTANTS AND EQUATES
 ; ============================================================================
 BDOS    EQU     0005H          ; CP/M BDOS entry point (system call interface)
-TMRHI   EQU     28             ; Timer high-byte port (decimal) - upper 8 bits
-TMRLO   EQU     29             ; Timer low-byte port (decimal) - starts countdown
+TMRIO   EQU     23             ; Dedicated countdown/stopwatch port (decimal)
+TMRSET  EQU     12H            ; Start millisecond countdown timer 2
+TMRGET  EQU     22H            ; Select timer 2 running status
 
 ; ============================================================================
 ; PROGRAM INITIALIZATION
 ; ============================================================================
 START:                          ; Program entry point (CP/M transfers control here)
+        IN      TMRIO           ; Abort any incomplete timer parameter write
+        XRA     A
+        OUT     TMRIO           ; Reset timer interface without changing deadlines
         LXI     H,60000         ; Load HL with 60000 (total iterations to perform)
         SHLD    LOPCNT          ; Store in LOPCNT (remaining loop counter)
         LXI     H,1             ; Load HL with 1 (starting loop number)
@@ -331,41 +335,44 @@ W5ESC:                          ; ESC key was pressed
 ; ----------------------------------------------------------------------------
 ; W0100 - Wait 50 Milliseconds Using Hardware Timer
 ; ----------------------------------------------------------------------------
-; Uses the Altair hardware timer (ports 28-29) to create an accurate 50ms delay.
-; The timer counts down from the programmed value to zero.
+; Uses countdown timer 2 through port 23 to create an accurate 50ms delay.
 ;
 ; Timer Operation:
-;   1. Write high byte to port 28 (TMRHI)
-;   2. Write low byte to port 29 (TMRLO) - this starts the countdown
-;   3. Poll port 29 until it reads non-zero (timer has started)
-;   4. Poll port 29 until it reads zero (countdown complete)
-;
-; Timer Value Calculation:
-;   50ms = 50 decimal = 32H (hex)
-;   High byte = 0, Low byte = 50 (0x32)
+;   1. Write start command 12H, then duration low/high bytes (50, 0)
+;   2. Write query command 22H to select timer 2
+;   3. Poll: 1 = running, 0 = expired, other values = interface error
+; Arming is synchronous; the first read may already report expiry.
 ;
 ; Input:   None
 ; Output:  None (delays for ~50ms)
 ; Affects: A
 ; ----------------------------------------------------------------------------
 W0100:
-        MVI     A,0             ; A = 0 (high byte of timer value)
-        OUT     TMRHI           ; Write high byte to timer port 28
-        
-        MVI     A,32H           ; A = 32H (50 decimal - low byte of timer value)
-        OUT     TMRLO           ; Write low byte to port 29 (starts countdown)
-        
-W1STR:                          ; Wait for timer to start
-        IN      TMRLO           ; Read timer port 29
-        ORA     A               ; Test if zero (timer hasn't started yet)
-        JZ      W1STR           ; If still zero, keep waiting
-        
-W1CHK:                          ; Wait for timer to reach zero
-        IN      TMRLO           ; Read timer port 29
-        ORA     A               ; Test if zero (countdown complete)
-        JNZ     W1CHK           ; If not zero, keep waiting
+        MVI     A,TMRSET
+        OUT     TMRIO
+        MVI     A,50            ; Duration low byte
+        OUT     TMRIO
+        XRA     A               ; Duration high byte; final write arms timer
+        OUT     TMRIO
+        MVI     A,TMRGET
+        OUT     TMRIO
+
+W1CHK:
+        IN      TMRIO
+        CPI     2
+        JNC     TMRERR
+        ORA     A
+        JNZ     W1CHK
         
         RET                     ; Return to caller (50ms has elapsed)
+
+TMRERR:
+        IN      TMRIO
+        XRA     A
+        OUT     TMRIO
+        LXI     D,TMRMSG
+        CALL    PRSTR
+        JMP     DONE
 
 ; ============================================================================
 ; DATA STORAGE AREA
@@ -386,6 +393,7 @@ CHCNT:          DB      00H     ; Chunk counter for delay routine (8-bit)
 
 ; Message text - must end with '$' (CP/M string terminator)
 MSGTXT:         DB      'Vibe coded with OpenAI Codex - press esc to exit - loop number ', '$'
+TMRMSG:         DB      'Timer interface error',0DH,0AH,'$'
 
 ; ============================================================================
 ; PROGRAM END

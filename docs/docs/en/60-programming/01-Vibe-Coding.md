@@ -38,6 +38,13 @@ sources and their dcc build configurations:
 
 Are great examples how to use the IO ports and other features such as timers and VT100 terminal control characters of the Altair 8800 for Vibe-Engineering.
 
+For an Intel 8080 assembly example, see
+[VIBE.ASM](https://github.com/gloveboxes/Altair-8800-AI-Edition/blob/main/Apps/VIBE/VIBE.ASM).
+It uses countdown timer 2 on dedicated port 23: write command `0x12`, then
+the 50 ms duration as low/high bytes (`50, 0`), and select status with `0x22`.
+Repeated reads return 1 while running and 0 on expiry. The old timer ports
+28-29 are no longer supported; see the [timer ABI](01-ROMless-IO-Mapping.md#dedicated-timer-port-0x17-decimal-23).
+
 When crafting prompts for the LLM, consider including references to existing documentation and manuals for the Altair 8800. This can help the model generate more accurate and contextually relevant code. Useful resources include:
 
 ## Example Prompts for Vibe-Engineering
