@@ -144,5 +144,7 @@ SVFOUR: CALL    SVTEXT
 SVMSG:  DB      13,10,'Service error/timeout; transport reset',13,10,'$'
 SVTYP:  DB      0
 SVLEN:  DW      0
-SVBUF:  DS      2049
+; Reserve the full protocol capacity in RAM, not in the COM file.
+SVBUF   EQU     $
+WORKND  EQU     SVBUF+2049
         END

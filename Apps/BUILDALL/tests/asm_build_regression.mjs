@@ -55,17 +55,23 @@ function extract(image, name, tag) {
 const sources = [
     'ATTN/ATTNINF.ASM', 'AUTORUN/AUTORUN.ASM', 'EDIT/EDIT.ASM', 'ENV/ENV.ASM',
     'ESP32/ESP32.ASM', 'FT/FT.ASM', 'INTTEST/INTTEST.ASM', 'SLEEP/SLEEP.ASM',
-    'VIBE/VIBE.ASM',
+    'VIBE/VIBE.ASM', 'DATE/DATE.ASM',
 ];
+const sizeLimits = new Map([
+    ['ENV.COM', 3072], ['ESP32.COM', 1024], ['EDIT.COM', 8192], ['DATE.COM', 512],
+    ['ATTNINF.COM', 4096],
+]);
 for (const source of sources) {
     const fixture = path.join(work, path.basename(source));
     fs.copyFileSync(path.join(repo, 'Apps', source), fixture);
     build(fixture);
     const name = path.parse(fixture).name + '.COM';
     const compiled = fs.readFileSync(path.join(work, name));
+    if (sizeLimits.has(name))
+        assert(compiled.length <= sizeLimits.get(name), `${name}: runtime workspace leaked into COM`);
     assert.deepEqual(extract(images[0], name, 'c'), compiled);
     if (name === 'FT.COM') assert.deepEqual(extract(images[1], name, 'b'), compiled);
-    console.log(`${name}: real M80/L80 build and disk round-trip PASS`);
+    console.log(`${name}: ${compiled.length} bytes, real M80/L80 build and disk round-trip PASS`);
 }
 const fixture = path.join(work, 'ASMTEST.ASM');
 fs.writeFileSync(fixture, '        ORG 0100H\n        MVI A,42\n        RET\n        END\n');

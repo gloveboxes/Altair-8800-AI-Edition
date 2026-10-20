@@ -59,6 +59,15 @@ The helper checks assembler/linker output and installs through the same
 copied beside their sources; temporary tools and intermediate files are removed.
 No existing CP/M FT binary, remote server or HTTP connection is used.
 
+ENV, ESP32, EDIT and the assembly ATTN inference variants define their large
+runtime buffers after all emitted code/data, using `EQU` address arithmetic
+rather than linked `DS` storage. This preserves their RAM capacity without
+writing blank workspace into the `.COM` file. ENV retains its 32-variable cache,
+255-character values and full 2,048-byte service response capacity. On the current
+M80/L80 build, ENV is 2,688 bytes rather than 14,336, ESP32 is 896 rather than
+3,456, EDIT is 7,424 rather than 12,544, and ATTNINF is 3,840 rather than 13,312.
+CP/M disk usage rounds those lengths up to 2 KB allocation blocks.
+
 To build and install just one assembly application:
 
 ```powershell
@@ -79,7 +88,8 @@ With Node.js, PowerShell and the assembly/disk tools installed:
 node Apps/BUILDALL/tests/asm_build_regression.mjs /tmp/altair-asm-tests /path/to/dcc /path/to/ntvcm
 ```
 
-This builds all nine assembly apps against isolated copies of the disk images,
+This builds all nine assembly apps and the alternate assembly DATE against isolated copies of the disk images,
 checks installed bytes (including both FT copies), verifies the `0100H` entry
 layout and proves that assembler errors leave the previous executable and
-disk images unchanged. It does not modify the repository's disk images.
+disk images unchanged. Size limits reject accidentally emitted workspace in
+ENV, ESP32, EDIT, ATTNINF and DATE. It does not modify the repository's disk images.

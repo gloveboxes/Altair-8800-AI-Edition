@@ -972,22 +972,10 @@ RBUF:   DW      0
 RWR:    DW      0
 RLEN:   DB      0
 RMAX:   DB      0
-NBUF:   DS      6
-NBEND   EQU     $
-SBUF:   DS      8
-KBUF:   DS      KEYSZ
-LBUF:   DS      LINSZ
-EBUF:   DS      VALSZ
-KEYS:   DS      MAXVR*KEYSZ
-VALS:   DS      MAXVR*VALSZ
-        DS      256
-STACK   EQU     $
-
 RBREQ:  DB      2,0A5H
 EWPTR:  DW      0
 ELEFT:  DW      0
 EPTR:   DW      0
-ESBUF:  DS      276
 
 ; Standalone bounded, counted service transport. Preserves BC/DE/HL.
 SVREQ:  PUSH    B
@@ -1089,5 +1077,19 @@ SVTEXT: LDA     SVTYP
 SVMSG:  DB      13,10,'Service error/timeout; transport reset',13,10,'$'
 SVTYP:  DB      0
 SVLEN:  DW      0
-SVBUF:  DS      2049
+
+; Runtime workspace follows all emitted code/data. EQU avoids L80 padding
+; the COM file with the cache, stack and service buffers.
+NBUF    EQU     $
+NBEND   EQU     NBUF+6
+SBUF    EQU     NBEND
+KBUF    EQU     SBUF+8
+LBUF    EQU     KBUF+KEYSZ
+EBUF    EQU     LBUF+LINSZ
+KEYS    EQU     EBUF+VALSZ
+VALS    EQU     KEYS+MAXVR*KEYSZ
+STACK   EQU     VALS+MAXVR*VALSZ+256
+ESBUF   EQU     STACK
+SVBUF   EQU     ESBUF+276
+WORKND  EQU     SVBUF+2049
         END

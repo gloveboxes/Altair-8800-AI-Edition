@@ -28,6 +28,7 @@ static void no_out(uint8_t) {}
 static disk_controller_t disk = {no_out, no_in, no_out, no_in, no_out, no_in};
 static std::map<std::string, unsigned> symbols;
 static z80_t cpu;
+static bool m80_listing;
 
 static uint8_t input(uint8_t port)
 {
@@ -99,21 +100,42 @@ static void out(uint8_t port, uint8_t byte)
         frame = {static_cast<uint8_t>(value.size()), 0};
         frame.insert(frame.end(), value.begin(), value.end());
     } else if (group == 33) frame = {4, 0, 't', 'e', 's', 't'};
+    else if (group == 48) {
+        if (request[0] == 1) return;
+        assert(request[0] == 9);
+        const std::string value = "Key=Mixed value\r\n";
+        frame = {static_cast<uint8_t>(value.size()), 0};
+        frame.insert(frame.end(), value.begin(), value.end());
+    }
     else assert(false);
 }
 
 static void load(const std::string& app)
 {
     symbols.clear();
-    std::ifstream listing(app + (app == "ATTNZ80" ? ".PRN" : ".SYM"));
+    std::ifstream listing(app + (m80_listing || app == "ATTNZ80" ? ".PRN" : ".SYM"));
+    assert(listing.good());
     std::string text((std::istreambuf_iterator<char>(listing)), {});
     std::regex re("([0-9A-F]{4})[ \\t]+([A-Z][A-Z0-9]*)");
     for (std::sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it)
         symbols[(*it)[2].str()] = std::stoul((*it)[1].str(), nullptr, 16);
     memset(memory, 0, 65536);
+    memset(memory + 0x100, 0xa5, 0xee00);
     std::ifstream binary(app + ".COM", std::ios::binary);
     binary.read(reinterpret_cast<char*>(memory + 0x100), 0xee00);
     assert(binary.gcount() > 200);
+    if (app == "ENV" || app == "ESP32" || app == "DATE") {
+        assert(0x100 + binary.gcount() <= symbols.at("SVBUF") + 127);
+        assert(symbols.at("WORKND") == symbols.at("SVBUF") + 2049);
+        assert(symbols.at("WORKND") < 0xe700);
+        memset(memory + symbols.at("SVBUF"), 0xa5, 2049);
+        if (app == "ENV") {
+            assert(symbols.at("VALS") == symbols.at("KEYS") + 32 * 17);
+            assert(symbols.at("STACK") == symbols.at("VALS") + 32 * 256 + 256);
+            assert(symbols.at("ESBUF") == symbols.at("STACK"));
+            assert(symbols.at("SVBUF") == symbols.at("ESBUF") + 276);
+        }
+    }
     z80_reset(&cpu, no_in, no_out, no_in, &disk, input, out);
 }
 
@@ -184,8 +206,10 @@ static unsigned word(const std::string& name)
     return memory[p] + 256 * memory[p + 1];
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    assert(argc == 1 || (argc == 2 && std::string(argv[1]) == "--m80"));
+    m80_listing = argc == 2;
     for (const char* app : {"DATE", "ENV", "ESP32"}) {
         load(app);
         assert(symbols.count("SVREQ") && symbols.count("SVBUF"));
@@ -233,6 +257,27 @@ int main()
             assert(cpu.registers.sp == 0xf000);
         }
         printf("%s: dedicated stopwatch commands, LE bytes and preserved registers PASS\n", app);
+        setup(0, {});
+        const int32_t weights[] = {
+            0, 1, -1, 255, -255, 256, -256, INT32_MAX, INT32_MIN, 8388352, -8388608,
+        };
+        for (unsigned i = 0; i < 1216; ++i) {
+            uint32_t value = static_cast<uint32_t>(weights[i % 11]);
+            for (unsigned byte = 0; byte < 4; ++byte) {
+                unsigned shift = std::string(app) == "ATTNINF" ? 3 - byte : byte;
+                memory[symbols.at("WBUF") + i * 4 + byte] = uint8_t(value >> (shift * 8));
+            }
+        }
+        assert(run("CVT16"));
+        for (unsigned i = 0; i < 1216; ++i) {
+            int32_t expected = weights[i % 11] / 256;
+            if (expected > 32767) expected = 32767;
+            if (expected < -32768) expected = -32768;
+            unsigned p = symbols.at("QBUF") + i * 2;
+            assert(memory[p] + 256 * memory[p + 1] == static_cast<uint16_t>(expected));
+        }
+        assert(memory[symbols.at("WORKB")] == 0xa5);
+        printf("%s: all 1216 weights, signed rounding/clamping and workspace bounds PASS\n", app);
     }
     load("ENV");
     setup(0, {});
@@ -253,6 +298,13 @@ int main()
     assert(std::string(reinterpret_cast<char*>(memory + symbols["KEYS"])) == "A");
     assert(std::string(reinterpret_cast<char*>(memory + symbols["VALS"])) == "1");
     puts("ENV: SET lengths, DELETE, LIST parsing PASS");
+    setup(0, {}); dynamic_reply = true;
+    memory[0x80] = 5; memcpy(memory + 0x81, " list", 5);
+    assert(run("START"));
+    assert(transactions == std::vector<std::vector<uint8_t>>({{1}, {9, 'l', 'i', 's', 't'}}));
+    assert(output == "Key=Mixed value\r\n" && acks == 1 && resets == 0 && status == 0);
+    assert(word("OLDSP") == 0xeffe && cpu.registers.sp == 0xf000);
+    puts("ENV: full command-tail startup, private workspace stack and CCP return PASS");
     load("SLEEP"); setup(0, {}); dynamic_reply = true;
     memory[0x80] = 4; memcpy(memory + 0x81, " 256", 4);
     assert(run("START"));
@@ -275,4 +327,17 @@ int main()
     assert(transactions == std::vector<std::vector<uint8_t>>({{1, 0}, {1, 1}, {1, 2}, {3}, {0}}));
     assert(output.find("12345") != std::string::npos);
     puts("ESP32: info/version/uptime formatting PASS");
+    load("EDIT"); setup(0, {});
+    memory[1] = 3; memory[2] = 0xf0;
+    memory[6] = 0; memory[7] = 0xef;
+    assert(run("INIT"));
+    assert(word("CONOTA") == 0xf00c);
+    assert(word("BRKP") == symbols.at("HEAPB") && word("HEAPND") == 0xee00);
+    assert(word("FREEL") == 0 && word("USED") == 0);
+    assert(symbols.at("STKTOP") == symbols.at("LNPTR") + 4000 + 256);
+    assert(symbols.at("HEAPB") == symbols.at("STKTOP"));
+    for (unsigned p = symbols.at("LNPTR"); p < symbols.at("LNPTR") + 4000; ++p)
+        assert(memory[p] == 0);
+    assert(memory[symbols.at("LNPTR") + 4000] == 0xa5);
+    puts("EDIT: uninitialized workspace, line-table clearing and unchanged heap/stack layout PASS");
 }

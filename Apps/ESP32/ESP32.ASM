@@ -272,11 +272,6 @@ QWR:    DW      0
 REMV:   DW      0
 QANY:   DB      0
 MINV:   DB      0
-BUF:    DS      256
-QBUF:   DS      12
-        DS      128
-STACK   EQU     $
-
 IREQ:   DB      1,0
 VREQ:   DB      3
 UREQ:   DB      0
@@ -377,5 +372,11 @@ SVTEXT: LDA     SVTYP
 SVMSG:  DB      13,10,'Service error/timeout; transport reset',13,10,'$'
 SVTYP:  DB      0
 SVLEN:  DW      0
-SVBUF:  DS      2049
+
+; Reserve RAM without extending the linked COM file.
+BUF     EQU     $
+QBUF    EQU     BUF+256
+STACK   EQU     QBUF+12+128
+SVBUF   EQU     STACK
+WORKND  EQU     SVBUF+2049
         END

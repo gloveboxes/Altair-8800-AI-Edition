@@ -26,6 +26,17 @@ function run(command, args, cwd = work) {
     assert.equal(result.status, 0, output);
     return output;
 }
+function build(name, inputs, settings = []) {
+    run(path.join(dcc, 'dccmake'), [
+        ...inputs, `dcc-output=${name}`, `dcc-build-dir=${path.join(work, name)}`,
+        `dcc-runtime=${path.join(dcc, 'DCCRTL.MAC')}`,
+        `dcc-include-directory=${dcc},${path.join(repo, 'Apps/COMMON')}`,
+        'dcc-peep=true',
+        `m80-command=${path.join(dcc, 'm80c.com')}`,
+        `l80-command=${path.join(dcc, 'l80c.com')}`,
+        ...settings,
+    ]);
+}
 const core = path.join(repo, 'altair8800');
 run(process.env.CC ?? 'cc', ['-I' + core, '-c', path.join(core, 'memory.c'),
     '-o', path.join(work, 'memory.o')]);
@@ -38,23 +49,16 @@ const results = new Map();
 const client = path.join(repo, 'Apps/COMMON/DXSVC.C');
 const source = fs.readFileSync(client, 'utf8');
 const blocks = source.match(/^#asm\r?\n[\s\S]*?^#endasm\r?$/gm);
-assert.equal(blocks?.length, 1, 'Expected one embedded transport assembly block');
+assert.equal(blocks?.length, 2, 'Expected framing and transport assembly blocks');
 const reference = path.join(work, 'DXREF.C');
-fs.writeFileSync(reference, source.replace(blocks[0], ''));
+fs.writeFileSync(reference, '#define DXSVC_C_REFERENCE 1\n' +
+    blocks.reduce((text, block) => text.replace(block, ''), source));
 for (const [name, inputs] of [
     ...(process.argv[4] ? [['BEFORE', [path.resolve(process.argv[4])]]] : []),
     ['CREF', [reference, path.join(here, 'SVCCORE.C')]],
     ['ZCORE', [client]],
 ]) {
-    run(path.join(dcc, 'dccmake'), [
-        path.join(here, 'SVCBEN.C'), ...inputs,
-        `dcc-output=${name}`, `dcc-build-dir=${path.join(work, name)}`,
-        `dcc-runtime=${path.join(dcc, 'DCCRTL.MAC')}`,
-        `dcc-include-directory=${dcc},${path.join(repo, 'Apps/COMMON')}`,
-        'dcc-peep=true',
-        `m80-command=${path.join(dcc, 'm80c.com')}`,
-        `l80-command=${path.join(dcc, 'l80c.com')}`,
-    ]);
+    build(name, [path.join(here, 'SVCBEN.C'), ...inputs]);
     const output = run(path.join(work, 'z80-client-fixture'), [path.join(work, name, name)]);
     const match = output.match(/PASS bytes=(\d+) polling=(\d+) transfer=(\d+)/);
     assert(match, output);
@@ -80,3 +84,42 @@ if (results.has('BEFORE')) {
             `Baseline regressed ${['linked size', 'polling', 'transfer'][index]}`);
 }
 console.log('All C/assembly protocol, timer validation/recovery, timeout, stack, IX/IY and interrupt-state checks passed.');
+
+build('DATE', [path.join(repo, 'Apps/DATE/date.c'), client],
+    ['dcc-floatio=false', 'dcc-flongio=false']);
+console.log(run(path.join(work, 'z80-client-fixture'),
+    [path.join(work, 'DATE/DATE'), '--date']).trim());
+
+const transport = ['io_wait_completion', 'io_write_request',
+    'io_read_response', 'io_drain_response'];
+const timers = ['svc_start_timer', 'svc_timer_active', 'svc_access_stopwatch'];
+const selection = path.join(work, 'SVCSEL.C');
+for (const [name, expression, expected] of [
+    ['TEXT', 'svc_get_text(32, 4, reply, sizeof(reply))', transport],
+    ['RANDOM', 'svc_random_u16()', transport],
+    ['START', 'svc_start_timer(0, 1)', ['svc_start_timer']],
+    ['ACTIVE', 'svc_timer_active(0)', ['svc_timer_active']],
+    ['WATCH', 'svc_access_stopwatch(0, 2, reply)', ['svc_access_stopwatch']],
+    ['NOSTRIP', 'svc_start_timer(0, 1)', [...transport, ...timers]],
+]) {
+    fs.writeFileSync(selection, '#include "DXSVC.H"\n' +
+        `int main(void) { char reply[8]; return ${expression}; }\n`);
+    build(name, [selection, client],
+        name === 'NOSTRIP' ? ['dcc-strip-unused=false'] : []);
+    const assembly = fs.readFileSync(path.join(work, name, 'DXSVC.MAC'), 'utf8');
+    for (const entry of [...transport, ...timers, 'io_abort_timer',
+        'io_print_error', 'io_fail_service']) {
+        const linked = new RegExp(`^\\s*public\\s+_${entry}\\s*$`, 'm').test(assembly);
+        let needed = expected.includes(entry);
+        if (entry === 'io_abort_timer')
+            needed = expected.some(entry => timers.includes(entry));
+        else if (entry === 'io_print_error')
+            needed = true;
+        else if (entry === 'io_fail_service')
+            needed = expected.some(entry => transport.includes(entry));
+        assert.equal(linked, needed, `${name}: unexpected linkage for ${entry}`);
+    }
+    assert.equal(/^TIMER_INVALID_ARGUMENT:/m.test(assembly),
+        expected.some(entry => timers.includes(entry)), `${name}: shared timer errors`);
+    console.log(`${name}: selective assembly linkage PASS`);
+}

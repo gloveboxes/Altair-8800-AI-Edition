@@ -32,6 +32,14 @@ The response is formatted as `%a %m/%d/%Y %H:%M:%S`; the SDK supplies the
 local trailing NUL. Unsynchronized clocks and unavailable services produce
 an explicit error and nonzero exit status, not a fabricated date.
 
+Text is printed with `putchar`, without linking the formatted-output runtime.
+The current C build is 1,664 bytes and occupies one 2 KB allocation block,
+down from 2,304 bytes before shared framing/diagnostic compaction.
+The alternate assembly build is 384 bytes:
+its full 2,049-byte response workspace is reserved in RAM using `EQU`, not
+emitted as executable-file padding. Both retain counted responses, bounded
+polling and explicit transport-error recovery.
+
 ## Build
 
 Build the C11 version with dcc:

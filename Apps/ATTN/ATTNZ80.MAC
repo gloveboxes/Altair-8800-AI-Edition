@@ -1487,30 +1487,6 @@ DBPTR:  DS      2
 
 SECBUF: DS      128
 
-; --- big arrays -----------------------------------------------------------
-WBUF:   DS      4864            ; Q16 weights (38 sectors)
-QBUF:   DS      2432            ; Q8 weights (1216 ints)
-WORKB:  DS      896             ; attn workspace Q|K|V|A
-XX:     DS      256             ; embeddings
-YY:     DS      256             ; attn output
-LOGB:   DS      160             ; logits (S*V ints)
-TOKENS: DS      16              ; current 8 tokens
-
-QTKEB   EQU     QBUF
-QPSEB   EQU     QBUF+320
-QWQB    EQU     QBUF+576
-QWKB    EQU     QBUF+1088
-QWVB    EQU     QBUF+1600
-QWOTB   EQU     QBUF+2112
-
-WQB     EQU     WORKB
-WKB     EQU     WORKB+256
-WVB     EQU     WORKB+512
-WAB     EQU     WORKB+768
-
-        DS      512
-STACK:
-
 SWATCH: PUSH    BC
         PUSH    HL
         LD      B,A
@@ -1532,5 +1508,27 @@ SWBYTE: IN      A,(23)
 SWDONE: POP     HL
         POP     BC
         RET
-SVBUF:  DS      4
+
+; Keep the inference workspace in RAM, outside the emitted COM file.
+WBUF    EQU     $
+QBUF    EQU     WBUF+4864
+WORKB   EQU     QBUF+2432
+XX      EQU     WORKB+896
+YY      EQU     XX+256
+LOGB    EQU     YY+256
+TOKENS  EQU     LOGB+160
+STACK   EQU     TOKENS+16+512
+SVBUF   EQU     STACK
+
+QTKEB   EQU     QBUF
+QPSEB   EQU     QBUF+320
+QWQB    EQU     QBUF+576
+QWKB    EQU     QBUF+1088
+QWVB    EQU     QBUF+1600
+QWOTB   EQU     QBUF+2112
+
+WQB     EQU     WORKB
+WKB     EQU     WORKB+256
+WVB     EQU     WORKB+512
+WAB     EQU     WORKB+768
         END     START

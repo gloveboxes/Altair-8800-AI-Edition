@@ -71,6 +71,11 @@ needed during training.
 | `ATTN.IN` | Sample input: one 8-digit sequence per line. |
 | `ATTN.WTS` | Trained weights produced by `ATTNC11 -t`, reloaded for inference. |
 
+The assembly inference variants reserve their weights, activations and stack
+with `EQU` addresses after all emitted code, rather than padding the executable
+with runtime workspace. ATTNINF's M80/L80 build is 3,840 bytes instead of 13,312;
+weight capacity, fixed-point conversion and dedicated stopwatch I/O are unchanged.
+
 `attnc11.c` is a from-scratch optimization of the retired BDS implementation:
 because dcc has a native 32-bit `long`, the hot fixed-point routines (`vdot`,
 `mvmul`, `vtmul`, …) use ordinary arithmetic instead of the BDS C `LONG`

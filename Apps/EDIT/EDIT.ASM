@@ -3400,21 +3400,19 @@ SVR:    DS      2
 SVP:    DS      2
 WRIDX:  DS      1
 
-; buffers
-FNAME:   DS      36
-MESG:   DS      72
-CUTB:   DS      MAXCL+2
-SBUF:   DS      MAXCL+2
-OLDSB:  DS      MAXCL+2
-EBUF:   DS      MAXCL+4
-BFN:    DS      16
-RFCB:   DS      36
-DMABUF: DS      128
+; Runtime buffers retain their RAM addresses without padding the COM file.
+FNAME   EQU     $
+MESG    EQU     FNAME+36
+CUTB    EQU     MESG+72
+SBUF    EQU     CUTB+MAXCL+2
+OLDSB   EQU     SBUF+MAXCL+2
+EBUF    EQU     OLDSB+MAXCL+2
+BFN     EQU     EBUF+MAXCL+4
+RFCB    EQU     BFN+16
+DMABUF  EQU     RFCB+36
 
-; line pointer table and stack
-LNPTR:  DS      MAXLN*2
-        DS      256
-STKTOP  EQU     $
-HEAPB   EQU     $
+LNPTR   EQU     DMABUF+128
+STKTOP  EQU     LNPTR+MAXLN*2+256
+HEAPB   EQU     STKTOP
 
         END     START

@@ -8,8 +8,9 @@ archives have been removed. This directory is not a replacement BDS SDK.
 Ten dcc application configurations compile this shared client: ATTN, BREAKOUT,
 CHAT, CLOCK, DATE, HANGMAN, MANC11, SHEETS, SNAKE and TETRIS. Their
 `dccmake.txt` files include `../COMMON/DXSVC.C` and the shared include directory.
-The client combines typed C service wrappers with an embedded Z80 assembly
-transport and validated timer entry points, and has no external data or allocation.
+The client combines typed C service wrappers with embedded Z80 framing,
+transport, diagnostics and validated timer entry points. It has no external
+data or allocation.
 Only the private per-byte write helper is `static inline`; transaction and
 convenience helpers remain out-of-line.
 Request and reply loops walk pointers with countdowns. Reply state and capacity
@@ -29,9 +30,9 @@ with `svc_start_timer`. Preserve this distinction when adding exported helpers.
 Internal assembly bridges use `io_` names that also avoid C runtime symbols.
 The short API names have been replaced, not retained as aliases; maintained
 callers and tests use the new API.
-Argument types, return values, wire protocol and generated code costs are
-unchanged. The real Z80 comparison confirms identical timer/service cycle
-counts and a 3,072-byte all-helper fixture before and after the naming change.
+Argument types, return values and wire protocol are unchanged. Framing and
+diagnostics share compact assembly paths rather than duplicating generic C
+checks at each convenience call.
 
 ## API
 
@@ -80,7 +81,6 @@ using the same dcc peephole settings and real Z80 fixture:
 | Query running countdown | 367 | 123 | 66.5% |
 | Reset stopwatch | 547 | 162 | 70.4% |
 | Read stopwatch seconds or milliseconds | 700 | 307 | 56.1% |
-| Linked all-helper fixture | 3,456 bytes | 3,072 bytes | 384 bytes |
 
 Cycle counts include the API entry through RET, but exclude the caller's
 argument setup/CALL and host port-callback execution. The linked sizes are
@@ -115,28 +115,47 @@ but does not cancel service side effects.
 ## Embedded dcc assembly core
 
 Assembly is the only production transport implementation. The core is embedded
-directly in [DXSVC.C](DXSVC.C) as one dcc `#asm` block. Existing app build
+directly in [DXSVC.C](DXSVC.C) as two dcc `#asm` blocks. Existing app build
 configurations need no extra source, header or feature flag:
 
 ```sh
 dccmake
 ```
 
-Status polling, request-buffer output, reply-buffer input/draining and the
-three public timer APIs (including their validation) are assembly. Shared-service
-APIs, framing, error reporting and termination remain C. The C error bridge
-has a stable external symbol for assembly calls, but is not a public header API.
+Request framing, response validation/copying/draining, bounded polling,
+decimal diagnostics and the three public timer APIs are assembly. Generic
+request/text/random wrappers and the timer termination bridge remain C.
+Diagnostics use the same dcc `putchar` runtime entry, preserving console
+buffering and the exact message for every wire error byte (0-255).
+Internal `io_print_error` and `io_fail_service` entries are not public header
+APIs. Native builds retain the C framing/diagnostic implementation as a
+reference; the Z80 comparison enables it only in a scratch test copy.
 The core uses immediate-port `IN`/`OUT`, not ED-prefixed block I/O or
 self-modifying code. It follows the dcc caller-cleaned stack ABI and preserves
 IX, IY and interrupt-enable state. Zero-length buffer operations perform no I/O.
+
+Each assembly entry point has explicit dcc reachability markers, with a
+separate block for shared timer errors. The normal `dccmake` unused-code pass
+therefore removes uncalled transport, countdown and stopwatch routines, along
+with their C-only dependencies. Text-only clients do not retain timer code;
+timer-only clients do not retain framed transport. No app-specific feature
+flags or separate sources are required. With `dcc-strip-unused=false`, all
+routines remain available as before. Keep these boundaries and cross-block
+error-label references intact when changing the assembly.
 
 Measured with dcc peephole optimisation and the project's Z80 emulator:
 
 | Workload | C reference | Assembly core | Reduction |
 | --- | ---: | ---: | ---: |
-| 60,000 BUSY polls, complete transaction | 14,343,278 cycles | 2,222,399 cycles | 84.5% |
-| 2,048-byte request and 2,048-byte reply | 1,238,666 cycles | 171,515 cycles | 86.2% |
-| Fixture linking all public helpers, including dedicated timers | 3,712 bytes | 3,072 bytes | 640 bytes |
+| 60,000 BUSY polls, complete transaction | 14,343,278 cycles | 2,221,109 cycles | 84.5% |
+| 2,048-byte request and 2,048-byte reply | 1,238,666 cycles | 169,721 cycles | 86.3% |
+| Fixture linking all public helpers, including dedicated timers | 3,712 bytes | 2,560 bytes | 1,152 bytes |
+
+Compared with the preceding assembly client, compact framing/diagnostics
+reduce the all-helper fixture from 3,072 to 2,560 bytes and DATE from 2,304 to
+1,664 bytes. Countdown/stopwatch cycle counts are unchanged. DATE still uses
+the ordinary shared text API; there is no size-saving app-specific shortcut.
+The C DATE regression ceiling is 2,048 bytes (one bundled disk allocation block).
 
 Port callbacks supply deterministic replies and consume no simulated CPU
 cycles; these are client costs, not service/network latency. The assembly core
@@ -170,12 +189,14 @@ node Apps/COMMON/tests/z80_client_regression.mjs \
 ```
 
 This requires the dcc tools (including native M80/L80), Node and a native C/C++
-compiler. It creates a scratch-only client copy without the assembly block and
+compiler. It creates a scratch-only client copy without the assembly blocks and
 links the test reference for the C comparison. Production source is not changed.
 It runs both implementations against the same port fixtures, checks
 binary/empty/max-size replies, full error/excess draining, validation, recovery,
 convenience APIs, exact polling boundaries, SP/IX/IY, caller arguments and
-enabled/disabled interrupt state. Timer error tests cover negative/high-byte
+enabled/disabled interrupt state. Direct framing tests cover signed/high-byte
+length and capacity limits, handshake failures, copy/drain boundaries and all
+256 diagnostic error bytes. Timer error tests cover negative/high-byte
 IDs/operations, duration overflow, null replies, diagnostics/exit(1), and every
 invalid query reply byte (2-255), without resetting the shared channel.
 The runner reports linked sizes and simulated cycles. An optional third argument
@@ -183,6 +204,13 @@ supplies a saved client C file with matching API names to build/run against the
 same fixtures; it asserts that timer/service cycle counts and the linked fixture
 size do not regress. Builds stay outside the checkout;
 no disk images or deployment files are changed.
+
+The runner also builds the C DATE application, enforces a 2,048-byte size
+ceiling, and executes its exact console output, asynchronous response,
+error-draining and oversized-reply/nonzero-exit cases on the Z80 core.
+Single-helper builds verify text/random, each timer API and the shared error
+bridge retain exactly the needed assembly entry points; an unstripped build
+checks the opt-out behavior.
 
 For the assembly/BASIC regression suite:
 
@@ -194,7 +222,11 @@ node Apps/COMMON/tests/asm_basic_regression.mjs \
 
 The scratch directory must be outside the checkout. The suite uses MAC/LOAD,
 M80/L80, a native C/C++ compiler, cpmtools, Node and the built MCP server.
-It normalizes CP/M source line endings, checks service/error/register fixtures,
+It normalizes CP/M source line endings, checks service/error/register fixtures
+with both MAC/LOAD and production M80/L80 assembly,
 and runs finite MBASIC tests against the real MCP backend. Tests use private
 disk copies and do not install apps or alter deployment images. Existing MAC
 and LOAD tools remain on the supplied CP/M tools images.
+Runtime workspace is filled with nonzero bytes before testing; checks include
+ENV cache/service-buffer bounds, EDIT line-table initialization and heap/stack
+layout, and both assembly ATTN variants' full 1,216-weight conversion.

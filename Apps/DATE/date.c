@@ -5,10 +5,12 @@
 int main(void)
 {
     char date[80];
+    const char *cursor;
 
     if (svc_get_text(SERVICE_GROUP_CLOCK, 4, date, sizeof(date)) < 0)
         return 1;
-    printf("%s", date);
+    for (cursor = date; *cursor; ++cursor)
+        putchar(*cursor);
 
     putchar('\r');
     putchar('\n');

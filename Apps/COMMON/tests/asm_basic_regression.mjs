@@ -37,8 +37,11 @@ function run(command, argv, cwd = work) {
     return output;
 }
 function cpmFile(name, source) {
-    const text = source.replace(/\x1a+$/, '').replace(/\r?\n/g, '\r\n');
-    fs.writeFileSync(path.join(work, name), text + '\x1a');
+    const text = source.replace(/\x1a+$/, '').replace(/\r?\n/g, '\r\n').trimEnd() + '\r\n';
+    const bytes = Buffer.from(text + '\x1a', 'ascii');
+    const records = Buffer.alloc(Math.ceil(bytes.length / 128) * 128, 0x1a);
+    bytes.copy(records);
+    fs.writeFileSync(path.join(work, name), records);
 }
 function readApp(name) {
     return fs.readFileSync(path.join(repo, 'Apps', name), 'utf8');
@@ -54,15 +57,19 @@ const assembly = [
     ['DATE', 'DATE/DATE.ASM'], ['SLEEP', 'SLEEP/SLEEP.ASM'],
     ['INTTEST', 'INTTEST/INTTEST.ASM'], ['ATTNINF', 'ATTN/ATTNINF.ASM'],
     ['ENV', 'ENV/ENV.ASM'], ['ESP32', 'ESP32/ESP32.ASM'],
+    ['EDIT', 'EDIT/EDIT.ASM'],
 ];
 copyTool(tools, 'MAC.COM');
 copyTool(tools, 'LOAD.COM');
 copyTool(microsoft, 'M80.COM');
 copyTool(microsoft, 'L80.COM');
 for (const [name, source] of assembly) {
+    for (const extension of ['COM', 'HEX', 'PRN', 'SYM'])
+        fs.rmSync(path.join(work, name + '.' + extension), { force: true });
     cpmFile(name + '.ASM', readApp(source));
     const output = run(ntvcm, ['MAC', name]);
     assert(output.includes('END OF ASSEMBLY'), output);
+    assert(!/^[A-Z?][0-9A-F]{4}\s/m.test(output), `Assembler diagnostics: ${output}`);
     const listing = fs.readFileSync(path.join(work, name + '.PRN'), 'utf8');
     assert(!/^[A-Z?][ \t]/m.test(listing), `Assembler diagnostics: ${name}`);
     const hex = fs.readFileSync(path.join(work, name + '.HEX'), 'utf8');
@@ -79,6 +86,7 @@ const assembled = run(ntvcm, ['M80', 'ATTNZ80,ATTNZ80=ATTNZ80']);
 assert(assembled.includes('No Fatal error(s)'), assembled);
 run(ntvcm, ['L80', 'ATTNZ80,ATTNZ80/N/E']);
 assert(fs.statSync(path.join(work, 'ATTNZ80.COM')).size > 1000);
+assert(fs.statSync(path.join(work, 'ATTNZ80.COM')).size <= 4096);
 log('ATTNZ80: real M80/L80 PASS');
 
 const core = path.join(repo, 'altair8800');
@@ -92,6 +100,22 @@ run(process.env.CXX ?? 'c++', [
     path.join(work, 'memory.o'), '-o', path.join(work, 'asm-transport-fixture'),
 ]);
 log(run(path.join(work, 'asm-transport-fixture'), []).trim());
+
+// Exercise the production M80/L80 path too; DS padding differs from MAC/LOAD.
+const m80Work = path.join(work, 'microsoft-build');
+fs.mkdirSync(m80Work, { recursive: true });
+for (const tool of ['M80.COM', 'L80.COM'])
+    fs.copyFileSync(path.join(work, tool), path.join(m80Work, tool));
+for (const [name, source] of assembly) {
+    const text = 'ASEG\r\n' + readApp(source).replace(/\x1a+$/, '').replace(/\r?\n/g, '\r\n');
+    fs.writeFileSync(path.join(m80Work, name + '.ASM'), text + '\x1a');
+    const output = run(ntvcm, ['M80', `${name},${name}=${name}.ASM`], m80Work);
+    assert(output.includes('No Fatal error(s)'), output);
+    run(ntvcm, ['L80', `${name},${name}/N/E`], m80Work);
+}
+for (const extension of ['COM', 'PRN'])
+    fs.copyFileSync(path.join(work, 'ATTNZ80.' + extension), path.join(m80Work, 'ATTNZ80.' + extension));
+log(run(path.join(work, 'asm-transport-fixture'), ['--m80'], m80Work).trim());
 
 // Extract MBASIC from a packed, read-only copy; never modify the source image.
 const pristine = path.join(repo, 'altair_mcp_server/pristine');

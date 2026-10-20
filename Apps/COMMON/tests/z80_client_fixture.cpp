@@ -19,7 +19,7 @@ extern "C" {
 #include "x80.hxx"
 
 static z80_t cpu;
-static int status, completion, group, resets, acks;
+static int status, completion, group, resets, acks, begin_status;
 static unsigned busy, reads, length;
 static size_t frame_pos;
 static std::vector<uint8_t> request, frame, image;
@@ -79,7 +79,7 @@ static void out(uint8_t port, uint8_t byte)
         if (byte == 0) { assert(status == 1); ++acks; status = 0; return; }
         assert(status == 0);
         group = byte;
-        status = 3;
+        status = begin_status;
         return;
     }
     assert(port == 3 && status == 3);
@@ -88,7 +88,7 @@ static void out(uint8_t port, uint8_t byte)
     if (request.size() >= 2 && request.size() == length + 2) status = 4;
 }
 
-static void load(const std::string& base)
+static void load(const std::string& base, bool all_helpers = true)
 {
     std::ifstream binary(base + ".COM", std::ios::binary);
     assert(binary.good());
@@ -114,7 +114,8 @@ static void load(const std::string& base)
              "svc_random_u16", "io_wait_completion", "io_write_request",
              "io_read_response", "io_drain_response", "io_abort_timer"}) {
         assert(exported_keys.emplace(symbol_key(name), name).second);
-        assert(symbol_address(name));
+        if (all_helpers)
+            assert(symbol_address(name));
     }
 }
 
@@ -126,6 +127,7 @@ static void setup(int final_status, const std::vector<uint8_t>& payload, unsigne
     z80_reset(&cpu, no_in, no_out, no_in, &disk, input, out);
     status = group = resets = acks = reads = length = 0;
     completion = final_status;
+    begin_status = 3;
     busy = polls;
     frame_pos = 0;
     request.clear();
@@ -204,10 +206,91 @@ static void invalid_timer(const std::string& name, const std::vector<unsigned>& 
 
 int main(int argc, char** argv)
 {
-    assert(argc == 2);
-    load(argv[1]);
+    assert(argc == 2 || (argc == 3 && std::string(argv[2]) == "--date"));
+    load(argv[1], argc == 2);
+    if (argc == 3) {
+        assert(image.size() <= 2048);
+        const std::string date = "Tue 10/20/2026 17:30:00";
+        setup(2, std::vector<uint8_t>(date.begin(), date.end()), 5);
+        call("main", {}, 0);
+        assert(output == date + "\r\r\n");
+        assert(group == 32 && request == std::vector<uint8_t>({1, 0, 4}));
+        assert(status == 0 && frame_pos == frame.size() && resets == 0);
+        setup(255, {21, 'n', 'o'});
+        call("main", {}, 1);
+        assert(output == "\r\r\nService I/O error 21\r\r\n");
+        assert(resets == 1 && frame_pos == frame.size());
+        setup(2, std::vector<uint8_t>(80, 'x'));
+        call("main", {}, 1);
+        assert(output == "\r\r\nService I/O error 19\r\r\n");
+        assert(resets == 1 && frame_pos == frame.size());
+        puts("DATE C: size limit, exact output, asynchronous reply, error/oversize drain and nonzero exit PASS");
+        return 0;
+    }
     const std::vector<unsigned> raw = {48, 0x9000, 2, 0xa000, 8};
     const std::vector<uint8_t> bytes = {0, 128, 255, 0};
+    for (unsigned count : {1U, 255U, 256U, 2047U, 2048U}) {
+        setup(1, {});
+        call("svc_begin_request", {48, count}, 0);
+        assert(group == 48 && status == 3 && resets == 0);
+        assert(request == std::vector<uint8_t>({uint8_t(count), uint8_t(count >> 8)}));
+    }
+    for (unsigned count : {0U, 2049U, 32767U, 32768U, 65535U}) {
+        setup(1, {});
+        call("svc_begin_request", {48, count}, -3);
+        assert(reads == 0 && request.empty() && resets == 1);
+    }
+    for (int state : {1, 2, 3, 4, 255}) {
+        setup(state, {});
+        status = state;
+        call("svc_begin_request", {48, 1}, -8);
+        assert(request.empty() && resets == 1);
+    }
+    for (int state : {0, 1, 2, 4, 255}) {
+        setup(state, {});
+        begin_status = state;
+        call("svc_begin_request", {48, 1}, -1);
+        assert(reads == 2 && request.empty() && resets == 1);
+    }
+    for (unsigned capacity : {2049U, 32767U, 32768U, 65535U}) {
+        setup(2, bytes);
+        status = 4;
+        call("svc_finish_response", {0xa000, capacity}, -3);
+        assert(reads == 0 && frame_pos == 0 && resets == 1);
+    }
+    setup(2, bytes);
+    status = 4;
+    call("svc_finish_response", {0, 1}, -3);
+    assert(reads == 0 && frame_pos == 0 && resets == 1);
+    for (unsigned count : {0U, 1U, 255U, 256U, 2048U, 2049U}) {
+        const std::vector<uint8_t> payload(count, 0x7e);
+        for (unsigned capacity : {0U, 1U, 255U, 256U, 2048U}) {
+            setup(2, payload);
+            status = 4;
+            const bool invalid = count > 2048;
+            const bool excess = count > capacity;
+            call("svc_finish_response", {capacity ? 0xa000U : 0U, capacity},
+                 invalid ? -3 : excess ? -19 : int(count));
+            assert(frame_pos == (invalid ? 2 : count + 2));
+            assert(resets == int(invalid || excess));
+            const unsigned copied = invalid ? 0 : std::min(count, capacity);
+            for (unsigned index = 0; index < copied; ++index)
+                assert(memory[0xa000 + index] == 0x7e);
+            assert(memory[0xa000 + copied] == 0xa5);
+        }
+    }
+    for (int state : {0, 3, 5, 254}) {
+        setup(state, {});
+        status = state;
+        call("svc_finish_response", {0, 0}, -8);
+        assert(frame_pos == 0 && resets == 1);
+    }
+    for (unsigned code = 0; code <= 255; ++code) {
+        setup(255, {uint8_t(code), 0, 255});
+        call("svc_call_service", raw, -int(code), false, code % 2 != 0);
+        assert(output == "\r\r\nService I/O error " + std::to_string(code) + "\r\r\n");
+        assert(frame_pos == 5 && resets == 1 && memory[0xa000] == 0xa5);
+    }
     setup(2, bytes);
     call("svc_call_service", raw, 4);
     assert(group == 48 && request == std::vector<uint8_t>({2, 0, 0, 1}));
