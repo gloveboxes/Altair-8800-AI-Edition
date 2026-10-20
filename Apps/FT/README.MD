@@ -6,6 +6,17 @@ The legacy BDS C alternative has been removed.
 
 ## Building
 
+From the host, stop Altair Local and run:
+
+```powershell
+pwsh ./scripts/build-asm-app.ps1 -Source ./Apps/FT/FT.ASM
+```
+
+This uses the dcc compiler's `M80.COM` and `L80.COM` under `ntvcm` and
+installs fresh `FT.COM` copies on both the B: tools and C: application images.
+The [build-all workflow](../BUILDALL/README.md) includes this step automatically.
+It does not depend on an already working CP/M FT client.
+
 MAC (macro assembler):
 
 ```
@@ -67,5 +78,8 @@ must contain the new client before any submit workflow can run.
 
 ## Requirements
 
-- Altair emulator with WiFi and Remote FT support
-- Remote FT Server running on the configured IP address:8090
+- Altair Local reads directly from the local `Apps` directory (or `--apps-root`).
+  For example, `ft -g env/env.sub` copies `Apps/ENV/ENV.SUB` into CP/M.
+  The historical "Remote FT Server" banner does not imply an HTTP transfer
+  on Altair Local.
+- ESP32 uses WiFi and its configured Remote FT Server on port 8090.

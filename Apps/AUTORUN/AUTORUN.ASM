@@ -37,21 +37,21 @@ FLAGSEC	equ	26		;flag byte in BIOS on sector 26 (1 idx'd)
 ;     points by adding the symbols below to the warm boot entry address
 ;     stored by CP/M at location 1 on page zero.
 	
-	org	0
-bWboot	ds	3		;warm start
-bConSt	ds	3		;console status
-bConIn	ds	3		;console character in 
-bConOut	ds	3		;console character out 
-bList	ds	3		;list character out 
-bPunch	ds	3		;punch character out 
-bReader	ds	3		;reader character out
-bHome	ds	3		;move head to home position
-bSelDsk	ds	3		;select disk
-bSetTrk	ds	3		;set track number
-bSetSec	ds	3		;set sector number
-bSetDma	ds	3		;set dma address
-bRead	ds	3		;read disk
-bWrite	ds	3		;write disk
+; Use equates so M80 does not emit storage below the COM load address.
+bWboot	equ	0		;warm start
+bConSt	equ	3		;console status
+bConIn	equ	6		;console character in
+bConOut	equ	9		;console character out
+bList	equ	12		;list character out
+bPunch	equ	15		;punch character out
+bReader	equ	18		;reader character out
+bHome	equ	21		;move head to home position
+bSelDsk	equ	24		;select disk
+bSetTrk	equ	27		;set track number
+bSetSec	equ	30		;set sector number
+bSetDma	equ	33		;set dma address
+bRead	equ	36		;read disk
+bWrite	equ	39		;write disk
 
 
 	org	0100h		;CP/M load and entry address
@@ -108,7 +108,7 @@ bWrite	ds	3		;write disk
 	ani	03		;get flag bits alone
 	jnz	addAsci		;if not zero, go add ascii offset
 	mvi	a,4
-addAsci	adi	'0'		;add ascii offset for digits
+addAsci:	adi	'0'		;add ascii offset for digits
 	sta	mCurFlg		;store printable flag value
 	lxi	d,mMenu		;DE=address of menu message
 	call	dispMsg		;display menu
@@ -128,7 +128,7 @@ addAsci	adi	'0'		;add ascii offset for digits
 ; haveOpt - have a valid menu selection. Save the selection and then
 ;    display the current command string unless "disable" chosen above.
 
-haveOpt	ani	03h		;save lower two bits
+haveOpt:	ani	03h		;save lower two bits
 	sta	flgBits
 	jz	wrtFlag		;zero=disable, go write flag sector to disk
 	lxi	d,mCurCmd	;DE=address of current command string prompt 
@@ -143,7 +143,7 @@ haveOpt	ani	03h		;save lower two bits
 	lxi	h,cmdStr	;HL=source from sector buffer
 	lxi	d,inBuf		;DE=destination
 	mov	b,a		;B=string length
-copy1	mov	a,m		;move (HL) to (DE)
+copy1:	mov	a,m		;move (HL) to (DE)
 	stax	d
 	inx	h
 	inx	d
@@ -152,7 +152,7 @@ copy1	mov	a,m		;move (HL) to (DE)
 	mvi	a,'$'		;terminating $
 	stax	d
 	lxi	d,inBuf		;display from inBuf
-dispCmd	call	dispMsg
+dispCmd:	call	dispMsg
 
 ; Prompt for and input new command string
 
@@ -174,7 +174,7 @@ dispCmd	call	dispMsg
 	mov	b,a		;B=string length
 	lxi	d,cmdStr	;DE=destination in sector buffer
 	lxi	h,inBuf+2	;HL=source from user entry
-copy2	mov	a,m		;move (HL) to (DE)
+copy2:	mov	a,m		;move (HL) to (DE)
 	call	toUpper		;convert to upper case
 	stax	d
 	inx	h
@@ -186,7 +186,7 @@ copy2	mov	a,m		;move (HL) to (DE)
 
 ; wrtCmd - write command string sector to disk
 
-wrtCmd	mvi	a,CMDTRK	;command string track
+wrtCmd:	mvi	a,CMDTRK	;command string track
 	call	setTrk
 	mvi	a,CMDSEC	;command string sector
 	call	setSec
@@ -197,7 +197,7 @@ wrtCmd	mvi	a,CMDTRK	;command string track
 
 ; wrtFlag - write flag byte sector to disk
 
-wrtFlag	lxi	d,flgByte	;DE=address of flag byte in disk sector
+wrtFlag:	lxi	d,flgByte	;DE=address of flag byte in disk sector
 	lxi	h,flgBits	;HL=address of new flag bits
 	ldax	d		;A=flag byte from disk
 	ani	03		;get option bits alone
@@ -228,7 +228,7 @@ wrtFlag	lxi	d,flgByte	;DE=address of flag byte in disk sector
 
 ; toUpper - convert A to upper case
 
-toUpper	cpi	'a'		;look for letters from 'a' to 'z'
+toUpper:	cpi	'a'		;look for letters from 'a' to 'z'
 	rc			;before 'a'
 	cpi	'{'		;after 'z'
 	rnc
@@ -238,14 +238,14 @@ toUpper	cpi	'a'		;look for letters from 'a' to 'z'
 ; dispMsg - use BDOS print message command to display the string
 ;    pointed to by DE.
 
-dispMsg	mvi	c,PRINT		;BDOS command to display a string
+dispMsg:	mvi	c,PRINT		;BDOS command to display a string
 	jmp	BDOS		;call BDOS
 
 ; readChr - read and return a single character but used the BDOS input
 ;   line command for "normal" input look and feel. Return zero if no
 ;   input entered (e.g., just return pressed).
 
-readChr	lxi	d,inBuf		;DE=pointer to input buffer
+readChr:	lxi	d,inBuf		;DE=pointer to input buffer
 	mvi	a,IBUFLEN	;store max length to read
 	stax	d
 	mvi	c,RDLINE	;BDOS command, read line
@@ -261,35 +261,35 @@ readChr	lxi	d,inBuf		;DE=pointer to input buffer
 ;     are moved to C as needed.
 ;-------------------------------------------------------------------
 
-selDsk	mov	c,a		;selDsk wants param in c
+selDsk:	mov	c,a		;selDsk wants param in c
 	lhld	BIOS		;HL=warm start entry in BIOS
 	lxi	d,bSelDsk	;DE=offset of select disk function
 	dad	d
 	pchl			;jump to select disk function
 
-setTrk	mov	c,a		;setTrk wants param in c
+setTrk:	mov	c,a		;setTrk wants param in c
 	lhld	BIOS		;HL=warm start entry in BIOS
 	lxi	d,bSetTrk	;DE=offset of set track function
 	dad	d
 	pchl			;jump to set track function
 
-setSec	mov	c,a		;setSec wants param in c
+setSec:	mov	c,a		;setSec wants param in c
 	lhld	BIOS		;HL=warm start entry in BIOS
 	lxi	d,bSetSec	;DE=offset of set sector function
 	dad	d
 	pchl			;jump to set sector function
 
-setDma	lhld	BIOS		;HL=warm start entry in BIOS
+setDma:	lhld	BIOS		;HL=warm start entry in BIOS
 	lxi	d,bSetDma	;DE=offset of set dma function
 	dad	d
 	pchl			;jump to set dma function (dma addr in bc)
 
-dRead	lhld	BIOS		;HL=warm start entry in BIOS
+dRead:	lhld	BIOS		;HL=warm start entry in BIOS
 	lxi	d,bRead		;DE=offset of disk read function
 	dad	d
 	pchl			;jump to disk read function
 
-dWrite	lhld	BIOS		;HL=warm start entry in BIOS
+dWrite:	lhld	BIOS		;HL=warm start entry in BIOS
 	lxi	d,bWrite	;DE=offset of disk write function
 	dad	d
 	pchl			;jump to disk read function
@@ -298,21 +298,21 @@ dWrite	lhld	BIOS		;HL=warm start entry in BIOS
 ;  Exit routines
 ;-------------------------------------------------------------------
 
-exitYes	lxi	d,mSaved	;assume changes were made
+exitYes:	lxi	d,mSaved	;assume changes were made
 	lda	updated		;was the disk updated?
 	ora	a
 	jnz	exit		;yes, display changes made message
 				;otherwise, fall through
-exitNo	lxi	d,mExitNo	;exit with no changes saved
+exitNo:	lxi	d,mExitNo	;exit with no changes saved
 	jmp	exit
 
-readErr	lxi	d,mRdErr	;exit with read error
+readErr:	lxi	d,mRdErr	;exit with read error
 	jmp	exit
 
-wrtErr	lxi	d,mWrtErr	;exit with write error
+wrtErr:	lxi	d,mWrtErr	;exit with write error
 	jmp	exit
 
-exit	mvi	c,PRINT		;display message passed in DE
+exit:	mvi	c,PRINT		;display message passed in DE
 	call	BDOS
 	lhld	stack		;restore stack pointer
 	sphl
@@ -322,12 +322,12 @@ exit	mvi	c,PRINT		;display message passed in DE
 ;  String Constants
 ;-------------------------------------------------------------------
 
-mDrive	db	CR,LF,' *** Configure CP/M Auto-Run Command ***',CR,LF
+mDrive:	db	CR,LF,' *** Configure CP/M Auto-Run Command ***',CR,LF
 	db	      '    (For Altair/Burcon CP/M 2.2 Only)',CR,LF,LF
 	db	'Enter letter of drive to update: $'
 
-mMenu	db	CR,LF,LF,'Current Auto-Run Option is ('
-mCurFlg	db	'1)',CR,LF,LF
+mMenu:	db	CR,LF,LF,'Current Auto-Run Option is ('
+mCurFlg:	db	'1)',CR,LF,LF
 	db	'  1) Run on Cold Boot Only',CR,LF
 	db	'  2) Run on Warm Boot Only',CR,LF
 	db	'  3) Run on Cold and Warm Boot',CR,LF
@@ -335,15 +335,15 @@ mCurFlg	db	'1)',CR,LF,LF
 	db	'  Q) Quit with No Changes',CR,LF,LF
 	db	'Enter New Option (RETURN for no change): $'
 
-mCurCmd	db	CR,LF,LF,'Current command string: $'
-mNone	db	'(none)$'
-mNewCmd	db	CR,LF,'New command (RETURN for no change): $'
+mCurCmd:	db	CR,LF,LF,'Current command string: $'
+mNone:	db	'(none)$'
+mNewCmd:	db	CR,LF,'New command (RETURN for no change): $'
 
-mExitNo	db	CR,LF,LF,'No changes made.',CR,LF,'$'
-mSaved	db	CR,LF,LF,'Changes successfully saved to disk.',CR,LF
+mExitNo:	db	CR,LF,LF,'No changes made.',CR,LF,'$'
+mSaved:	db	CR,LF,LF,'Changes successfully saved to disk.',CR,LF
 	db	'Reboot for changes to properly take effect.',CR,LF,'$'
-mRdErr	db	CR,LF,LF,'Not able to read disk.',CR,LF,'$'
-mWrtErr	db	CR,LF,LF,'Not able to write to disk.',CR,LF,'$'
+mRdErr:	db	CR,LF,LF,'Not able to read disk.',CR,LF,'$'
+mWrtErr:	db	CR,LF,LF,'Not able to write to disk.',CR,LF,'$'
 
 ;-------------------------------------------------------------------
 ;  Data Area
@@ -351,22 +351,22 @@ mWrtErr	db	CR,LF,LF,'Not able to write to disk.',CR,LF,'$'
 
 ; 128 byte buffer for the command string sector
 
-cmdBuf	ds	7		;command sector buffer (128 bytes)
-cmdLen	ds	1		;command string length
-cmdStr	ds	120		;command string
+cmdBuf:	ds	7		;command sector buffer (128 bytes)
+cmdLen:	ds	1		;command string length
+cmdStr:	ds	120		;command string
 
 ; 128 byte buffer for the flag byte sector
 
-flgBuf	ds	89		;flag sector buffer (128 bytes)
-flgByte	ds	1		;flag (mode) byte
+flgBuf:	ds	89		;flag sector buffer (128 bytes)
+flgByte:	ds	1		;flag (mode) byte
 	ds	38		;rest of buffer
 
 ; Misc variables
 
-stack	ds	2		;save area for CP/M stack pointer
-updated	ds	1		;flag for whether disk was updated
-flgBits	ds	1		;bits 0,1 for flag byte 
-inBuf	ds	IBUFLEN		;storage for command string
+stack:	ds	2		;save area for CP/M stack pointer
+updated:	ds	1		;flag for whether disk was updated
+flgBits:	ds	1		;bits 0,1 for flag byte
+inBuf:	ds	IBUFLEN		;storage for command string
 	ds	64		;our stack
 ourStk	equ	$
 
