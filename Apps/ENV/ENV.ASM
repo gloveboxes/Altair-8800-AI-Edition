@@ -945,8 +945,8 @@ MESET:  DB      'Error: e_set failed',CR,LF,'$'
 MEDEL:  DB      'Error: e_del failed',CR,LF,'$'
 MDEL1:  DB      'Deleted ','$'
 MDEL2:  DB      '.',CR,LF,'$'
-MBOOT:  DB      CR,LF,'Reboot ESP32? (y/N) ','$'
-MRBOT:  DB      'Rebooting ESP32...',CR,LF,'$'
+MBOOT:  DB      CR,LF,'Reboot? (y/N) ','$'
+MRBOT:  DB      'Rebooting...',CR,LF,'$'
 MCRLF:  DB      CR,LF,'$'
 
 ; -- state ------------------------------------------------------------------

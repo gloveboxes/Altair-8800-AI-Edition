@@ -73,7 +73,6 @@ static bool blink_phase;
 static char date_buffer[40];
 static char prev_date[40];
 
-static char weather_buffer[64];
 static enum weather_status weather_last;
 static int weather_tick;
 
@@ -220,10 +219,12 @@ static void show_uptime(int row)
            hours, minutes, seconds);
 }
 
-static void weather_read(enum weather_field field, char *buffer, int capacity)
+static bool weather_read(enum weather_field field, char *buffer, int capacity)
 {
-    if (svc_query_text(SERVICE_GROUP_WEATHER, 0, field, buffer, capacity) < 0)
-        buffer[0] = '\0';
+    int previous = svc_error_output(0);
+    int result = svc_query_text(SERVICE_GROUP_WEATHER, 0, field, buffer, capacity);
+    svc_error_output(previous);
+    return result >= 0;
 }
 
 static enum weather_status weather_status_read(void)
@@ -232,7 +233,10 @@ static enum weather_status weather_status_read(void)
     unsigned char response[1];
 
     request[0] = 1;
-    if (svc_call_service(SERVICE_GROUP_WEATHER, request, 1, response, 1) != 1)
+    int previous = svc_error_output(0);
+    int result = svc_call_service(SERVICE_GROUP_WEATHER, request, 1, response, 1);
+    svc_error_output(previous);
+    if (result != 1 || response[0] > WS_ERR)
         return WS_ERR;
     return (enum weather_status)response[0];
 }
@@ -271,6 +275,12 @@ static void erase_weather_row(int row)
         putchar(' ');
 }
 
+static void show_weather_unavailable(void)
+{
+    cursor_move(WEATHER_ROW, centered_col(19));
+    printf("\033[0;90mWeather unavailable\033[0m");
+}
+
 static void draw_weather(enum weather_status status)
 {
     int len0;
@@ -278,44 +288,33 @@ static void draw_weather(enum weather_status status)
     int len2;
     int max_width;
     int start_col;
-    bool weather_disabled;
 
     for (int row_offset = 0; row_offset < 3; row_offset++)
         erase_weather_row(WEATHER_ROW + row_offset);
 
-    if (status == WS_NONE || status == WS_FETCH)
+    if (status == WS_FETCH)
         return;
 
-    if (status == WS_ERR)
+    if (status != WS_OK)
     {
-        weather_read(WF_ERR, weather_buffer, sizeof weather_buffer);
-        weather_disabled = strcmp(weather_buffer,
-                                  "libcurl not available - weather disabled") == 0;
-
-        if (weather_disabled)
-            len0 = 19;
-        else
-            len0 = 9 + (int)strlen(weather_buffer);
-        start_col = centered_col(len0);
-
-        cursor_move(WEATHER_ROW, start_col);
-        if (weather_disabled)
-            printf("\033[0;90mWeather unavailable\033[0m");
-        else
-            printf("\033[1;92mWeather: \033[1;91m%s\033[0m", weather_buffer);
+        show_weather_unavailable();
         return;
     }
 
-    weather_read(WF_CITY, city, sizeof city);
-    weather_read(WF_UNIT, unit, sizeof unit);
-    weather_read(WF_CMAIN, current_main, sizeof current_main);
-    weather_read(WF_CTEMP, current_temp, sizeof current_temp);
-    weather_read(WF_CFL, current_feels, sizeof current_feels);
-    weather_read(WF_CHUM, current_humidity, sizeof current_humidity);
-    weather_read(WF_CWIND, current_wind, sizeof current_wind);
-    weather_read(WF_FMAIN, forecast_main, sizeof forecast_main);
-    weather_read(WF_FTEMP, forecast_temp, sizeof forecast_temp);
-    weather_read(WF_FFL, forecast_feels, sizeof forecast_feels);
+    if (!weather_read(WF_CITY, city, sizeof city) ||
+        !weather_read(WF_UNIT, unit, sizeof unit) ||
+        !weather_read(WF_CMAIN, current_main, sizeof current_main) ||
+        !weather_read(WF_CTEMP, current_temp, sizeof current_temp) ||
+        !weather_read(WF_CFL, current_feels, sizeof current_feels) ||
+        !weather_read(WF_CHUM, current_humidity, sizeof current_humidity) ||
+        !weather_read(WF_CWIND, current_wind, sizeof current_wind) ||
+        !weather_read(WF_FMAIN, forecast_main, sizeof forecast_main) ||
+        !weather_read(WF_FTEMP, forecast_temp, sizeof forecast_temp) ||
+        !weather_read(WF_FFL, forecast_feels, sizeof forecast_feels))
+    {
+        show_weather_unavailable();
+        return;
+    }
 
     len0 = 9 + (int)strlen(city);
     len1 = 29 + (int)strlen(current_main) + (int)strlen(current_temp) +

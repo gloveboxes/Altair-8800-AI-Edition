@@ -7,6 +7,8 @@ int main(void)
     char reply[8];
     int result;
 
+    svc_error_output(0);
+    svc_error_output(1);
     result = svc_call_service(SERVICE_GROUP_ENVIRONMENT, data, 2, reply, 8);
     result += svc_operation_send(SERVICE_GROUP_CHAT, 1, data, 2, reply, 8);
     result += svc_get_text(SERVICE_GROUP_CLOCK, 0, reply, 8);

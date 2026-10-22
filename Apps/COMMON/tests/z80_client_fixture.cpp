@@ -111,7 +111,7 @@ static void load(const std::string& base, bool all_helpers = true)
              "svc_begin_request", "svc_finish_response", "svc_call_service",
              "svc_operation_send", "svc_get_text", "svc_query_text",
              "svc_start_timer", "svc_timer_active", "svc_access_stopwatch",
-             "svc_random_u16", "io_wait_completion", "io_write_request",
+             "svc_random_u16", "svc_error_output", "io_wait_completion", "io_write_request",
              "io_read_response", "io_drain_response", "io_abort_timer"}) {
         assert(exported_keys.emplace(symbol_key(name), name).second);
         if (all_helpers)
@@ -229,6 +229,13 @@ int main(int argc, char** argv)
     }
     const std::vector<unsigned> raw = {48, 0x9000, 2, 0xa000, 8};
     const std::vector<uint8_t> bytes = {0, 128, 255, 0};
+    setup(255, {20});
+    call("svc_error_output", {0}, 1);
+    call("svc_call_service", raw, -20);
+    assert(output.empty() && resets == 1 && frame_pos == frame.size());
+    call("svc_error_output", {1}, 0);
+    call("svc_begin_request", {48, 0}, -3);
+    assert(output == "\r\r\nService I/O error 3\r\r\n");
     for (unsigned count : {1U, 255U, 256U, 2047U, 2048U}) {
         setup(1, {});
         call("svc_begin_request", {48, count}, 0);

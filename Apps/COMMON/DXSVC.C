@@ -13,6 +13,16 @@ void io_abort_timer(int error_code);
 int io_print_error(int error_code);
 int io_fail_service(int error_code);
 
+/* Assembly needs an external symbol for the diagnostic setting. */
+int io_diagnostics = 1;
+
+int svc_error_output(int enabled)
+{
+    int previous = io_diagnostics;
+    io_diagnostics = enabled != 0;
+    return previous;
+}
+
 /* Native tests supply mocked primitives; dcc always uses this assembly.
  * Caller cleans arguments; HL returns int; IX/IY and interrupt state survive.
  * AF/BC/DE/HL are scratch. Ports use immediate IN/OUT, not ED block I/O.
@@ -28,6 +38,9 @@ _io_print_error:
 	push ix
 	ld ix,0
 	add ix,sp
+	ld a,(_io_diagnostics)
+	or a
+	jp z,ERROR_RETURN
 	ld hl,SERVICE_ERROR_MESSAGE
 ERROR_MESSAGE_LOOP:
 	ld a,(hl)
@@ -84,6 +97,7 @@ ERROR_ONES:
 	call ERROR_PUT_CHAR
 	ld a,10
 	call ERROR_PUT_CHAR
+ERROR_RETURN:
 	ld e,(ix+4)
 	ld d,(ix+5)
 	ld hl,0
@@ -547,6 +561,8 @@ int io_print_error(int error_code)
     const char *message = "\r\nService I/O error ";
     int remaining_value = error_code, digit = 0;
 
+    if (!io_diagnostics)
+        return -error_code;
     while (*message)
         putchar(*message++);
     while (remaining_value >= 100) {

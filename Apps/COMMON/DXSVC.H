@@ -26,7 +26,7 @@
 /*
  * One shared transaction may be outstanding at a time.
  * Generic helpers return a byte count (0 also means COMPLETE) or a negative
- * service/transport error. Failures print a diagnostic and RESET the channel;
+ * service/transport error. Failures print a diagnostic by default and RESET the channel;
  * RESET does not undo service side effects. Binary replies are not terminated.
  * Timer, stopwatch and random convenience helpers exit(1) after an error.
  * Timer/stopwatch helpers use independent port 23, not the shared channel.
@@ -34,6 +34,13 @@
  * A fresh program may recover an unknown parser state with inp(TIMER_IO_PORT) followed
  * by outp(TIMER_IO_PORT, 0); this resets only the interface, not running timers.
  */
+
+/**
+ * Enable (nonzero) or suppress (0) console error diagnostics; return the previous
+ * setting. Restore it after requests whose errors are displayed by the caller.
+ * Error returns, channel recovery and fatal timer behavior are unchanged.
+ */
+int svc_error_output(int enabled);
 
 /**
  * Begin a low-level request to a service group, writing its length prefix.

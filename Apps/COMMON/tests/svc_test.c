@@ -140,6 +140,16 @@ int main(void)
     char expected[80];
     unsigned index;
 
+    prepare(255, error, 1);
+    assert(svc_error_output(0) == 1);
+    assert(svc_query_text(SERVICE_GROUP_WEATHER, 0, 0, buffer, sizeof buffer) == -20);
+    assert(buffer[0] == 0 && diagnostic_size == 0);
+    assert(reply_pos == 3 && resets == 1 && state == 0);
+    assert(svc_error_output(1) == 0);
+    prepare(255, error, 1);
+    assert(svc_query_text(SERVICE_GROUP_WEATHER, 0, 0, buffer, sizeof buffer) == -20);
+    assert(strcmp(diagnostic, "\r\nService I/O error 20\r\n") == 0);
+
     prepare(2, bytes, sizeof(bytes));
     data[0] = 9;
     data[1] = 0;
