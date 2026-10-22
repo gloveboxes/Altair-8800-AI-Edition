@@ -2,7 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define ESCAPE_KEY 27
@@ -44,9 +44,8 @@ enum game_state {
     GAME_WON
 };
 
-extern int bdos(int function, int argument);
-
-static char console_buffer[CONSOLE_BUFFER_SIZE];
+static uint8_t console_buffer[CONSOLE_BUFFER_SIZE];
+static unsigned console_buffer_used;
 static uint8_t bricks[BRICK_ROWS][BRICK_COLUMNS];
 static uint8_t brick_column_at[SCREEN_WIDTH + 1];
 
@@ -62,45 +61,69 @@ static enum game_state state;
 static uint8_t ball_delay_ms;
 static bool quit_requested;
 
+static void console_flush(void)
+{
+    unsigned index;
+
+    /* BIOS CONOUT bypasses BDOS look-ahead/flow control for every byte. */
+    for (index = 0; index < console_buffer_used; ++index)
+        bios(4, console_buffer[index]);
+    console_buffer_used = 0;
+}
+
+static inline void console_put_byte(uint8_t byte)
+{
+    if (console_buffer_used == CONSOLE_BUFFER_SIZE)
+        console_flush();
+    console_buffer[console_buffer_used++] = byte;
+}
+
 static void write_text(const char *text)
 {
-    while (*text != '\0')
-        putchar(*text++);
+    uint8_t byte;
+
+    while (*text != '\0') {
+        byte = (unsigned char)*text++;
+        console_put_byte(byte);
+    }
 }
 
 static void write_unsigned(unsigned value)
 {
     char digits[5];
     uint8_t count = 0;
+    uint8_t byte;
 
     if (value == 0) {
-        putchar('0');
+        console_put_byte('0');
         return;
     }
     while (value != 0) {
         digits[count++] = (char)('0' + value % 10);
         value /= 10;
     }
-    while (count != 0)
-        putchar(digits[--count]);
+    while (count != 0) {
+        byte = digits[--count];
+        console_put_byte(byte);
+    }
 }
 
 static void cursor_move(uint8_t row, uint8_t column)
 {
-    putchar(ESCAPE_KEY);
-    putchar('[');
+    console_put_byte(ESCAPE_KEY);
+    console_put_byte('[');
     write_unsigned(row);
-    putchar(';');
+    console_put_byte(';');
     write_unsigned(column);
-    putchar('H');
+    console_put_byte('H');
 }
 
 static void set_color(uint8_t color)
 {
-    putchar(ESCAPE_KEY);
-    putchar('[');
+    console_put_byte(ESCAPE_KEY);
+    console_put_byte('[');
     write_unsigned(color);
-    putchar('m');
+    console_put_byte('m');
 }
 
 static void reset_color(void)
@@ -197,7 +220,7 @@ static void draw_brick(uint8_t row, uint8_t column)
     else
         reset_color();
     for (width = 0; width < BRICK_WIDTH; width++)
-        putchar(' ');
+        console_put_byte(' ');
     reset_color();
 }
 
@@ -218,7 +241,7 @@ static void draw_paddle(void)
     set_color(45);
     cursor_move(PADDLE_ROW, paddle_column);
     for (width = 0; width < PADDLE_WIDTH; width++)
-        putchar(' ');
+        console_put_byte(' ');
     reset_color();
 }
 
@@ -228,14 +251,14 @@ static void erase_paddle(void)
 
     cursor_move(PADDLE_ROW, paddle_column);
     for (width = 0; width < PADDLE_WIDTH; width++)
-        putchar(' ');
+        console_put_byte(' ');
 }
 
 static void draw_ball(void)
 {
     set_color(97);
     cursor_move(ball_row, ball_column);
-    putchar('O');
+    console_put_byte('O');
     reset_color();
 }
 
@@ -258,7 +281,7 @@ static void restore_cell(uint8_t row, uint8_t column)
     }
     reset_color();
     cursor_move(row, column);
-    putchar(' ');
+    console_put_byte(' ');
 }
 
 static void show_message(const char *message)
@@ -268,7 +291,7 @@ static void show_message(const char *message)
     reset_color();
     cursor_move(23, MINIMUM_COLUMN);
     for (column = MINIMUM_COLUMN; column <= MAXIMUM_COLUMN; column++)
-        putchar(' ');
+        console_put_byte(' ');
     set_color(37);
     cursor_move(23, 20);
     write_text(message);
@@ -282,7 +305,7 @@ static void clear_message(void)
     reset_color();
     cursor_move(23, MINIMUM_COLUMN);
     for (column = MINIMUM_COLUMN; column <= MAXIMUM_COLUMN; column++)
-        putchar(' ');
+        console_put_byte(' ');
 }
 
 static void initialize_game(void)
@@ -466,28 +489,27 @@ static void process_input(void)
         clear_message();
         state = PLAYING;
         move_ball();
-        fflush(stdout);
+        console_flush();
         timer_start();
     }
 }
 
 int main(void)
 {
-    setvbuf(stdout, console_buffer, _IOFBF, sizeof(console_buffer));
     initialize_game();
     clear_screen();
     draw_status();
     draw_border();
     draw_all_bricks();
     serve_ball();
-    fflush(stdout);
+    console_flush();
 
     timer_start();
     while (!quit_requested && state != GAME_OVER && state != GAME_WON) {
         process_input();
         if (timer_expired()) {
             move_ball();
-            fflush(stdout);
+            console_flush();
             timer_start();
         }
     }
@@ -504,6 +526,6 @@ int main(void)
     reset_color();
     cursor_move(SCREEN_HEIGHT, 1);
     write_text("\033[?25h\r\n");
-    fflush(stdout);
+    console_flush();
     return 0;
 }

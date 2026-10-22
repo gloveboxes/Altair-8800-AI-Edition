@@ -37,6 +37,20 @@ host ABI expectations.
 - Building/running/debugging a dcc program (`dccmake`, `ntvcm`).
 - CP/M file I/O, VT100/ANSI console UIs, or DCCRTL work.
 
+## Responsive game console I/O
+
+For games, pair nonblocking `bdos(6, 0xff)` input with a bounded game-local
+unsigned-byte output buffer drained by the existing `bios(4, byte)` helper.
+Do not use normal stdout rendering: dcc's BDOS 2/9 output path can apply Ctrl-S
+flow control (Left Arrow here) and consume other movement keys into look-ahead.
+Flush visible updates and drain before storing into a full buffer; preserve
+ANSI, `$` and all byte values. Keep the fix local, not in the runtime or firmware.
+
+Read the [lessons and reference writer](../../../Apps/COMMON/RAW-CONSOLE.md)
+before adding or changing a game's console path. It covers buffer sizing,
+reserved BDOS 6 input selectors, dcc `static inline` byte-load patterns,
+CPU-overhead trade-offs, and input-during-drawing/buffer-boundary tests.
+
 ## Deviations from standard C
 
 **Types — a 16-bit machine:**

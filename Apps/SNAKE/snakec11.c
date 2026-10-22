@@ -2,13 +2,12 @@
  * Snake for dcc C11, CP/M 2.2, and the Altair 8800 emulator.
  *
  * The snake is stored as a circular deque and an occupancy grid provides
- * constant-time collision checks. Console output is fully buffered and
- * flushed once per visible update; no printf formatter is linked.
+ * constant-time collision checks. Raw console output is buffered locally and
+ * flushed per visible update (or when full); no printf formatter is linked.
  */
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "../COMMON/DXSVC.H"
@@ -62,7 +61,8 @@ enum escape_state {
     ESCAPE_STATE_BRACKET_SEEN
 };
 
-static char console_buffer[CONSOLE_BUFFER_SIZE];
+static uint8_t console_buffer[CONSOLE_BUFFER_SIZE];
+static unsigned console_buffer_used;
 static uint8_t snake_rows[MAX_SNAKE_LENGTH];
 static uint8_t snake_columns[MAX_SNAKE_LENGTH];
 static uint8_t occupied[BOARD_HEIGHT][BOARD_WIDTH];
@@ -83,56 +83,80 @@ static uint8_t movement_ticks;
 static uint8_t speed_level;
 static unsigned score;
 
+static void console_flush(void)
+{
+    unsigned index;
+
+    /* BIOS CONOUT bypasses BDOS look-ahead/flow control for every byte. */
+    for (index = 0; index < console_buffer_used; ++index)
+        bios(4, console_buffer[index]);
+    console_buffer_used = 0;
+}
+
+static inline void console_put_byte(uint8_t byte)
+{
+    if (console_buffer_used == CONSOLE_BUFFER_SIZE)
+        console_flush();
+    console_buffer[console_buffer_used++] = byte;
+}
+
 static void cputs(const char *text)
 {
-    while (*text != '\0')
-        putchar((unsigned char)*text++);
+    uint8_t byte;
+
+    while (*text != '\0') {
+        byte = (unsigned char)*text++;
+        console_put_byte(byte);
+    }
 }
 
 static void write_unsigned(unsigned value)
 {
     char digits[5];
     uint8_t count = 0;
+    uint8_t byte;
 
     if (value == 0) {
-        putchar('0');
+        console_put_byte('0');
         return;
     }
     while (value != 0) {
         digits[count++] = (char)('0' + value % 10);
         value /= 10;
     }
-    while (count != 0)
-        putchar(digits[--count]);
+    while (count != 0) {
+        byte = digits[--count];
+        console_put_byte(byte);
+    }
 }
 
 static void write_spaces(uint8_t count)
 {
     while (count-- != 0)
-        putchar(' ');
+        console_put_byte(' ');
 }
 
 static void move_cursor(uint8_t row, uint8_t column)
 {
     cputs("\033[");
     write_unsigned(row);
-    putchar(';');
+    console_put_byte(';');
     write_unsigned(column);
-    putchar('H');
+    console_put_byte('H');
 }
 
 static void set_graphic_rendition(uint8_t code)
 {
     cputs("\033[");
     if (code >= 40) {
-        putchar('4');
+        console_put_byte('4');
         code -= 40;
     } else {
-        putchar('3');
+        console_put_byte('3');
         code -= 30;
     }
-    putchar((char)('0' + code));
-    putchar('m');
+    console_put_byte((char)('0' + code));
+    console_put_byte('m');
 }
 
 static void reset_graphics(void)
@@ -563,7 +587,6 @@ static void wait_for_quit(void)
 
 int main(void)
 {
-    setvbuf(stdout, console_buffer, _IOFBF, sizeof(console_buffer));
     initialize_game();
 
     clear_screen();
@@ -574,7 +597,7 @@ int main(void)
         game_state = GAME_WON;
     draw_status();
     reset_graphics();
-    fflush(stdout);
+    console_flush();
 
     start_frame_timer();
     while (game_state == GAME_PLAYING) {
@@ -590,14 +613,14 @@ int main(void)
         if (++movement_ticks >= movement_delay()) {
             movement_ticks = 0;
             if (advance_snake())
-                fflush(stdout);
+                console_flush();
         }
         start_frame_timer();
     }
 
     if (game_state == GAME_OVER || game_state == GAME_WON) {
         draw_final_message();
-        fflush(stdout);
+        console_flush();
         wait_for_quit();
     }
 
@@ -605,6 +628,6 @@ int main(void)
     move_cursor(26, 1);
     show_cursor();
     cputs("Thanks for playing Snake!\r\n");
-    fflush(stdout);
+    console_flush();
     return 0;
 }

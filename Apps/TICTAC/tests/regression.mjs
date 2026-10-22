@@ -27,10 +27,13 @@ function run(command, args, cwd = repo) {
     assert.equal(result.status, 0, output);
     return output;
 }
-run(process.env.CC ?? 'cc', ['-std=c99', '-Wno-deprecated-non-prototype',
+run(process.env.CC ?? 'cc', ['-std=c99', '-Wall', '-Wextra', '-Werror',
+    '-Wno-deprecated-non-prototype', '-fsanitize=address,undefined',
     path.join(here, 'game_test.c'), '-o', path.join(work, 'game-test')]);
-assert.match(run(path.join(work, 'game-test'), []), /TICTAC game logic PASS/);
-console.log('Game logic, AI winning/blocking/ties, input and timer calls PASS');
+const hostOutput = run(path.join(work, 'game-test'), []);
+assert.match(hostOutput, /TICTAC game logic PASS/);
+assert.match(hostOutput, /TICTAC raw console PASS/);
+console.log('Game logic, AI, raw console buffering/input and timer calls PASS');
 const build = path.join(work, 'build');
 run(path.join(dcc, 'dccmake'), [`dcc-build-dir=${build}`], path.resolve(here, '..'));
 const core = path.join(repo, 'altair8800');

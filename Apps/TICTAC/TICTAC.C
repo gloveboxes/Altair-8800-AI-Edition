@@ -12,7 +12,6 @@
  *   Q/ESC:      Quit
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "../COMMON/DXSVC.H"
@@ -41,6 +40,7 @@
 #define K_RT 4
 #define K_PLC 5
 #define K_QUI 6
+#define CONSOLE_BUFFER_SIZE 2048
 
 int brd[BSIZ][BSIZ];
 int crow, ccol;
@@ -49,21 +49,76 @@ int turn;
 int hwin, cwin, drws;
 int result;
 int escst, escct;
-static char console_buffer[2048];
+static unsigned char console_buffer[CONSOLE_BUFFER_SIZE];
+static unsigned console_buffer_used;
+
+static void console_flush(void)
+{
+    unsigned index;
+
+    /* BIOS CONOUT bypasses BDOS look-ahead/flow control for every byte. */
+    for (index = 0; index < console_buffer_used; ++index)
+        bios(4, console_buffer[index]);
+    console_buffer_used = 0;
+}
+
+static inline void console_put_byte(unsigned char byte)
+{
+    if (console_buffer_used == CONSOLE_BUFFER_SIZE)
+        console_flush();
+    console_buffer[console_buffer_used++] = byte;
+}
+
+static void write_text(const char *text)
+{
+    unsigned char byte;
+
+    while (*text) {
+        byte = (unsigned char)*text++;
+        console_put_byte(byte);
+    }
+}
+
+static void write_int(int value)
+{
+    char digits[5];
+    unsigned magnitude = (unsigned)value;
+    unsigned count = 0;
+    unsigned char byte;
+
+    if (value < 0) {
+        console_put_byte('-');
+        magnitude = 0u - magnitude;
+    }
+    do {
+        digits[count++] = (char)('0' + magnitude % 10);
+        magnitude /= 10;
+    } while (magnitude != 0);
+    while (count != 0) {
+        byte = digits[--count];
+        console_put_byte(byte);
+    }
+}
 
 static void cursor(int row, int column)
 {
-    printf("\033[%d;%dH", row, column);
+    write_text("\033[");
+    write_int(row);
+    console_put_byte(';');
+    write_int(column);
+    console_put_byte('H');
 }
 
 static void color(int code)
 {
-    printf("\033[%dm", code);
+    write_text("\033[");
+    write_int(code);
+    console_put_byte('m');
 }
 
 static void reset_color(void)
 {
-    fputs("\033[0m", stdout);
+    write_text("\033[0m");
 }
 
 static int read_key(void)
@@ -82,11 +137,7 @@ static void delay_ms(int timer, unsigned milliseconds)
 int pstr(s)
 char *s;
 {
-    while (*s)
-    {
-        putchar(*s);
-        s++;
-    }
+    write_text(s);
     return 0;
 }
 
@@ -197,7 +248,7 @@ int drwgrd()
         cursor(gr, BCOL + 2);
         color(90);
         for (c = 0; c < BSIZ * (CWID + 1) - 1; c++)
-            putchar('-');
+            console_put_byte('-');
         reset_color();
     }
 
@@ -210,11 +261,11 @@ int drwgrd()
             gr = BROW + 1 + r * (CHGT + 1);
             cursor(gr, gc);
             color(90);
-            putchar('|');
+            console_put_byte('|');
             cursor(gr + 1, gc);
-            putchar('|');
+            console_put_byte('|');
             cursor(gr + 2, gc);
-            putchar('|');
+            console_put_byte('|');
             reset_color();
         }
     }
@@ -228,7 +279,7 @@ int drwgrd()
             gc = BCOL + 2 + c * (CWID + 1) - 1;
             cursor(gr, gc);
             color(90);
-            putchar('+');
+            console_put_byte('+');
             reset_color();
         }
     }
@@ -258,14 +309,14 @@ int border()
     {
         cursor(BROW + r, BCOL);
         color(cbg(r, 0));
-        putchar(' ');
-        putchar(' ');
+        console_put_byte(' ');
+        console_put_byte(' ');
         reset_color();
 
         cursor(BROW + r, BCOL + bw - 2);
         color(cbg(r, bw - 1));
-        putchar(' ');
-        putchar(' ');
+        console_put_byte(' ');
+        console_put_byte(' ');
         reset_color();
     }
 
@@ -274,12 +325,12 @@ int border()
     {
         cursor(BROW, BCOL + c);
         color(cbg(0, c));
-        putchar(' ');
+        console_put_byte(' ');
         reset_color();
 
         cursor(BROW + bh - 1, BCOL + c);
         color(cbg(bh - 1, c));
-        putchar(' ');
+        console_put_byte(' ');
         reset_color();
     }
     reset_color();
@@ -323,7 +374,7 @@ int stats()
     color(36);
     pstr("You(X): ");
     color(33);
-    printf("%d", hwin);
+    write_int(hwin);
     reset_color();
     pstr("   ");
 
@@ -331,7 +382,7 @@ int stats()
     color(36);
     pstr("CPU(O): ");
     color(33);
-    printf("%d", cwin);
+    write_int(cwin);
     reset_color();
     pstr("   ");
 
@@ -339,7 +390,7 @@ int stats()
     color(36);
     pstr("Draws:  ");
     color(33);
-    printf("%d", drws);
+    write_int(drws);
     reset_color();
     pstr("   ");
     return 0;
@@ -715,7 +766,7 @@ int hmturn()
         k = keymap(ch);
         if (k != K_NON)
             dokey(k);
-        fflush(stdout);
+        console_flush();
     }
     esctik();
     return 0;
@@ -785,7 +836,7 @@ int replay()
     int ch;
 
     overdr();
-    fflush(stdout);
+    console_flush();
     while (1)
     {
         ch = read_key();
@@ -822,7 +873,6 @@ int main()
 {
     int run;
 
-    setvbuf(stdout, console_buffer, _IOFBF, sizeof(console_buffer));
     hwin = 0;
     cwin = 0;
     drws = 0;
@@ -831,14 +881,14 @@ int main()
     while (run)
     {
         ginit();
-        fputs("\033[2J\033[H\033[?25l", stdout);
+        write_text("\033[2J\033[H\033[?25l");
         title();
         border();
         drwbrd();
         stats();
         turndr();
         drwcel(crow, ccol, 1);
-        fflush(stdout);
+        console_flush();
 
         while (gstat == PLAY)
         {
@@ -846,7 +896,7 @@ int main()
                 hmturn();
             else
                 cpturn();
-            fflush(stdout);
+            console_flush();
         }
 
         if (gstat == QUIT)
@@ -856,9 +906,9 @@ int main()
     }
 
     cursor(28, 1);
-    fputs("\033[?25h", stdout);
+    write_text("\033[?25h");
     reset_color();
     pstr("Thanks for playing!\r\n");
-    fflush(stdout);
+    console_flush();
     return 0;
 }

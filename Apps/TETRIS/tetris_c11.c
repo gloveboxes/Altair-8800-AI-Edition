@@ -1,13 +1,13 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
+#include <stdlib.h>
 
 /*
  * Tetris for CP/M 2.2 on the Z80.
  *
  * dcc C11 implementation with a 7-bag piece supply, simple wall kicks,
- * scoring, levels, soft/hard drop, and VT100/xterm.js output. Console output
- * is accumulated in a static buffer and flushed once per visible update.
+ * scoring, levels, soft/hard drop, and VT100/xterm.js output. Raw console
+ * output is buffered locally and flushed per visible update (or when full).
  */
 
 #include "../COMMON/DXSVC.H"
@@ -30,8 +30,6 @@
 #define CONSOLE_BUFFER_SIZE 4096
 #define BAG_SIZE 7
 #define ROTATION_COUNT 4
-
-extern int bdos(int function, int value);
 
 enum piece_type {
     PIECE_NONE,
@@ -77,7 +75,8 @@ static const uint16_t piece_masks[8][ROTATION_COUNT] = {
     {0x02e0, 0x4460, 0x0e80, 0x0c44}
 };
 
-static char console_buffer[CONSOLE_BUFFER_SIZE];
+static uint8_t console_buffer[CONSOLE_BUFFER_SIZE];
+static unsigned console_buffer_used;
 static uint8_t board[BOARD_HEIGHT][BOARD_WIDTH];
 static uint8_t piece_bag[BAG_SIZE];
 static uint8_t pieces_remaining;
@@ -104,62 +103,89 @@ static bool previous_piece_visible;
 static enum escape_state escape_state;
 static uint8_t escape_wait_ticks;
 
+static void flush_console(void)
+{
+    unsigned index;
+
+    /* BIOS CONOUT bypasses BDOS look-ahead/flow control for every byte. */
+    for (index = 0; index < console_buffer_used; ++index)
+        bios(4, console_buffer[index]);
+    console_buffer_used = 0;
+}
+
+static inline void console_put_byte(uint8_t byte)
+{
+    if (console_buffer_used == CONSOLE_BUFFER_SIZE)
+        flush_console();
+    console_buffer[console_buffer_used++] = byte;
+}
+
 static void write_text(const char *text)
 {
-    while (*text)
-        putchar(*text++);
+    uint8_t byte;
+
+    while (*text) {
+        byte = (unsigned char)*text++;
+        console_put_byte(byte);
+    }
 }
 
 static void write_unsigned(unsigned value)
 {
     char digits[6];
     uint8_t count = 0;
+    uint8_t byte;
 
     if (value == 0) {
-        putchar('0');
+        console_put_byte('0');
         return;
     }
     while (value != 0 && count < sizeof(digits)) {
         digits[count++] = (char)('0' + value % 10);
         value /= 10;
     }
-    while (count != 0)
-        putchar(digits[--count]);
+    while (count != 0) {
+        byte = digits[--count];
+        console_put_byte(byte);
+    }
 }
 
 static void write_score(long value)
 {
     char digits[11];
     uint8_t count = 0;
+    uint8_t byte;
 
     if (value == 0) {
-        putchar('0');
+        console_put_byte('0');
         return;
     }
     while (value != 0 && count < sizeof(digits)) {
         digits[count++] = (char)('0' + value % 10);
         value /= 10;
     }
-    while (count != 0)
-        putchar(digits[--count]);
+    while (count != 0) {
+        byte = digits[--count];
+        console_put_byte(byte);
+    }
 }
 
 static void move_cursor(uint8_t row, uint8_t column)
 {
-    putchar(ESCAPE_KEY);
-    putchar('[');
+    console_put_byte(ESCAPE_KEY);
+    console_put_byte('[');
     write_unsigned(row);
-    putchar(';');
+    console_put_byte(';');
     write_unsigned(column);
-    putchar('H');
+    console_put_byte('H');
 }
 
 static void set_color(uint8_t color)
 {
-    putchar(ESCAPE_KEY);
-    putchar('[');
+    console_put_byte(ESCAPE_KEY);
+    console_put_byte('[');
     write_unsigned(color);
-    putchar('m');
+    console_put_byte('m');
 }
 
 static void reset_color(void)
@@ -180,11 +206,6 @@ static void hide_cursor(void)
 static void show_cursor(void)
 {
     write_text("\033[?25h");
-}
-
-static void flush_console(void)
-{
-    fflush(stdout);
 }
 
 static int read_key(void)
@@ -755,7 +776,6 @@ static void initialize_game(void)
 
 int main(void)
 {
-    setvbuf(stdout, console_buffer, _IOFBF, sizeof(console_buffer));
     initialize_game();
 
     clear_screen();

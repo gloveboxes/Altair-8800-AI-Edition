@@ -25,6 +25,8 @@ static std::vector<uint8_t> request;
 static std::string output;
 static bool placed, quit;
 static unsigned arrow_position;
+static std::vector<uint8_t> drawing_keys;
+static unsigned drawing_key_position;
 
 static uint8_t input(uint8_t port)
 {
@@ -101,12 +103,16 @@ int main(int argc, char **argv)
     memory[5] = 0xc3;
     memory[6] = 0;
     memory[7] = 0xf0;
+    /* WBOOT vector identifies the BIOS jump table; intercept CONOUT below. */
+    memory[1] = 0x03;
+    memory[2] = 0xf1;
     z80_reset(&cpu, no_in, no_out, no_in, &disk, input, out);
     reg.pc = 0x100;
     reg.sp = 0xeff0;
     for (unsigned steps = 0; steps < 20000000; ++steps) {
         if (reg.pc == 0) {
             assert(placed && quit && starts[2] > 0);
+            assert(drawing_keys.size() == 2 && drawing_key_position == 2);
             if (!escape_only) assert(starts[1] == 2 && random_calls > 0 && arrow_position == 4);
             assert(output.find("Thanks for playing!") != std::string::npos);
             unsigned board = addresses.at("TICTAC:_BRD");
@@ -133,14 +139,18 @@ int main(int argc, char **argv)
                 "Z80 two turns, arrows, timer/random protocol and 32-bit AI score PASS");
             return 0;
         }
-        if (reg.pc == 5) {
+        if (reg.pc == 0xf10c) {
+            output += char(reg.c);
+            if (output.size() == 100)
+                drawing_keys = {19, 4};
+            reg.pc = memory[reg.sp] + 256 * memory[reg.sp + 1];
+            reg.sp += 2;
+        } else if (reg.pc == 5) {
             unsigned byte = 0;
-            if (reg.c == 2) output += char(reg.e);
-            else if (reg.c == 9) {
-                unsigned p = reg.D();
-                while (memory[p] != '$') output += char(memory[p++]);
-            } else if (reg.c == 6) {
-                if (reg.e != 255) output += char(reg.e);
+            if (reg.c == 6) {
+                assert(reg.e == 255);
+                if (drawing_key_position < drawing_keys.size())
+                    byte = drawing_keys[drawing_key_position++];
                 else if (!placed && output.find("Your turn") != std::string::npos) {
                     byte = escape_only ? 27 : ' ';
                     placed = true;

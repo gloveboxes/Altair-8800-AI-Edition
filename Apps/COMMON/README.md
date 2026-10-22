@@ -5,6 +5,11 @@
 for the current dcc applications. The legacy BDS C apps, SDK and compiler
 archives have been removed. This directory is not a replacement BDS SDK.
 
+For new games, read
+[Ctrl-S gameplay lessons and game-local raw console buffering](RAW-CONSOLE.md).
+Raw keyboard polling must be paired with raw output: buffered stdout can still
+invoke BDOS flow control and consume movement keys during drawing.
+
 Ten dcc application configurations compile this shared client: ATTN, BREAKOUT,
 CHAT, CLOCK, DATE, HANGMAN, MANC11, SHEETS, SNAKE and TETRIS. Their
 `dccmake.txt` files include `../COMMON/DXSVC.C` and the shared include directory.
