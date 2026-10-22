@@ -16,7 +16,8 @@ Transport failures are diagnosed and reset by the shared helper.
 Build with `dccmake` for `build/CHAT.COM` without installing a disk image.
 Run `sh ./test-services.sh` for repeatable native tests of APPEND sizing,
 ENV payloads, waiting/status/chunk handling, response formatting and SUBMIT
-errors. These stub service operations; they do not test live HTTP streaming.
+errors, plus thinking defaults, provider switching, exact JSON and buffer
+bounds. These stub service operations; they do not test live HTTP streaming.
 
 All configuration is read from the Altair env store via the `ENV` app
 (set with `ENV NAME=value`) or, on the device, from the web config portal.
@@ -48,9 +49,55 @@ provider/endpoint, edit `altair_local/altair_env.txt` and relaunch
 | `CHAT_MODEL`       | `gemma3:1b` | Model name passed to the API |
 | `CHAT_MAX_TOKENS`  | `1024`      | `max_tokens` in the request |
 | `CHAT_TEMPERATURE` | `0.7`       | Sampling temperature |
+| `CHAT_THINK`       | `false`     | Ollama thinking control for `compatible`/`ollama`; ignored for `openai` |
 
 These can also be set in the env store with `ENV NAME=value`; values are
 read fresh each time `CHAT.COM` starts.
+
+### Ollama thinking control (CHAT 1.7-c11)
+
+With `CHAT_PROVIDER=compatible` (the usual Ollama setup), thinking is disabled
+by default. The Pico also accepts the explicit `CHAT_PROVIDER=ollama` alias;
+the ESP32 and desktop drivers still use `compatible`.
+
+| `CHAT_THINK` | OpenAI-compatible request field | Behavior |
+|---|---|---|
+| Absent, empty, or `false` | `"reasoning_effort":"none"` | Request a direct answer without a thinking phase |
+| `true` | `"reasoning_effort":"medium"` | Enable thinking for models with boolean controls; request medium effort where supported |
+| `default` | Field omitted | Leave thinking to the server/model default |
+
+Only models that support disabling thinking can honor `none`. This uses the
+OpenAI-compatible `/v1/chat/completions` parameter, **not** the native Ollama
+`think` parameter. The host/Pico/ESP32 driver forwards the JSON unchanged.
+Reasoning output remains hidden; only the final answer is displayed.
+
+`CHAT_THINK` and `CHAT_PROVIDER` are re-read before each turn, so switching
+back to OpenAI never carries a stale Ollama option. OpenAI (including an
+absent/empty provider) does not read or emit `CHAT_THINK`. Missing/empty
+`CHAT_THINK` is seeded as `false` for compatible providers, as with the other
+first-run defaults. Values are lowercase `false`, `true`, or `default`;
+invalid values and ENV read/write failures stop the request rather than
+silently using another mode. The usual service helper may print a NOT_FOUND
+diagnostic while seeding a missing key on first use.
+
+For non-Ollama compatible servers that do not implement `reasoning_effort`,
+set `ENV CHAT_THINK=default` to preserve their original request format.
+Thinking still counts toward CHAT's token budget, and a model that produces
+no answer content for approximately 30 seconds can hit the client's idle
+timeout.
+
+Examples, entered at the CP/M prompt before starting CHAT (or changed from a
+second console between turns):
+
+```text
+ENV CHAT_THINK=false
+ENV CHAT_THINK=true
+ENV CHAT_THINK=default
+```
+
+These are alternatives, not a sequence to run. No Pico firmware update is
+needed for this setting; install the rebuilt `build/CHAT.COM` and keep the
+existing `CHAT.SYS`. Building does not install a disk image or change a board.
 
 ## Example: OpenAI
 

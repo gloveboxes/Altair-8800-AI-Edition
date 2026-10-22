@@ -16,7 +16,7 @@
  *   dccmake
  */
 
-#define CHAT_VERSION "1.6-c11"
+#define CHAT_VERSION "1.7-c11"
 
 enum {
     MESSAGE_TYPE_USER = 1,
@@ -44,6 +44,7 @@ enum {
 
     ENV_VALUE_LENGTH = 256,
     ENV_STATUS_OK = 0,
+    ENV_ERROR_NOT_FOUND = -20,
     ENV_COMMAND_INITIALIZE = 1,
     ENV_COMMAND_GET = 2,
     ENV_COMMAND_SET = 3
@@ -57,6 +58,8 @@ static char system_prompt[SYSTEM_PROMPT_LENGTH];
 static char max_tokens_value[CONFIG_VALUE_LENGTH];
 static char temperature_value[CONFIG_VALUE_LENGTH];
 static char model_name[MODEL_NAME_LENGTH];
+static bool compatible_provider;
+static const char *reasoning_effort;
 static uint8_t message_types[MESSAGE_HISTORY_LIMIT];
 static uint8_t message_count;
 static bool response_truncated;
@@ -102,6 +105,7 @@ static int chat_history_memory_used(void);
 static int chat_largest_free_block(void);
 static int chat_read_line(char *buf, int max);
 static int chat_load_environment(void);
+static int chat_load_thinking_config(void);
 static int chat_store_numeric_config(const char *value, char *destination, bool allow_decimal);
 static int chat_store_max_tokens(const char *val);
 static int chat_store_temperature(const char *val);
@@ -174,7 +178,8 @@ static int env_initialize(void)
 static int env_get_value(const char *key, char *val, int maxlen)
 {
     unsigned char request[17];
-    char response[ENV_VALUE_LENGTH];
+    /* ENV transactions are serialized; keep scratch off the 512-byte stack. */
+    static char response[ENV_VALUE_LENGTH];
     int key_length = strlen(key);
     int length;
     int index;
@@ -198,7 +203,7 @@ static int env_get_value(const char *key, char *val, int maxlen)
 
 static int env_set_value(const char *key, const char *val)
 {
-    unsigned char request[274];
+    static unsigned char request[274];
     int key_length = strlen(key);
     int value_length = strlen(val);
 
@@ -333,7 +338,15 @@ static int json_generate_chat_request(const char *system_message, const uint8_t 
         return -1;
     if (json_append_text(outbuf, &pos, outsize, temperature_value) < 0)
         return -1;
-    if (json_append_text(outbuf, &pos, outsize, ",\"stream\":true}") < 0)
+    if (json_append_text(outbuf, &pos, outsize, ",\"stream\":true") < 0)
+        return -1;
+    if (reasoning_effort != NULL) {
+        if (json_append_text(outbuf, &pos, outsize, ",\"reasoning_effort\":\"") < 0 ||
+            json_append_text(outbuf, &pos, outsize, reasoning_effort) < 0 ||
+            json_append_text(outbuf, &pos, outsize, "\"") < 0)
+            return -1;
+    }
+    if (json_append_text(outbuf, &pos, outsize, "}") < 0)
         return -1;
 
     return pos;
@@ -345,6 +358,8 @@ static int chat_initialize(void)
     strcpy(max_tokens_value, "1024");
     strcpy(temperature_value, "0.7");
     strcpy(model_name, "gemma3:1b");
+    compatible_provider = false;
+    reasoning_effort = NULL;
 
     message_count = 0;
     response_truncated = false;
@@ -379,8 +394,9 @@ static int chat_load_system_prompt(void)
     system_prompt[message_index] = '\0';
     fclose(system_file);
 
-    chat_load_environment();
-    return 0;
+    if (chat_load_environment() < 0)
+        return -1;
+    return chat_load_thinking_config();
 }
 
 static int chat_show_help(void)
@@ -394,7 +410,10 @@ static int chat_show_help(void)
     printf("  ENV CHAT_ENDPOINT=http://host:11434/v1/chat/completions\n");
     printf("  ENV CHAT_MODEL=gemma3:1b\n");
     printf("  ENV CHAT_MAX_TOKENS=1024\n");
-    printf("  ENV CHAT_TEMPERATURE=0.7\n\n");
+    printf("  ENV CHAT_TEMPERATURE=0.7\n");
+    printf("  ENV CHAT_THINK=false\n\n");
+    printf("Ollama thinking: false (default), true, or default\n");
+    printf("to use the server default. OpenAI ignores CHAT_THINK.\n\n");
     printf("OpenAI example:\n");
     printf("  ENV CHAT_PROVIDER=openai\n");
     printf("  ENV CHAT_OPENAI_KEY=your-api-key\n");
@@ -409,7 +428,7 @@ static int chat_load_environment(void)
     char val[ENV_VALUE_BUFFER_LENGTH];
 
     if (env_initialize() != 0)
-        return 0;
+        return -1;
 
     if (env_get_value("CHAT_MODEL", val, ENV_VALUE_BUFFER_LENGTH) == 0 && val[0] != '\0')
         chat_store_model(val);
@@ -426,6 +445,43 @@ static int chat_load_environment(void)
     else
         env_set_value("CHAT_TEMPERATURE", temperature_value);
 
+    return 0;
+}
+
+static int chat_load_thinking_config(void)
+{
+    static char val[ENV_VALUE_BUFFER_LENGTH];
+    int status;
+
+    compatible_provider = false;
+    reasoning_effort = NULL;
+    status = env_get_value("CHAT_PROVIDER", val, sizeof(val));
+    if (status == ENV_ERROR_NOT_FOUND)
+        return 0;
+    if (status < 0)
+        return status;
+    compatible_provider = strcmp(val, "compatible") == 0 || strcmp(val, "ollama") == 0;
+    if (!compatible_provider)
+        return 0;
+
+    status = env_get_value("CHAT_THINK", val, sizeof(val));
+    if (status == ENV_ERROR_NOT_FOUND || (status == 0 && val[0] == '\0')) {
+        status = env_set_value("CHAT_THINK", "false");
+        if (status < 0)
+            return status;
+        strcpy(val, "false");
+    } else if (status < 0) {
+        return status;
+    }
+    if (strcmp(val, "false") == 0)
+        reasoning_effort = "none";
+    else if (strcmp(val, "true") == 0)
+        reasoning_effort = "medium";
+    else if (strcmp(val, "default") != 0) {
+        printf("Error: CHAT_THINK must be false, true or default\n");
+        fflush(stdout);
+        return -1;
+    }
     return 0;
 }
 
@@ -513,7 +569,11 @@ static int chat_run_session(void)
     printf("=======================\n\n");
     printf("Model:       %s\n", model_name);
     printf("Temperature: %s\n", temperature_value);
-    printf("Max tokens:  %s\n\n", max_tokens_value);
+    printf("Max tokens:  %s\n", max_tokens_value);
+    if (compatible_provider)
+        printf("Thinking:    %s\n", reasoning_effort == NULL ? "model default" :
+               strcmp(reasoning_effort, "none") == 0 ? "off" : "on");
+    printf("\n");
     printf("System (CHAT.SYS):\n%s\n\n", system_prompt);
     chat_show_commands();
     printf("\n");
@@ -702,6 +762,8 @@ static int chat_send_request(void)
     int response_length;
     int trimmed_messages;
 
+    if (chat_load_thinking_config() < 0)
+        return -1;
     trimmed_messages = 0;
     request_length = json_generate_chat_request(system_prompt, message_types, message_texts,
                                                  message_count, request_buffer,

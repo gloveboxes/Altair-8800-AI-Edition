@@ -45,7 +45,7 @@
     "IDF_PYTHON_ENV_PATH": "/Users/dave/.espressif/python_env/idf6.0_py3.14_env"
   },
   "idf.flashType": "UART",
-  "idf.currentSetup": "/Users/dave/.espressif/v6.0.3/esp-idf",
+  "idf.currentSetup": "/Users/dave/.espressif/v6.0.2/esp-idf",
   "clangd.path": "/Users/dave/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
   "clangd.arguments": [
     "--background-index",

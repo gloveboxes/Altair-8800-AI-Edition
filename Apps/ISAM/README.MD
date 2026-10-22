@@ -66,7 +66,8 @@ B: image and do not modify the native fixture snapshot.
 
 Run `pwsh ./build-app.ps1` to build both `DOCTOR.COM` and `DOCGEN.COM`. Each
 program is linked separately with its own stripped DCC runtime and installed
-into the default C: disk image.
+into the D: disk image (`disks/blank.dsk`), rather than the default C: image.
+The same destination is used when building ISAM through `Apps/BUILDALL/build-all.ps1`.
 
 To regenerate the canonical database, launch
 `DCC CP/M: Regenerate ISAM fixtures with DOCGEN`. Its dedicated build task
