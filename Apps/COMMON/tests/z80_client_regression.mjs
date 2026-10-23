@@ -90,6 +90,11 @@ build('DATE', [path.join(repo, 'Apps/DATE/date.c'), client],
 console.log(run(path.join(work, 'z80-client-fixture'),
     [path.join(work, 'DATE/DATE'), '--date']).trim());
 
+build('CLOCK', [path.join(repo, 'Apps/CLOCK/CLOCK.C'), client],
+    ['dcc-floatio=false', 'dcc-flongio=false']);
+console.log(run(path.join(work, 'z80-client-fixture'),
+    [path.join(work, 'CLOCK/CLOCK'), '--clock']).trim());
+
 const transport = ['io_wait_completion', 'io_write_request',
     'io_read_response', 'io_drain_response'];
 const timers = ['svc_start_timer', 'svc_timer_active', 'svc_access_stopwatch'];

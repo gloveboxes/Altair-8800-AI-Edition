@@ -187,14 +187,22 @@ static bool timer_expired(void)
     return svc_timer_active(2) == 0;
 }
 
+static int clock_text(int operation, char *buffer, int capacity)
+{
+    int previous = svc_error_output(0);
+    int result = svc_get_text(SERVICE_GROUP_CLOCK, operation, buffer, capacity);
+    svc_error_output(previous);
+    return result;
+}
+
 static int get_time(void)
 {
-    return svc_get_text(SERVICE_GROUP_CLOCK, 2, time_buffer, sizeof(time_buffer));
+    return clock_text(2, time_buffer, sizeof(time_buffer));
 }
 
 static int get_date(void)
 {
-    return svc_get_text(SERVICE_GROUP_CLOCK, 3, date_buffer, sizeof(date_buffer));
+    return clock_text(3, date_buffer, sizeof(date_buffer));
 }
 
 static void show_uptime(int row)
@@ -206,7 +214,7 @@ static void show_uptime(int row)
     int seconds;
     int col;
 
-    if (svc_get_text(SERVICE_GROUP_CLOCK, 0, uptime_buffer, sizeof(uptime_buffer)) < 0)
+    if (clock_text(0, uptime_buffer, sizeof(uptime_buffer)) < 0)
         return;
     uptime_seconds = atol(uptime_buffer);
     hours = (int)(uptime_seconds / 3600L);
@@ -500,7 +508,11 @@ static void refresh_display(void)
     else
     {
         cursor_move(CLOCK_ROW + 3, CLOCK_COLUMN);
-        printf("\033[1;91mWaiting for SNTP: \033[0m\033[K");
+        reset_color();
+        for (int col = CLOCK_COLUMN; col < SCREEN_WIDTH - 1; col++)
+            putchar(' ');
+        cursor_move(CLOCK_ROW + 3, CLOCK_COLUMN);
+        printf("\033[1;91mWaiting for SNTP: \033[0m");
         printf("\033[1;97m%s\033[0m", time_buffer);
         screen_dirty = true;
     }

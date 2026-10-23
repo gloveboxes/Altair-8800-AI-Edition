@@ -206,8 +206,33 @@ static void invalid_timer(const std::string& name, const std::vector<unsigned>& 
 
 int main(int argc, char** argv)
 {
-    assert(argc == 2 || (argc == 3 && std::string(argv[2]) == "--date"));
+    assert(argc == 2 || (argc == 3 &&
+        (std::string(argv[2]) == "--date" || std::string(argv[2]) == "--clock")));
     load(argv[1], argc == 2);
+    if (argc == 3 && std::string(argv[2]) == "--clock") {
+        symbols[symbol_key("ctime")] = symbols.at("CLOCK:get_time");
+        symbols[symbol_key("cdate")] = symbols.at("CLOCK:get_date");
+        symbols[symbol_key("uptime")] = symbols.at("CLOCK:show_uptime");
+        symbols[symbol_key("ctext")] = symbols.at("CLOCK:clock_text");
+        for (const std::string name : {"ctime", "cdate", "uptime"}) {
+            for (unsigned enabled : {0U, 1U}) {
+                setup(255, {21});
+                call("svc_error_output", {enabled}, 1);
+                call(name, name == "uptime" ? std::vector<unsigned>{2} :
+                     std::vector<unsigned>{}, name == "uptime" ? -65536 : -21);
+                assert(output.empty() && resets == 1 && frame_pos == frame.size());
+                call("svc_error_output", {1}, enabled);
+            }
+        }
+        const std::string time = "2026-10-23T12:06:22";
+        setup(2, std::vector<uint8_t>(time.begin(), time.end()));
+        call("ctext", {2, 0xa000, 24}, time.size());
+        assert(std::strcmp(reinterpret_cast<char *>(memory + 0xa000), time.c_str()) == 0);
+        assert(output.empty() && resets == 0 && frame_pos == frame.size());
+        call("svc_error_output", {1}, 1);
+        puts("CLOCK Z80: error 21 suppression, diagnostic restoration and successful time reads PASS");
+        return 0;
+    }
     if (argc == 3) {
         assert(image.size() <= 2048);
         const std::string date = "Tue 10/20/2026 17:30:00";
