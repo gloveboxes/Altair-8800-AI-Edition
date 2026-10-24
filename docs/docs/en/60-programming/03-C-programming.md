@@ -1,9 +1,7 @@
 # C Programming
 
 Current C applications use the host-based
-[dcc compiler](https://davidly.github.io/dcc/) for CP/M 2.2 on the Z80.
-Legacy BDS C applications, supporting SDK and compiler archives have been
-removed. Assembly and BASIC applications remain supported.
+[dcc compiler](https://davidly.github.io/dcc/) for CP/M 2.2 on the Z80 alongside Assembly and BASIC applications.
 
 dcc supports C89 plus CP/M-relevant C99/C11 features. It runs on Windows,
 macOS and Linux, producing M80 assembly that is assembled and linked into a

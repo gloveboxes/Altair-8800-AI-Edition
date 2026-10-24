@@ -551,9 +551,7 @@ and chat interleaving/back-pressure. Test the exact 2048-byte transport limit,
 the 256-byte FT count-zero convention, and absence of changes to fixed ports.
 
 Phase three adds the stateless `Apps/COMMON/DXSVC.C` transport. Current dcc
-builds compile it as a shared source. The legacy BDS C applications, SDK,
-compiler/archive folders and obsolete BDS submit workflows have been removed.
-Maintained clients cover:
+builds compile it as a shared source. Maintained clients cover:
 
 - dcc games/tools: `BREAKOUT`, `SNAKE`, `CLOCK`, `MANC11`, `HANGMAN`,
   `TETRIS`, `SHEETS`, `ATTNC11`, `DCCINT`, `DATE` and `CHAT`.

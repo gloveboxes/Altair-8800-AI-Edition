@@ -20,12 +20,6 @@ same name as its directory: DATE, SHEETS and MCPDONE keep their C builds and
 do not also assemble their alternate `.ASM` implementations. Distinct assembly
 companions, such as `ATTNINF.ASM`, are included.
 
-The current assembly cohort is ATTNINF, AUTORUN, EDIT, ENV, ESP32, FT, INTTEST,
-SLEEP and VIBE. BASIC files and standalone `.MAC` variants are not included.
-Legacy BDS C applications and their supporting SDK/compiler archives remain
-retired. TICTAC is maintained as a dcc port and is included through its C
-build wrapper. Current service-using C apps share `Apps/COMMON/DXSVC.C`.
-
 To build/install only the assembly cohort without rebuilding C applications:
 
 ```powershell

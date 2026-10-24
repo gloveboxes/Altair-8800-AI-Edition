@@ -32,11 +32,7 @@ The Altair emulator uses Intel 8080 IO ports to provide time services, random nu
 
 `Apps/COMMON/DXSVC.C` and `DXSVC.H` implement the framed interface and dedicated
 timer port used by the current dcc apps. `svc_start_timer`, `svc_timer_active` and `svc_access_stopwatch` use
-port 23 directly, independently of shared-service traffic. Framed timer groups
-remain compatible and share the same state. The legacy BDS C SDK and apps have
-been removed.
-The remaining tables/examples on this page are a historical port reference,
-not current build instructions.
+port 23 directly.
 
 ### Response read port
 

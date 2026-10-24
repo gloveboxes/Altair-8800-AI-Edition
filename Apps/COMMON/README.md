@@ -2,8 +2,7 @@
 
 `DXSVC.C` and `DXSVC.H` implement the
 [ROMLESS-SVC/1 service protocol](../../docs/docs/en/60-programming/01-ROMless-IO-Mapping.md)
-for the current dcc applications. The legacy BDS C apps, SDK and compiler
-archives have been removed. This directory is not a replacement BDS SDK.
+for the current dcc applications.
 
 For new games, read
 [Ctrl-S gameplay lessons and game-local raw console buffering](RAW-CONSOLE.md).

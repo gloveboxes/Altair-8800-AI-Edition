@@ -24,7 +24,6 @@ Current dcc applications share
 [Apps/COMMON/DXSVC.C](https://github.com/gloveboxes/Altair-8800-AI-Edition/blob/main/Apps/COMMON/DXSVC.C)
 and its header. Use the [service ABI](01-ROMless-IO-Mapping.md) and
 [C programming guide](03-C-programming.md) when generating new code.
-The legacy BDS C SDK and compiler archives have been removed.
 
 ## Leverage existing code samples
 

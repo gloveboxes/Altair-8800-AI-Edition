@@ -2,7 +2,6 @@
 
 A CP/M application that downloads files from a Remote FT Server.
 `FT.ASM` is the maintained 8080 macro-assembler (MAC) implementation.
-The legacy BDS C alternative has been removed.
 
 ## Building
 
