@@ -1,6 +1,6 @@
 # ESP32-S3 Altair 8800 Z80 Emulator
 
-Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.3 (minimum required). The project runs an Intel 8080/Altair environment with CP/M disks, physical display output, SD-card disk storage, WiFi setup, WebSocket terminal access, Bluetooth keyboard input, and an OpenAI-compatible chat I/O port for BDS C applications.
+Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.2 (minimum required). The project runs an Intel 8080/Altair environment with CP/M disks, physical display output, SD-card disk storage, WiFi setup, WebSocket terminal access, Bluetooth keyboard input, and an OpenAI-compatible chat I/O port for CP/M applications.
 
 > **Documentation:** The full project documentation is published at <https://gloveboxes.github.io/Altair-8800-AI-Edition/>.
 
@@ -36,7 +36,7 @@ The project currently supports four ESP32-S3 board configurations:
 - Intel 8080 CPU emulator and Altair memory model.
 - CP/M disk support using 88-DCDD disk images from SD card.
 - Built-in disk images and generated disk headers under `disks/`.
-- CP/M, BASIC, BDS C, and demo applications under `Apps/`.
+- CP/M, BASIC, dcc C, MAC assembler, and demo applications under `Apps/`.
 - Physical front-panel rendering on supported displays.
 - VT100 terminal renderer for the Waveshare AXS15231B board.
 - USB Serial/JTAG console input.
@@ -47,11 +47,11 @@ The project currently supports four ESP32-S3 board configurations:
 - Local full-CP/M DCC debugging with a native-file-backed session drive. The
   generic debugger host is maintained under `$DCC_DIR/src/dcc_debug_host`.
 - Time and utility I/O ports.
-- OpenAI Chat Completions compatible I/O port for CP/M/BDS C programs.
+- OpenAI Chat Completions compatible I/O port for CP/M programs.
 
 ## Chat / OpenAI-Compatible Endpoint Support
 
-The ESP32 firmware exposes a chat I/O port used by the CP/M-side BDS C app in `Apps/CHAT/CHAT.C`. The CP/M app sends OpenAI-style JSON to the ESP32; the ESP32 forwards it to the configured endpoint and streams text back through I/O ports.
+The ESP32 firmware exposes a chat I/O port used by the CP/M-side dcc app in `Apps/CHAT/CHATC11.C`. The CP/M app sends OpenAI-style JSON to the ESP32; the ESP32 forwards it to the configured endpoint and streams text back through I/O ports.
 
 Supported providers:
 
@@ -113,7 +113,7 @@ port_drivers/         Emulator I/O ports: chat, files, time, utility
 captive_portal/       WiFi setup captive portal
 terminal/             Browser terminal assets
 disks/                CP/M disk images and generated disk headers
-Apps/                 CP/M, BASIC, BDS C, and demo applications
+Apps/                 CP/M, BASIC, dcc C, MAC assembler, and demo applications
 docs/                 Development notes
 ```
 
@@ -167,7 +167,7 @@ a final behavior check, boot the normal local emulator and run `DIR`:
 
 ## Build Prerequisites
 
-- ESP-IDF v6.0.3 or newer for `esp32s3` (the build will fail with a clear error if an older ESP-IDF is sourced).
+- ESP-IDF v6.0.2 or newer for `esp32s3` (the build will fail with a clear error if an older ESP-IDF is sourced).
 - ESP-IDF VS Code extension, recommended for build/flash/monitor.
 - Python 3 and [zmac](https://github.com/gp48k/zmac) for regenerating the CP/M
   2.2 BIOS disk images.
@@ -176,12 +176,12 @@ a final behavior check, boot the normal local emulator and run `DIR`:
 
 > **Install location.** This project expects ESP-IDF and its tools to live under `$HOME/.espressif/` — specifically `$HOME/.espressif/<version>/esp-idf/` for the SDK and `$HOME/.espressif/tools/` for the toolchain. The ESP-IDF extension does not expand VS Code variables such as `${userHome}` in all of its own settings, so its `idf.*` paths in `.vscode/settings.json` are literal local paths. After cloning, run `python3 scripts/update_vscode_idf_paths.py` to discover local SDKs and rewrite those paths for your user account before building in VS Code.
 
-> **SDK version pinned in settings.** `.vscode/settings.json` hard-codes the v6.0.3 SDK path (for example `/Users/<you>/.espressif/v6.0.3/esp-idf`) along with version-specific subdirectories of the toolchain (e.g. `tools/xtensa-esp-elf/esp-15.2.0_20251204`, `tools/esp-clang/esp-20.1.1_20250829`, `python_env/idf6.0_py3.14_env`). When upgrading to a newer ESP-IDF, update these paths in `.vscode/settings.json` (and the `source` paths in `.vscode/tasks.json`) to match the new install. The CMake guard in `CMakeLists.txt` enforces only the *minimum* SDK version (v6.0.3) and is independent of these IDE paths.
+> **SDK version pinned in settings.** `.vscode/settings.json` hard-codes the v6.0.2 SDK path (for example `/Users/<you>/.espressif/v6.0.2/esp-idf`) along with version-specific subdirectories of the toolchain (e.g. `tools/xtensa-esp-elf/esp-15.2.0_20251204`, `tools/esp-clang/esp-20.1.1_20250829`, `python_env/idf6.0_py3.14_env`). When upgrading to a newer ESP-IDF, update these paths in `.vscode/settings.json` to match the new install. The ESP-IDF tasks in `.vscode/tasks.json` read the SDK and Python paths from those settings. The CMake guard in `CMakeLists.txt` enforces only the *minimum* SDK version (v6.0.2) and is independent of these IDE paths.
 
 Install ESP-IDF tools for ESP32-S3 if needed:
 
 ```bash
-$HOME/.espressif/v6.0.3/esp-idf/install.sh esp32s3
+$HOME/.espressif/v6.0.2/esp-idf/install.sh esp32s3
 ```
 
 Update the VS Code ESP-IDF extension paths for your local account:
@@ -193,7 +193,12 @@ python3 scripts/update_vscode_idf_paths.py
 The script scans `$HOME/.espressif/v*/esp-idf` and also includes an active
 `IDF_PATH`. If several valid SDKs are installed, it displays a numbered list
 and prompts you to choose one. In a non-interactive shell it selects the
-active `IDF_PATH`, then v6.0.3 when available, otherwise the newest SDK.
+active `IDF_PATH`, then v6.0.2 when available, otherwise the newest SDK.
+
+The disk-flash and board-config VS Code tasks use the selected Python environment
+before sourcing `export.sh`. This lets them run even when the shell's default
+Python is too old for ESP-IDF. Activation output remains visible in the task
+terminal so setup errors can be diagnosed.
 
 To bypass discovery for an SDK or tools directory outside the usual location,
 pass the paths explicitly:
@@ -208,7 +213,7 @@ python3 scripts/update_vscode_idf_paths.py \
 For CLI use, source ESP-IDF before running `idf.py`:
 
 ```bash
-source $HOME/.espressif/v6.0.3/esp-idf/export.sh
+source $HOME/.espressif/v6.0.2/esp-idf/export.sh
 ```
 
 ### ESP-IDF environment for VS Code on macOS
@@ -222,30 +227,30 @@ CMake Error at CMakeLists.txt:26 (message):
 
 ...or, mid-build, the bootloader sub-build fails with `IDF_PATH environment variable is different from inferred IDF_PATH` and a stale path.
 
-This workspace keeps the extension environment explicit in `.vscode/settings.json` via `idf.customExtraVars`: it sets `IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_TARGET`, `IDF_PYTHON_ENV_PATH`, `PYTHON`, `ESP_IDF_VERSION`, and a deterministic ESP-IDF `PATH` that includes the v6.0.3 Python environment, `idf.py`, toolchains, OpenOCD, Ninja, and Homebrew CMake. Keep those `idf.*` values as literal absolute paths; using `${userHome}` there makes the ESP-IDF extension treat the setup as missing.
+This workspace keeps the extension environment explicit in `.vscode/settings.json` via `idf.customExtraVars`: it sets `IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_TARGET`, `IDF_PYTHON_ENV_PATH`, `PYTHON`, `ESP_IDF_VERSION`, and a deterministic ESP-IDF `PATH` that includes the v6.0.2 Python environment, `idf.py`, toolchains, OpenOCD, Ninja, and Homebrew CMake. Keep those `idf.*` values as literal absolute paths; using `${userHome}` there makes the ESP-IDF extension treat the setup as missing.
 
 Do **not** source `export.sh` from `~/.zshenv`. That file runs for every zsh invocation, including non-interactive probes from VS Code and tooling; sourcing ESP-IDF there can make `/bin/zsh` exit with code 1 and break terminals system-wide. If you want global static shell variables, keep `~/.zshenv` limited to simple exports only:
 
 ```bash
-export IDF_PATH="$HOME/.espressif/v6.0.3/esp-idf"
+export IDF_PATH="$HOME/.espressif/v6.0.2/esp-idf"
 export IDF_TOOLS_PATH="$HOME/.espressif"
 ```
 
 For interactive CLI use, source ESP-IDF in the terminal where you need it:
 
 ```bash
-source "$HOME/.espressif/v6.0.3/esp-idf/export.sh"
+source "$HOME/.espressif/v6.0.2/esp-idf/export.sh"
 ```
 
 After cloning, installing ESP-IDF, or changing ESP-IDF-related VS Code settings, **fully quit VS Code with Cmd+Q** (a window reload or "Reopen Folder" is not enough because VS Code's process environment is captured at launch). Then relaunch VS Code from the Dock or via `code <folder>`. Run **ESP-IDF: Doctor Command** and verify that `ESP-IDF Path`, `Virtual environment Python path`, `CMake`, `Ninja`, and `ESP-IDF Tools Path` are accessible. For CLI builds, source ESP-IDF first and then check the terminal environment:
 
 ```bash
-source "$HOME/.espressif/v6.0.3/esp-idf/export.sh"
+source "$HOME/.espressif/v6.0.2/esp-idf/export.sh"
 echo $IDF_PATH
-# → /Users/<you>/.espressif/v6.0.3/esp-idf
+# → /Users/<you>/.espressif/v6.0.2/esp-idf
 ```
 
-> If you upgrade ESP-IDF, update `.vscode/settings.json`, `.vscode/tasks.json`, and any static `~/.zshenv` exports to the new path.
+> If you upgrade ESP-IDF, update `.vscode/settings.json` and any static `~/.zshenv` exports to the new path. The ESP-IDF tasks use the paths from the workspace settings.
 
 ### CMake Tools extension note
 

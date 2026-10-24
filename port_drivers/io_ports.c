@@ -336,6 +336,8 @@ static void request_out(uint8_t data)
 
 void io_port_out(uint8_t port, uint8_t data)
 {
+    /* Match the Z80 SBC's partially decoded port bus. */
+    port &= 0x17;
     switch (port)
     {
         case IO_TIMER_PORT:
@@ -365,6 +367,8 @@ void io_port_out(uint8_t port, uint8_t data)
 
 uint8_t io_port_in(uint8_t port)
 {
+    /* Match the Z80 SBC's partially decoded port bus. */
+    port &= 0x17;
     switch (port)
     {
         case IO_TIMER_PORT:

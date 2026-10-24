@@ -1,20 +1,9 @@
 # Altair Apps
 
 A collection of games and utilities that run under CP/M on the Altair 8800
-emulator and firmware. Every app in this catalog was **agentic engineered** with
-Claude and OpenAI foundation models, using a purpose-built toolchain for retro 8080 development:
-
-- **BDS C apps** were generated with the `bds-c` skill, validated with the
-  `check-bds-c.py` checker, and built and run end-to-end on the
-  `altair_cpm_build` MCP server.
-- **MAC assembly apps** were generated with the `mac-asm` skill, validated
-  with the `check_mac_asm.py` checker, and built and run on the same
-  `altair_cpm_build` MCP server.
-
-This combination lets a foundation model write, lint, compile, link, and test
-authentic Altair 8800 software without leaving the editor. Several apps ship in
-both a BDS C (`.C`) and a MAC assembler (`.ASM`) implementation with identical
-behavior.
+emulator and firmware. C applications are built with dcc; assembly applications
+use the Digital Research MAC assembler. Host build instructions are included
+with the apps that support host-side builds.
 
 !!! note "Building host-compiled apps"
   Host-side dcc builds require PowerShell 7, `dccmake`, and cpmtools. The app
@@ -47,15 +36,15 @@ behavior.
 ## Attn
 
 "Paper Tape is All You Need": a one-layer, one-head transformer that trains
-itself to reverse an 8-digit sequence, written in BDS C. It is a port of the
+itself to reverse an 8-digit sequence, written in C11 for dcc. It is based on the
 PDP-11 assembly program `attn.s`
 ([davepl/pdpsrc](https://github.com/davepl/pdpsrc/tree/main/bsd/attn)), itself
 derived from Damien Boureille's NN11 library. For background on the original
 PDP-11 version, see Dave Plummer's video
 [Paper Tape is All You Need](https://youtu.be/OUE3FSIk46g?si=Hqf_lmAycI_rA-Me).
 All math is software fixed-point — Q8 forward activations, Q15 gradients, and
-Q16 weight accumulators carried in 32-bit integers via the BDS C `LONG`
-package, since the 8080 has no hardware multiply, divide, or shift.
+Q16 weight accumulators carried in 32-bit integers, since the 8080 has no
+hardware multiply, divide, or shift.
 
 It prints a banner, then either trains or runs inference. Training runs 350
 steps (reporting loss and accuracy every 50 steps, with a `.` heartbeat per
@@ -281,8 +270,8 @@ Values are edited at a prompt that preserves mixed case.
 
 ## FT (File Transfer)
 
-Downloads files from a Remote FT Server into CP/M. Ships as both a BDS C
-(`FT.C`) and a MAC assembler (`FT.ASM`) build with identical behavior.
+Downloads files from a Remote FT Server into CP/M. The maintained implementation
+is written in 8080 assembly using the MAC assembler (`FT.ASM`).
 
 **Run**
 

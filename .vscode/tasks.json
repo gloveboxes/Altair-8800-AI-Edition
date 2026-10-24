@@ -25,9 +25,13 @@
     {
       "label": "Altair: Switch config to Waveshare 3.5B AXS15231B",
       "type": "shell",
-      "command": "source \"$HOME/.espressif/v6.0.3/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults\" reconfigure",
+      "command": "export PATH=\"$(dirname \"${config:idf.pythonInstallPath}\"):$PATH\" && source \"${config:idf.espIdfPath}/export.sh\" && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults\" reconfigure",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "IDF_TOOLS_PATH": "${config:idf.toolsPath}",
+          "IDF_PYTHON_ENV_PATH": "${config:idf.customExtraVars.IDF_PYTHON_ENV_PATH}"
+        }
       },
       "problemMatcher": [],
       "group": "build",
@@ -40,9 +44,13 @@
     {
       "label": "Altair: Switch config to Freenove ESP32-S3 LCD 2.8",
       "type": "shell",
-      "command": "source \"$HOME/.espressif/v6.0.3/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults\" reconfigure",
+      "command": "export PATH=\"$(dirname \"${config:idf.pythonInstallPath}\"):$PATH\" && source \"${config:idf.espIdfPath}/export.sh\" && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.FREENOVE-ESP32-S3-LCD-2.8.defaults\" reconfigure",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "IDF_TOOLS_PATH": "${config:idf.toolsPath}",
+          "IDF_PYTHON_ENV_PATH": "${config:idf.customExtraVars.IDF_PYTHON_ENV_PATH}"
+        }
       },
       "problemMatcher": [],
       "group": "build",
@@ -55,9 +63,13 @@
     {
       "label": "Altair: Switch config to Lonely Binary Altair Kit",
       "type": "shell",
-      "command": "source \"$HOME/.espressif/v6.0.3/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults\" reconfigure",
+      "command": "export PATH=\"$(dirname \"${config:idf.pythonInstallPath}\"):$PATH\" && source \"${config:idf.espIdfPath}/export.sh\" && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.LONELY_BINARY_ALTAIR_KIT.defaults\" reconfigure",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "IDF_TOOLS_PATH": "${config:idf.toolsPath}",
+          "IDF_PYTHON_ENV_PATH": "${config:idf.customExtraVars.IDF_PYTHON_ENV_PATH}"
+        }
       },
       "problemMatcher": [],
       "group": "build",
@@ -70,9 +82,13 @@
     {
       "label": "Altair: Switch config to Seeed XIAO ESP32-S3 Altair Kit",
       "type": "shell",
-      "command": "source \"$HOME/.espressif/v6.0.3/esp-idf/export.sh\" >/dev/null && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.SEEED_XIAO_ESP32_S3.defaults\" reconfigure",
+      "command": "export PATH=\"$(dirname \"${config:idf.pythonInstallPath}\"):$PATH\" && source \"${config:idf.espIdfPath}/export.sh\" && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.SEEED_XIAO_ESP32_S3.defaults\" reconfigure",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "IDF_TOOLS_PATH": "${config:idf.toolsPath}",
+          "IDF_PYTHON_ENV_PATH": "${config:idf.customExtraVars.IDF_PYTHON_ENV_PATH}"
+        }
       },
       "problemMatcher": [],
       "group": "build",
@@ -85,9 +101,13 @@
     {
       "label": "Altair: Flash Altair disk images",
       "type": "shell",
-      "command": "source \"$HOME/.espressif/v6.0.3/esp-idf/export.sh\" >/dev/null && idf.py storage-flash",
+      "command": "export PATH=\"$(dirname \"${config:idf.pythonInstallPath}\"):$PATH\" && source \"${config:idf.espIdfPath}/export.sh\" && idf.py storage-flash",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "IDF_TOOLS_PATH": "${config:idf.toolsPath}",
+          "IDF_PYTHON_ENV_PATH": "${config:idf.customExtraVars.IDF_PYTHON_ENV_PATH}"
+        }
       },
       "problemMatcher": [],
       "group": "build",

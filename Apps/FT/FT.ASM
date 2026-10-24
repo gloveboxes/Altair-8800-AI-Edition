@@ -44,6 +44,7 @@
 ; -- BDOS entry and function numbers (decimal) ------------------------------
 BDOS    EQU     5               ; CP/M BDOS entry point
 FCONO   EQU     2               ; func 2:  console output (char in E)
+FCONB   EQU     10              ; func 10: buffered console input
 FPRSTR  EQU     9               ; func 9:  print '$'-terminated string
 FCLOSE  EQU     16              ; func 16: close file
 FDEL    EQU     19              ; func 19: delete file
@@ -62,6 +63,7 @@ CCLOSE  EQU     4               ; command: close transfer
 STDATA  EQU     1               ; status: data ready
 STEOF   EQU     2               ; status: end of file
 STBUSY  EQU     3               ; status: busy
+STNENV  EQU     4               ; status: HTTP_BASE_URL missing or empty
 STERR   EQU     255             ; status: error
 
 ; -- misc -------------------------------------------------------------------
@@ -133,12 +135,15 @@ PARSED:
         LDA     TCNT
         ORA     A
         JZ      HELP            ; no args -> usage banner
+        CPI     1
+        JZ      ONEARG          ; mode only -> prompt for remote filename
         CPI     2
-        JZ      TWOARG          ; exactly two tokens -> maybe -g <file>
+        JZ      TWOARG          ; mode and filename
         JMP     INVAL
 
-; --- two tokens: first must be "-G" (text) or "-GB" (binary) -------------
-TWOARG: LHLD    TOK0
+; --- one or two tokens: first must be "-G" (text) or "-GB" (binary) -----
+TWOARG:
+ONEARG: LHLD    TOK0
         MOV     A,M
         CPI     '-'
         JNZ     INVAL
@@ -158,12 +163,86 @@ TWOARG: LHLD    TOK0
         JNZ     INVAL
         MVI     A,1
         STA     BINMOD          ; binary mode
-        JMP     DOWNLD
+        JMP     GOTMOD
 TWTEXT: XRA     A
         STA     BINMOD          ; text mode (normalize line endings, ^Z)
+GOTMOD: LDA     TCNT
+        CPI     1
+        JZ      ASKNAME         ; no filename on command line
+        JMP     DOWNLD
+
+; --- read case-preserving remote name, then uppercase local basename -----
+ASKNAME:LXI     D,MPROMPT
+        CALL    PSTR
+        MVI     A,127
+        STA     INBUF
+        LXI     D,INBUF
+        MVI     C,FCONB
+        CALL    BDOS            ; CP/M fn 10 preserves character case
+        LDA     INBUF+1         ; empty input is rejected without a request
+        ORA     A
+        JZ      NOFILE
+        MOV     B,A             ; number of characters entered
+        LXI     H,INBUF+2
+        LXI     D,RNAME
+ASKCP:  MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     ASKCP
+        XRA     A
+        STAX    D               ; NUL-terminate the exact remote path
+        LXI     H,RNAME
+        SHLD    FNAMEP
+        SHLD    BASEP
+ASKBN:  MOV     A,M
+        ORA     A
+        JZ      ASKBN2
+        CPI     '/'
+        JZ      ASKSEP
+        CPI     5CH
+        JZ      ASKSEP
+        INX     H
+        JMP     ASKBN
+ASKSEP: INX     H
+        MOV     A,M
+        ORA     A
+        JZ      NOFILE          ; trailing separator -> empty basename
+        SHLD    BASEP
+        JMP     ASKBN
+ASKBN2: LHLD    BASEP
+        MOV     A,M
+        ORA     A
+        JZ      NOFILE
+        LXI     D,LNAME
+ASKCOPY:MOV     A,M
+        ORA     A
+        JZ      ASKEND
+        CPI     'a'
+        JC      ASKCOUT
+        CPI     '{'
+        JNC     ASKCOUT
+        SUI     32              ; CP/M local FCB names are uppercase
+ASKCOUT:STAX    D
+        INX     H
+        INX     D
+        JMP     ASKCOPY
+ASKEND: XRA     A
+        STAX    D
+        LXI     H,LNAME
+        SHLD    SAVEFN
+        JMP     DOWNLD
+
+NOFILE: LXI     D,MNOFILE
+        CALL    PSTR
+        JMP     EXIT0
 
 ; --- DOWNLOAD: filename = TOK1, save_fn = basename ------------------------
-DOWNLD: LHLD    TOK1
+DOWNLD: LDA     TCNT
+        CPI     1
+        JZ      DNLCL           ; prompt supplied FNAMEP and SAVEFN
+        LHLD    TOK1
         SHLD    FNAMEP          ; full path sent to the server
         SHLD    SAVEFN          ; default local name = full path
         LHLD    TOK1
@@ -183,6 +262,7 @@ BNSEP:  INX     H               ; HL -> char after the separator
         SHLD    SAVEFN          ; basename starts after this separator
         JMP     BNLP
 BNEND:
+DNLCL:
 
 ; --- print Downloading <file> from Remote FT Server -----------------------
         LXI     D,MDOWN1
@@ -241,7 +321,16 @@ NOSAVE:
         CALL    PSTR
         JMP     EXIT0
 
-DOFAIL: LXI     D,MFAIL         ; transfer error: report and remove file
+DOFAIL:                          ; transfer error: report and remove file
+        LDA     RESULT
+        CPI     2
+        JZ      ENVFAIL
+        LXI     D,MFAIL
+        CALL    PSTR
+        CALL    UNLINK
+        JMP     EXIT0
+
+ENVFAIL:LXI     D,MENVFAIL
         CALL    PSTR
         CALL    UNLINK
         JMP     EXIT0
@@ -297,6 +386,8 @@ FGWD1:  IN      CPRT            ; wait for DATA / EOF / ERR
         JZ      FGHVDT
         CPI     STEOF
         JZ      FGEOFL
+        CPI     STNENV
+        JZ      FGENVC
         CPI     STERR
         JZ      FGERRC
         JMP     FGWD1
@@ -317,6 +408,8 @@ FGGOTL: MOV     A,D             ; read DE bytes from the data port
 FGRDEN: IN      CPRT            ; status after the chunk
         CPI     STEOF
         JZ      FGEOFL
+        CPI     STNENV
+        JZ      FGENVC
         CPI     STERR
         JZ      FGERRC
         JMP     FGCHKL
@@ -328,6 +421,10 @@ FGEOFL: MVI     A,CCLOSE        ; normal end: close transfer, success
 FGERRC: MVI     A,CCLOSE        ; mid-transfer error: close, then fail
         OUT     CPRT
 FGERR:  MVI     A,1
+        RET
+FGENVC: MVI     A,CCLOSE        ; close transfer and distinguish missing ENV
+        OUT     CPRT
+        MVI     A,2
         RET
 
 ; ============================================================================
@@ -669,10 +766,14 @@ DIV10N: DCR     B
 ; ============================================================================
 MHELP:  DB      'FT (File Transfer) - Remote File Transfer v1.00',13,10
         DB      'Transfer files from Remote FT Server',13,10,13,10
-        DB      'Usage: ft [-g <filename>] [-gb <filename>]',13,10
+        DB      'Usage: ft -g [filename]  or  ft -gb [filename]',13,10
         DB      13,10,'Options:',13,10
         DB      '  -g  <filename>  Get a text file (normalize line endings)',13,10
         DB      '  -gb <filename>  Get a binary file (verbatim bytes)',13,10
+        DB      '  Omit filename to enter the remote name with its exact case.',13,10
+        DB      '  Set HTTP_BASE_URL in ENV to the remote server URL.',13,10
+        DB      '  Example: https://raw.githubusercontent.com/'
+        DB      'AzureSphereCloudEnabledAltair8800/RetroGames/refs/heads/main/',13,10
         DB      13,10,'Examples:',13,10
         DB      '  ft -g test.txt       Download text file from server',13,10
         DB      '  ft -gb prog.com      Download binary file from server',13,10,'$'
@@ -686,6 +787,12 @@ MERR2:  DB      39,13,10,'$'
 MDONE1: DB      'Done (','$'
 MDONE2: DB      ' bytes)',13,10,'$'
 MFAIL:  DB      'Failed - file not found or server error',13,10,'$'
+MENVFAIL:DB     'Missing HTTP_BASE_URL in ENV.',13,10
+        DB      'Run ENV, choose A to add or its number to edit.',13,10
+        DB      'Set value to: https://raw.githubusercontent.com/'
+        DB      'AzureSphereCloudEnabledAltair8800/RetroGames/refs/heads/main/',13,10,'$'
+MPROMPT:DB      'Remote filename/path: $'
+MNOFILE:DB      'No filename entered.',13,10,'$'
 MINVAL: DB      'Invalid arguments. Use ',39,'ft',39,' for help.',13,10,'$'
 
 ; ============================================================================
@@ -707,6 +814,10 @@ N32END  EQU     $               ; one past N32BUF
 DPTR:   DS      2               ; current digit pointer for PR32
 FCB:    DS      36              ; file control block
 TBUF:   DS      130             ; command-tail copy + NUL
+INBUF:  DS      129             ; BDOS fn 10: max length, actual length, text
+RNAME:  DS      128             ; case-preserving remote filename/path
+LNAME:  DS      128             ; uppercase local basename
+BASEP:  DS      2               ; temporary basename pointer
 WRBUF:  DS      128             ; one sequential write record
         DS      64              ; stack space
 STACK   EQU     $               ; top of our stack
