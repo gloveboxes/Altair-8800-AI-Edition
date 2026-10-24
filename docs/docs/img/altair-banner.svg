@@ -20,8 +20,7 @@
     <text x="64" y="83" fill="#68ddcf" font-size="17" font-weight="700" letter-spacing="3.5">CLASSIC COMPUTING. MODERN HARDWARE.</text>
     <text x="60" y="167" fill="#fff" font-size="62" font-weight="700" letter-spacing="-2">Altair <tspan fill="#68ddcf">8800</tspan></text>
     <text x="378" y="164" fill="#b8d0df" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" letter-spacing="2">Z80 AI EDITION</text>
-    <text x="64" y="212" fill="#d2e3ed" font-size="28">A Z80, emulated on the ESP32-S3.</text>
-    <text x="64" y="244" fill="#d2e3ed" font-size="24">Retro computing with AI.</text>
+    <text x="64" y="224" fill="#d2e3ed" font-size="28">Retro computing with AI.</text>
     <path d="M64 263h626" stroke="#557d8d"/>
     <text x="64" y="300" fill="#b8d0df" font-size="21">CP/M · BASIC · C · Front-panel experience</text>
     <text x="64" y="342" fill="#8cacbe" font-size="18">ESP32-S3 · Linux · macOS · Windows · Docker</text>
