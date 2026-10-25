@@ -1,45 +1,50 @@
 {
-  "configurations": [
-    {
-      "name": "ESP-IDF",
-      "compilerPath": "${config:idf.toolsPath}/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
-      "compileCommands": "${config:idf.buildPath}/compile_commands.json",
-      "includePath": [
-        "${config:idf.espIdfPath}/components/**",
-        "${workspaceFolder}/**"
-      ],
-      "browse": {
-        "path": [
-          "${config:idf.espIdfPath}/components",
-          "${workspaceFolder}"
-        ],
-        "limitSymbolsToIncludedHeaders": true
-      }
-    },
-    {
-      "name": "altair-local (host)",
-      "compileCommands": "${workspaceFolder}/altair_local/build/compile_commands.json",
-      "includePath": [
-        "${workspaceFolder}/altair_local",
-        "${workspaceFolder}/altair_local/PortDrivers",
-        "${workspaceFolder}/altair8800",
-        "${workspaceFolder}/port_drivers"
-      ],
-      "cStandard": "c11",
-      "intelliSenseMode": "${default}"
-    },
-    {
-      "name": "DCC Apps",
-      "includePath": [
-        "${workspaceFolder}/Apps/**",
-        "${env:DCC_DIR}"
-      ],
-      "defines": [
-        "_DCC_=1"
-      ],
-      "cStandard": "c11",
-      "intelliSenseMode": "${default}"
-    }
-  ],
-  "version": 4
+    "configurations": [
+        {
+            "name": "ESP-IDF",
+            "compilerPath": "${config:idf.toolsPath}/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
+            "compileCommands": [
+                "${config:idf.buildPath}/compile_commands.json"
+            ],
+            "includePath": [
+                "${config:idf.espIdfPath}/components/**",
+                "${workspaceFolder}/**"
+            ],
+            "browse": {
+                "path": [
+                    "${config:idf.espIdfPath}/components",
+                    "${workspaceFolder}"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        },
+        {
+            "name": "altair-local (host)",
+            "compileCommands": [
+                "${workspaceFolder}/altair_local/build/compile_commands.json"
+            ],
+            "includePath": [
+                "${workspaceFolder}/altair_local",
+                "${workspaceFolder}/altair_local/PortDrivers",
+                "${workspaceFolder}/altair8800",
+                "${workspaceFolder}/port_drivers"
+            ],
+            "cStandard": "c11",
+            "intelliSenseMode": "${default}"
+        },
+        {
+            "name": "DCC Apps",
+            "includePath": [
+                "${workspaceFolder}/Apps/**",
+                "${env:DCC_DIR}",
+                "${workspaceFolder}/Apps/COMMON"
+            ],
+            "defines": [
+                "_DCC_=1"
+            ],
+            "cStandard": "c11",
+            "intelliSenseMode": "${default}"
+        }
+    ],
+    "version": 4
 }
