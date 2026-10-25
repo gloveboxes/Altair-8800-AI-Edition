@@ -10,7 +10,9 @@ param(
 
 	[string] $DccDirectory,
 
-	[string] $Ntvcm = 'ntvcm'
+	[string] $Ntvcm = 'ntvcm',
+
+	[switch] $BuildOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,8 +44,11 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($DiskImage)) {
 	$DiskImage = Join-Path $repoRoot 'disks' 'escape-posix.dsk'
 }
-$targetImages = @((Resolve-Path -LiteralPath $DiskImage).Path)
-if ($outputBase -eq 'FT') {
+$targetImages = @()
+if (-not $BuildOnly) {
+	$targetImages = @((Resolve-Path -LiteralPath $DiskImage).Path)
+}
+if (-not $BuildOnly -and $outputBase -eq 'FT') {
 	if ([string]::IsNullOrWhiteSpace($ToolsDiskImage)) {
 		$ToolsDiskImage = Join-Path $repoRoot 'disks' 'bdsc-v1.60.dsk'
 	}

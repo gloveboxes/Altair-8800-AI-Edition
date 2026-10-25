@@ -8,7 +8,9 @@ param(
 
 	[string] $Dccmake = 'dccmake',
 
-	[string] $DiskImage
+	[string] $DiskImage,
+
+	[switch] $BuildOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +37,9 @@ function Get-DccSetting {
 		return $values[-1]
 	}
 
+	if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+		throw "$Name must be supplied in DccArguments when $Path does not exist"
+	}
 	$values = @(foreach ($line in Get-Content -LiteralPath $Path) {
 		if ($line -match $pattern) {
 			$Matches[1]
@@ -63,9 +68,6 @@ function Invoke-NativeCommand {
 $appPath = (Resolve-Path -LiteralPath $AppDirectory).Path
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $configPath = Join-Path $appPath 'dccmake.txt'
-if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-	throw "dccmake configuration not found: $configPath"
-}
 
 $outputBase = Get-DccSetting -Path $configPath -Name 'dcc-output' -Arguments $DccArguments
 $outputFile = if ($outputBase.EndsWith('.COM', [StringComparison]::OrdinalIgnoreCase)) {
@@ -93,10 +95,12 @@ try {
 	Move-Item -LiteralPath (Join-Path $buildDirectory $outputFile) -Destination $appPath -Force
 	Remove-Item -LiteralPath $buildDirectory -Recurse -Force
 
-	& (Join-Path $PSScriptRoot 'cpm-install.ps1') `
-		-Image $DiskImage `
-		-HostFile (Join-Path $appPath $outputFile) `
-		-CpmFile "0:$outputFile"
+	if (-not $BuildOnly) {
+		& (Join-Path $PSScriptRoot 'cpm-install.ps1') `
+			-Image $DiskImage `
+			-HostFile (Join-Path $appPath $outputFile) `
+			-CpmFile "0:$outputFile"
+	}
 }
 finally {
 	Pop-Location

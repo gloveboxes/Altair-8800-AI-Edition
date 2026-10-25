@@ -74,8 +74,25 @@ try {
 
 	Push-Location $repoRoot
 	try {
+		# Free the previous executable's blocks before allocating its replacement.
+		Write-Host "Removing existing $CpmFile from $imagePath before copying"
 		Invoke-CpmTool -Command 'cpmrm' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $CpmFile)
+		Write-Host "Copying $hostFilePath to $imagePath ($CpmFile)"
 		Invoke-CpmTool -Command 'cpmcp' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $hostFilePath, $CpmFile)
+		# cpmcp can return zero after an incomplete write to a full image.
+		# Verify the file before publishing the updated image.
+		$verifyFile = Join-Path $temporaryDirectory 'verify.bin'
+		Invoke-CpmTool -Command 'cpmcp' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $CpmFile, $verifyFile)
+		$expected = [IO.File]::ReadAllBytes($hostFilePath)
+		$actual = [IO.File]::ReadAllBytes($verifyFile)
+		if ($actual.Length -lt $expected.Length) {
+			throw "Incomplete installation of $CpmFile into $imagePath; check free disk space"
+		}
+		for ($index = 0; $index -lt $expected.Length; $index++) {
+			if ($actual[$index] -ne $expected[$index]) {
+				throw "Installation verification failed for $CpmFile in $imagePath; check free disk space"
+			}
+		}
 	}
 	finally {
 		Pop-Location
