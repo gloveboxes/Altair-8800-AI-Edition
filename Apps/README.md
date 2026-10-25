@@ -28,7 +28,9 @@ are excluded.
 - `.asm` applications are assembled and linked with M80/L80 through `ntvcm`.
   When C and assembly implementations produce the same executable, the C build
   takes precedence (currently MCPDONE and SHEETS).
-- `.bas` applications are copied as source files without compilation.
+- `.bas` applications are copied as source files with CRLF line endings and
+  a CP/M Ctrl-Z end marker so MBASIC can load them. Repository sources retain
+  their original line endings.
 
 Shared applications are built once and installed on all four drives. FT follows
 its folder placement; the build-all script does not additionally install it on B:.

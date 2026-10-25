@@ -50,6 +50,16 @@ $packedImage = Join-Path $temporaryDirectory 'packed.dsk'
 $updatedImage = Join-Path $temporaryDirectory 'updated.dsk'
 
 try {
+	$installFile = $hostFilePath
+	if ([IO.Path]::GetExtension($hostFilePath) -ieq '.bas') {
+		# MBASIC reads CP/M text: CRLF records followed by a Ctrl-Z EOF marker.
+		# Stage a converted copy so repository source files keep their line endings.
+		$text = [IO.File]::ReadAllText($hostFilePath).TrimEnd([char]0x1a)
+		$text = $text -replace '\r\n|\r|\n', "`r`n"
+		if ($text.Length -gt 0 -and -not $text.EndsWith("`r`n")) { $text += "`r`n" }
+		$installFile = Join-Path $temporaryDirectory 'basic.bas'
+		[IO.File]::WriteAllText($installFile, $text + [char]0x1a, [Text.UTF8Encoding]::new($false))
+	}
 	[byte[]] $imageBytes = [IO.File]::ReadAllBytes($imagePath)
 	if ($imageBytes.Length -lt $minimumImageBytes) {
 		throw "$imagePath is shorter than a 77-track Altair image"
@@ -78,12 +88,12 @@ try {
 		Write-Host "Removing existing $CpmFile from $imagePath before copying"
 		Invoke-CpmTool -Command 'cpmrm' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $CpmFile)
 		Write-Host "Copying $hostFilePath to $imagePath ($CpmFile)"
-		Invoke-CpmTool -Command 'cpmcp' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $hostFilePath, $CpmFile)
+		Invoke-CpmTool -Command 'cpmcp' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $installFile, $CpmFile)
 		# cpmcp can return zero after an incomplete write to a full image.
 		# Verify the file before publishing the updated image.
 		$verifyFile = Join-Path $temporaryDirectory 'verify.bin'
 		Invoke-CpmTool -Command 'cpmcp' -Arguments @('-f', 'altair88', '-T', 'raw', $packedImage, $CpmFile, $verifyFile)
-		$expected = [IO.File]::ReadAllBytes($hostFilePath)
+		$expected = [IO.File]::ReadAllBytes($installFile)
 		$actual = [IO.File]::ReadAllBytes($verifyFile)
 		if ($actual.Length -lt $expected.Length) {
 			throw "Incomplete installation of $CpmFile into $imagePath; check free disk space"
