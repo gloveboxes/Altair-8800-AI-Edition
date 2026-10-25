@@ -1,0 +1,9 @@
+ft -g file://format/format.asm
+b:mac format
+b:load format
+a:pip a:format.com=format.com
+era format.asm
+era format.hex
+era format.prn
+era format.sym
+mcpdone format
