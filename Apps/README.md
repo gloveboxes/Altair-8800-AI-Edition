@@ -67,8 +67,14 @@ Override tool locations or destination images when needed:
 refer to existing Altair disk images. Full images report an installation error;
 the script does not remove unrelated files to make room.
 
-Run the isolated orchestration regression checks with:
+Run the isolated disk installation regression check with:
 
 ```powershell
-pwsh ./Apps/BUILDALL/tests/build_all_regression.ps1
+python3 ./scripts/test_cpm_install.py
 ```
+
+This requires the built local emulator, PowerShell and cpmtools. It installs
+into temporary images, checks track/sector headers and checksums, and boots
+CP/M to run a program and switch between B: and A:. Unused sectors can retain
+track-0 headers, so the installer initializes address fields as well as payloads
+and checksums. The two boot tracks and trailing image bytes are preserved.

@@ -111,6 +111,29 @@ try {
 			$frameOffset = ($track * $sectorsPerTrack + $physicalSector) * $sectorBytes
 			$sourceOffset = ($track * $sectorsPerTrack + $packedSector) * $payloadBytes
 			$payloadOffset = if ($track -lt 6) { 3 } else { 7 }
+			# Also initialize unused sectors whose payload already equals the new
+			# data (for example zero-filled portions of a newly allocated file).
+			$changed = $track -ge 2 -and (
+				($imageBytes[$frameOffset] -band 0x7f) -ne $track -or
+				($track -ge 6 -and $imageBytes[$frameOffset + 1] -ne $packedSector))
+			for ($index = 0; $index -lt $payloadBytes; $index++) {
+				if ($packedBytes[$sourceOffset + $index] -ne $imageBytes[$frameOffset + $payloadOffset + $index]) {
+					$changed = $true
+					break
+				}
+			}
+			if (-not $changed) { continue }
+			if ($track -lt 2) { throw 'Installation attempted to modify reserved boot tracks' }
+			# Unallocated sectors may still carry a track-0 header. Initialize the
+			# address fields just as the BIOS does when writing a newly used sector.
+			$updatedBytes[$frameOffset] = 0x80 -bor $track
+			if ($track -lt 6) {
+				$updatedBytes[$frameOffset + 1] = 0
+				$updatedBytes[$frameOffset + 2] = 1
+			}
+			else {
+				$updatedBytes[$frameOffset + 1] = $packedSector
+			}
 			[Array]::Copy($packedBytes, $sourceOffset, $updatedBytes, $frameOffset + $payloadOffset, $payloadBytes)
 
 			$checksum = 0
