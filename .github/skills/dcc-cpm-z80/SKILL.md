@@ -1,6 +1,6 @@
 ---
 name: dcc-cpm-z80
-description: 'Write, build, test, and debug C89/C99/C11-targeted code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, dccmake, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, or VT100/ANSI CP/M terminal apps. Treat dcc as standard C89 plus a first-class _Bool scalar type and target-appropriate C99/C11 front-end compatibility EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
+description: 'Write, build, test, and debug C89/C99/C11-targeted code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, dccmake, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, DXSVC, ROMLESS-SVC, or VT100/ANSI CP/M terminal apps. Treat dcc as standard C89 plus a first-class _Bool scalar type and target-appropriate C99/C11 front-end compatibility EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
 argument-hint: 'Describe the C89/C99/C11 CP/M-Z80 task (write code, build, run under ntvcm, debug a failure)'
 ---
 
@@ -35,7 +35,37 @@ host ABI expectations.
 
 - Writing, porting, or reviewing C89/C99/C11 code compiled by `dcc`.
 - Building/running/debugging a dcc program (`dccmake`, `ntvcm`).
+- Using the repository's ROMLESS-SVC client (`Apps/COMMON/DXSVC.H` / `DXSVC.C`).
 - CP/M file I/O, VT100/ANSI console UIs, or DCCRTL work.
+
+## Shared DXSVC service and timer helpers
+
+For applications in this repository, read
+[DXSVC.H](../../../Apps/COMMON/DXSVC.H) before issuing hardware or host-service
+I/O. Add `../../COMMON/DXSVC.C` to the app's `dccmake.txt` inputs when using
+these helpers, and include the header from the C source. This provides the
+shared ROMLESS-SVC transport without each app reimplementing command framing,
+response polling, error draining, and channel reset.
+
+- Prefer `svc_operation_send(group, operation, payload, payload_length,
+  response, response_capacity)` for one operation with a small payload, or
+  `svc_call_service` for an already assembled request. Check for a negative
+  return; generic calls report transport/service errors and reset the channel.
+- Use `svc_start_timer(id, milliseconds)` and `svc_timer_active(id)` for
+  millisecond delays (timer IDs 0–2). Polling these dedicated timers does not
+  occupy the shared service channel, so an app can check `kbhit()` while it
+  waits and handle Escape/Ctrl+C responsively. Timer helper errors are fatal.
+- Use `svc_access_stopwatch` when elapsed time is needed. Decode its four-byte
+  result as an unsigned little-endian 32-bit count.
+- The generic client can encode any operation number; that does not mean a
+  firmware or emulator backend implements it. Check the corresponding service
+  dispatcher before using an operation. For example, the legacy BLINK.BAS
+  utility operation 4 is not implemented by the current utility service.
+
+Do not duplicate the DXSVC inline-assembly transport or poll service status
+ports directly when a matching helper exists. Use direct `inp`/`outp` only for
+device protocols that are not exposed by DXSVC, and document their framing and
+error handling.
 
 ## Responsive game console I/O
 
