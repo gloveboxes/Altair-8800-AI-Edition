@@ -55,10 +55,78 @@ if (-not $BuildOnly -and $outputBase -eq 'FT') {
 	$targetImages += (Resolve-Path -LiteralPath $ToolsDiskImage).Path
 }
 
-$ntvcmPath = (Get-Command $Ntvcm -CommandType Application -ErrorAction Stop).Source
 if ([string]::IsNullOrWhiteSpace($DccDirectory)) {
 	$DccDirectory = Split-Path (Get-Command dccmake -CommandType Application -ErrorAction Stop).Source -Parent
 }
+
+# Native Z80 modules use m80c/l80c. Only DCC-generated modules require DCCRTL;
+# self-contained modules marked "altair-z80 standalone" provide their startup.
+$firstLine = Get-Content -LiteralPath $sourcePath -TotalCount 1
+$isDccModule = $firstLine -match '^\s*;\s*dcc stage-\d+[a-z]? output\s*$'
+$isNativeStandalone = $firstLine -match '^\s*;\s*altair-z80 standalone\s*$'
+if ($isDccModule -or $isNativeStandalone) {
+	$nativeTools = @{}
+	$toolNames = @('m80c', 'l80c')
+	if ($isDccModule) { $toolNames += 'dccrtlstrip' }
+	foreach ($name in $toolNames) {
+		$tool = Join-Path $DccDirectory $name
+		if ($IsWindows) { $tool += '.exe' }
+		if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
+			throw "Required DCC tool not found: $tool"
+		}
+		$nativeTools[$name] = $tool
+	}
+	$runtime = Join-Path $DccDirectory 'DCCRTL.MAC'
+	if ($isDccModule -and -not (Test-Path -LiteralPath $runtime -PathType Leaf)) {
+		throw "DCC runtime not found: $runtime"
+	}
+
+	$temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) "altair-dcc-asm-$([guid]::NewGuid())"
+	$null = New-Item -ItemType Directory -Path $temporaryDirectory
+	try {
+		Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $temporaryDirectory "$outputBase.MAC")
+		if ($isDccModule) {
+			Copy-Item -LiteralPath $runtime -Destination (Join-Path $temporaryDirectory 'DCCRTL.MAC')
+		}
+		Push-Location $temporaryDirectory
+		try {
+			$modules = @($outputBase)
+			if ($isDccModule) {
+				& $nativeTools['dccrtlstrip'] -r DCCRTL.MAC -o RTLMIN.MAC "$outputBase.MAC"
+				if ($LASTEXITCODE -ne 0) { throw "dccrtlstrip failed with exit code $LASTEXITCODE" }
+				$modules = @('RTLMIN', $outputBase)
+			}
+			foreach ($module in $modules) {
+				& $nativeTools['m80c'] "=$module.MAC" /X /O /Z /L /C
+				if ($LASTEXITCODE -ne 0) { throw "m80c failed for $module with exit code $LASTEXITCODE" }
+			}
+			$linkModules = $modules -join ','
+			& $nativeTools['l80c'] "/P:100,$linkModules,$outputBase/N/E/Y"
+			if ($LASTEXITCODE -ne 0) { throw "l80c failed with exit code $LASTEXITCODE" }
+		}
+		finally {
+			Pop-Location
+		}
+
+		$builtFile = Join-Path $temporaryDirectory "$outputBase.COM"
+		if (-not (Test-Path -LiteralPath $builtFile -PathType Leaf) -or (Get-Item -LiteralPath $builtFile).Length -eq 0) {
+			throw "DCC M80/L80 did not produce a nonempty $outputBase.COM"
+		}
+		$outputFile = Join-Path $sourceFile.DirectoryName "$outputBase.COM"
+		Copy-Item -LiteralPath $builtFile -Destination $outputFile -Force
+		foreach ($image in ($targetImages | Select-Object -Unique)) {
+			& (Join-Path $PSScriptRoot 'cpm-install.ps1') `
+				-Image $image -HostFile $outputFile -CpmFile "0:$outputBase.COM"
+			Write-Host "Installed $outputBase.COM into $image"
+		}
+	}
+	finally {
+		Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+	}
+	return
+}
+
+$ntvcmPath = (Get-Command $Ntvcm -CommandType Application -ErrorAction Stop).Source
 $toolPaths = @(foreach ($name in @('M80.COM', 'L80.COM')) {
 	$tool = @(Get-ChildItem -LiteralPath $DccDirectory -File |
 		Where-Object { $_.Name -ieq $name })

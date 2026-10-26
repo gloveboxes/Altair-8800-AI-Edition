@@ -1,0 +1,78 @@
+e
+take lamp
+n
+take oil
+e
+take bread
+take battery
+w
+s
+e
+take key
+n
+talk to ghost
+s
+w
+d
+light lamp
+take coin
+w
+take wrench
+open case
+take gear
+e
+n
+open slab
+e
+open door
+e
+take idol
+w
+n
+talk to warden
+use oil on warden
+e
+n
+take gem
+s
+d
+w
+use wrench on pump
+turn valve
+e
+n
+take chalice
+s
+w
+s
+w
+take journal
+read journal
+u
+n
+give bread to raven
+take lens
+s
+w
+take rope
+use rope
+u
+use gear on clock
+use oil on clock
+wind clock
+use lens on mount
+u
+say dawn
+take crown
+d
+d
+s
+e
+e
+n
+give journal to ghost
+take flute
+s
+w
+w
+deposit all

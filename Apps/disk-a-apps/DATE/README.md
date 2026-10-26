@@ -26,41 +26,36 @@ built-in command, this `DATE.COM` also shadows the buggy CP/M 3 built-in `DATE`.
 
 ## How it works
 
-The dcc client links `../COMMON/DXSVC.C` and requests clock group `0x20`,
-operation `0x04`, through the framed ROMLESS-SVC/1 interface on ports 2/3/4.
-The response is formatted as `%a %m/%d/%Y %H:%M:%S`; the SDK supplies the
-local trailing NUL. Unsynchronized clocks and unavailable services produce
-an explicit error and nonzero exit status, not a fabricated date.
+`DATE.ASM` requests clock group `0x20`, operation `0x04`, through the framed
+ROMLESS-SVC/1 interface on ports 2/3/4. The response is formatted as
+`%a %m/%d/%Y %H:%M:%S` and printed through BDOS function 2.
+Status `4` means BUSY: DATE polls until the worker finishes or its finite
+polling budget expires. Unavailable services and transport errors produce
+an explicit diagnostic and reset the service channel.
 
-Text is printed with `putchar`, without linking the formatted-output runtime.
-The current C build is 1,664 bytes and occupies one 2 KB allocation block,
-down from 2,304 bytes before shared framing/diagnostic compaction.
-The alternate assembly build is 384 bytes:
-its full 2,049-byte response workspace is reserved in RAM using `EQU`, not
-emitted as executable-file padding. Both retain counted responses, bounded
-polling and explicit transport-error recovery.
+The standalone assembly build uses the DCC `m80c` assembler and `l80c` loader.
+It saves the CCP return stack, uses private stack space, restores the default
+DMA, and returns with `RET`, so it can run repeatedly without a warm boot. It
+requests the same clock service directly over ports 2/3/4, with bounded
+polling and a bounded response buffer.
 
 ## Build
 
-Build the C11 version with dcc:
+From the repository root, build with DCC M80C/L80C:
 
 ```powershell
 $env:DCC_DIR = "$HOME/GitHub/dcc"
-$env:NTVCM_DIR = "$HOME/GitHub/ntvcm"
-pwsh ./build-app.ps1
+pwsh ./Apps/disk-a-apps/DATE/build-app.ps1
 ```
 
 After a successful build, the script installs `DATE.COM` into the default C:
 disk image.
 
-To build without modifying a disk image, use `dccmake` directly; the result
-is written to `build/DATE.COM`.
+To produce `Apps/disk-a-apps/DATE/DATE.COM` without modifying a disk image:
 
-Alternatively, build the assembly version under CP/M:
-
-```
-SUBMIT DATE
+```powershell
+pwsh ./Apps/disk-a-apps/DATE/build-app.ps1 -BuildOnly
 ```
 
-which fetches the source, assembles it (`ASM`), converts the HEX image
-(`LOAD`), and produces `DATE.COM`.
+`python3 scripts/test_date_return.py` checks eight consecutive calls in the
+local CP/M emulator and verifies that none trigger a BIOS warm boot.

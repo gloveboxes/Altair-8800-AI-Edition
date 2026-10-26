@@ -1,4 +1,11 @@
 #!/usr/bin/env pwsh
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
-& (Join-Path $repoRoot 'scripts' 'build-dcc-app.ps1') -AppDirectory $PSScriptRoot
+param([switch] $BuildOnly)
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..' '..')).Path
+$dccDirectory = if ($env:DCC_DIR) { $env:DCC_DIR } else {
+    Split-Path (Get-Command dccmake -CommandType Application).Source -Parent
+}
+& (Join-Path $repoRoot 'scripts' 'build-asm-app.ps1') `
+    -Source (Join-Path $PSScriptRoot 'DATE.ASM') `
+    -DccDirectory $dccDirectory -BuildOnly:$BuildOnly

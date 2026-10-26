@@ -26,6 +26,8 @@ are excluded.
   DOCGEN. In directories without a configuration, each `.c` file is treated as
   a standalone program using dccmake defaults.
 - `.asm` applications are assembled and linked with M80/L80 through `ntvcm`.
+  Sources marked `; altair-z80 standalone` (including LS) use native
+  `m80c`/`l80c` and supply their own startup and helpers.
   When C and assembly implementations produce the same executable, the C build
   takes precedence (currently MCPDONE and SHEETS).
 - `.bas` applications are copied as source files with CRLF line endings and
