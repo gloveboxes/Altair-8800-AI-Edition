@@ -374,7 +374,20 @@ The test fixture uses a 5-row page to exercise forward/backward navigation.
 
 Rendering and highlight changes use local records only. Page changes refill
 the batch; edits, additions and returns from nested screens refresh the cache.
-The library remains schema-independent and the UI is unchanged.
+Patient rosters/search results and histories now use aligned 20-row and
+three-entry pages too: crossing a boundary displays the next/previous page,
+rather than scrolling an overlapping window and reloading it on every arrow.
+Up/Down within the new page performs no database calls.
+Doctor-page navigation repaints only the directory rows, leaving the header
+and footer intact. Screen transitions still redraw the complete screen.
+Patient/doctor rows erase trailing text after painting instead of blanking the
+whole line first; page painters no longer clear populated rows twice.
+History highlighting repaints only the date/type heading, not unchanged notes.
+Short pages explicitly clear unused rows to prevent stale entries. Long words
+in notes wrap across lines instead of losing characters beyond the line width.
+Each navigation update flushes the completed output, retaining responsive
+keyboard handling without adding a screen-sized buffer.
+The library remains schema-independent.
 DOCTOR also batches doctor-name search and relationship verification.
 Verification validates the contiguous doctor-ID range in batches, scans 11-byte patient relationship
 rows and accumulates history keys in batches of 64, returning only the doctor-ID
@@ -403,7 +416,9 @@ record buffers and cursor translation.
 
 The native builds initially reduced DOCTOR from 40192 to 34176 bytes. Adding
 generic slot/key gathering, projections, actual screen-page caches and batched
-verification and the paged doctor directory make it 38016 bytes, below 38 KiB.
+verification and the paged doctor directory made it 38016 bytes. Terminal redraw
+improvements bring it to 38272 bytes, still below 38 KiB, with the same 2560-byte
+page workspace and 2048-byte checked stack.
 DOCGEN is 18432 bytes including variable rosters, skewed histories and the cap.
 The library is 44288 bytes, 384 bytes larger for streamed index decoding and
 bounded ordered lookups; both client binary sizes are unchanged by this pass.
@@ -503,6 +518,26 @@ zero disk writes: about 70% less CPU and 96% fewer bank selections. Ordered
 lookup hints and index streaming cut another 55% from the preceding batched
 implementation; doctor membership checks still avoid 240 exact lookups.
 
+### VT100 rendering
+
+Measured on Z80ROMlessSBC against the preceding renderer, with stdout flushed
+inside every measured phase so buffered output is included:
+
+| Workload | Before T-states | After T-states | Before / after console bytes |
+| --- | ---: | ---: | ---: |
+| Warm 20-patient page, including its batch fetch | 2665752 | 2193239 | 1736 / 1404 |
+| Patient highlight movement | 176629 | 157973 | 158 / 146 |
+| History highlight movement | 450987 | 73829 | 306 / 68 |
+| Warm three-entry history page, including its batch fetch | 1040233 | 805357 | 607 / 457 |
+| Doctor highlight movement | 199781 | 181113 | 178 / 166 |
+
+History highlighting uses 84% less CPU and 78% fewer output bytes. Patient and
+history page rendering use 18% and 23% less CPU, respectively. Highlight changes
+perform zero bank entries and disk I/O. These measurements exclude the further
+savings from aligned pages: after crossing a patient-page boundary, the next
+19 Down presses reuse that page; history pages likewise reuse their three rows.
+No terminal scroll-region extensions or extra bank allocations are required.
+
 ## Validation
 
 ```sh
@@ -557,6 +592,10 @@ including temporary index-sort files, completes on that same image.
   buffers, malformed contracts and stale leases. Guards verify both 4 KiB
   and short-tail output.
 - [PAGETST.C](tests/PAGETST.C) invokes the real DOCTOR loaders/renderers.
+  Rendering regressions measure flushed output bytes and CPU, check highlight
+  attributes, blank tail rows and long-word wrapping, and require no database
+  calls for highlight changes. Interactive tests cross patient/history pages
+  in both directions and check that navigation inside each new page stays local.
   It grows the directory to 45 doctors, verifies all relationships, and proves
   that a late page reads only its five requested rows without scanning earlier
   pages or depending on the generator's doctor count.

@@ -165,8 +165,7 @@ static void ui_clear(void)
 
 static void ui_clear_line(int row)
 {
-    ui_move(row, 1);
-    printf("\033[K");
+    printf("\033[%d;1H\033[K", row);
 }
 
 static void ui_cursor(int visible)
@@ -973,8 +972,17 @@ static void ui_wrapped_text(char *text, int row, int column, int width)
         }
         if (line_length > 0)
             wrapped_line[line_length++] = ' ';
-        for (i = 0; i < word_length && line_length < width; i++)
+        for (i = 0; i < word_length; i++)
+        {
+            if (line_length == width)
+            {
+                wrapped_line[line_length] = 0;
+                ui_move(row++, column);
+                printf("%s", wrapped_line);
+                line_length = 0;
+            }
             wrapped_line[line_length++] = text[word_start + i];
+        }
     }
     if (line_length > 0)
     {
@@ -984,30 +992,34 @@ static void ui_wrapped_text(char *text, int row, int column, int width)
     }
 }
 
-static int ui_history_entry(int item_index, int top, int selected)
+static int ui_history_heading(int item_index, int top, int selected)
 {
     char date[9];
     char type[13];
-    char notes[H_NOTES_SIZE + 1];
-    int row;
     char *record;
 
     record = list_rows + (item_index - top) * HISTORY_SIZE;
     get_field(date, record, H_DATE, 8);
     get_field(type, record, H_TYPE, 12);
-    get_field(notes, record, H_NOTES, H_NOTES_SIZE);
-    row = 12 + ((item_index - top) * 5);
-    ui_clear_line(row);
-    ui_clear_line(row + 1);
-    ui_clear_line(row + 2);
-    ui_clear_line(row + 3);
-    ui_clear_line(row + 4);
-    ui_move(row, 3);
+    ui_move(12 + ((item_index - top) * 5), 3);
     if (item_index == selected)
         printf("\033[7m");
     printf("%s   %-12s", date, type);
     if (item_index == selected)
         printf("\033[0m");
+    return I_OK;
+}
+
+static int ui_history_entry(int item_index, int top, int selected)
+{
+    char notes[H_NOTES_SIZE + 1];
+    int row, line;
+    row = 12 + ((item_index - top) * 5);
+    for (line = row; line < row + 5; ++line)
+        ui_clear_line(line);
+    ui_history_heading(item_index, top, selected);
+    get_field(notes, list_rows + (item_index - top) * HISTORY_SIZE,
+        H_NOTES, H_NOTES_SIZE);
     ui_wrapped_text(notes, row, 29, H_NOTES_WIDTH);
     return I_OK;
 }
@@ -1057,8 +1069,6 @@ static int ui_history_page(int patient_id, int history_count, int top,
     rc = load_history_page(patient_id, history_count, top);
     if (rc != I_OK)
         return rc;
-    for (row = 12; row <= 26; row++)
-        ui_clear_line(row);
     for (index = 0; index < HISTORY_PAGE_SIZE && top + index < history_count;
          index++)
     {
@@ -1066,6 +1076,8 @@ static int ui_history_page(int patient_id, int history_count, int top,
         if (rc != I_OK)
             return rc;
     }
+    for (row = 12 + index * 5; row <= 26; row++)
+        ui_clear_line(row);
     fflush(stdout);
     return I_OK;
 }
@@ -1110,10 +1122,7 @@ static int ui_history(int patient_id)
                 selected = 0;
             else if (selected >= history_count)
                 selected = history_count - 1;
-            if (selected < top)
-                top = selected;
-            if (selected >= top + HISTORY_PAGE_SIZE)
-                top = selected - HISTORY_PAGE_SIZE + 1;
+            top = (selected / HISTORY_PAGE_SIZE) * HISTORY_PAGE_SIZE;
             ui_header("PATIENT HISTORY", "Clinical record");
             ui_move(5, 3);
             printf("Patient %05d   \033[1m%s %s\033[0m",
@@ -1165,19 +1174,16 @@ static int ui_history(int patient_id)
                 selected = history_count;
             redraw = 1;
         }
-        if (selected < top)
-            top = selected;
-        if (selected >= top + HISTORY_PAGE_SIZE)
-            top = selected - HISTORY_PAGE_SIZE + 1;
+        top = (selected / HISTORY_PAGE_SIZE) * HISTORY_PAGE_SIZE;
         if (!redraw && selected != old_selected)
         {
             if (top != old_top)
                 rc = ui_history_page(patient_id, history_count, top, selected);
             else
             {
-                rc = ui_history_entry(old_selected, top, selected);
+                rc = ui_history_heading(old_selected, top, selected);
                 if (rc == I_OK)
-                    rc = ui_history_entry(selected, top, selected);
+                    rc = ui_history_heading(selected, top, selected);
                 fflush(stdout);
             }
             if (rc != I_OK)
@@ -1262,7 +1268,6 @@ static int ui_patient_row(int item_index, int top, int selected)
     record = (struct patient_row *)list_rows + item_index - top;
     get_field(patient_first_name, record->first, 0, 12);
     get_field(patient_last_name, record->last, 0, 16);
-    ui_clear_line(LIST_FIRST_ROW + item_index - top);
     ui_move(LIST_FIRST_ROW + item_index - top, 3);
     if (item_index == selected)
         printf("\033[7m");
@@ -1272,6 +1277,7 @@ static int ui_patient_row(int item_index, int top, int selected)
         read_number(record->visits, 0, 3));
     if (item_index == selected)
         printf("\033[0m");
+    printf("\033[K");
     return I_OK;
 }
 
@@ -1304,13 +1310,14 @@ static int ui_patient_page(int patient_count, int top, int selected)
         return rc;
     for (index = 0; index < PATIENT_PAGE_SIZE; index++)
     {
-        ui_clear_line(LIST_FIRST_ROW + index);
         if (top + index < patient_count)
         {
             rc = ui_patient_row(top + index, top, selected);
             if (rc != I_OK)
                 return rc;
         }
+        else
+            ui_clear_line(LIST_FIRST_ROW + index);
     }
     fflush(stdout);
     return I_OK;
@@ -1347,8 +1354,7 @@ static int ui_patients(int doctor_id, int patient_count, char *search_query)
                 get_field(specialty, doctor_record, D_SPECIALTY, 20);
                 if (selected >= patient_count)
                     selected = patient_count ? patient_count - 1 : 0;
-                if (top > selected)
-                    top = selected;
+                top = (selected / PATIENT_PAGE_SIZE) * PATIENT_PAGE_SIZE;
                 strcpy(detail, "Dr ");
                 strcat(detail, doctor_first_name);
                 strcat(detail, " ");
@@ -1412,16 +1418,10 @@ static int ui_patients(int doctor_id, int patient_count, char *search_query)
             if (rc == I_OK)
             {
                 selected = patient_count;
-                top = selected - PATIENT_PAGE_SIZE + 1;
-                if (top < 0)
-                    top = 0;
             }
             redraw = 1;
         }
-        if (selected < top)
-            top = selected;
-        if (selected >= top + PATIENT_PAGE_SIZE)
-            top = selected - PATIENT_PAGE_SIZE + 1;
+        top = (selected / PATIENT_PAGE_SIZE) * PATIENT_PAGE_SIZE;
         if (!redraw && selected != old_selected)
         {
             if (top != old_top)
@@ -1454,7 +1454,6 @@ static int ui_doctor_row(int doctor_id, int top, int selected)
     get_field(first, record, D_FIRST, 12);
     get_field(last, record, D_LAST, 16);
     get_field(specialty, record, D_SPECIALTY, 20);
-    ui_clear_line(LIST_FIRST_ROW + doctor_id - 1 - top);
     ui_move(LIST_FIRST_ROW + doctor_id - 1 - top, 3);
     if (doctor_id == selected)
         printf("\033[7m");
@@ -1464,6 +1463,7 @@ static int ui_doctor_row(int doctor_id, int top, int selected)
         read_number(record, D_PATIENT_COUNT, 3));
     if (doctor_id == selected)
         printf("\033[0m");
+    printf("\033[K");
     return I_OK;
 }
 
@@ -1540,7 +1540,7 @@ static int ui_doctors(void)
     int doctor_id;
     int key;
     int rc;
-    int redraw;
+    int redraw; /* 1: whole screen; 2: directory rows only. */
     int top, old_top, refresh;
 
     selected = 1;
@@ -1559,9 +1559,12 @@ static int ui_doctors(void)
                     return rc;
                 refresh = 0;
             }
-            ui_header("DOCTORS", "Select a doctor to view registered patients");
-            ui_move(4, 3);
-            printf("ID    DOCTOR                         SPECIALTY              ROOM  PATIENTS");
+            if (redraw == 1)
+            {
+                ui_header("DOCTORS", "Select a doctor to view registered patients");
+                ui_move(4, 3);
+                printf("ID    DOCTOR                         SPECIALTY              ROOM  PATIENTS");
+            }
             for (doctor_id = top + 1;
                 doctor_id <= doctor_count && doctor_id <= top + DOCTOR_PAGE_SIZE;
                 doctor_id++)
@@ -1570,7 +1573,13 @@ static int ui_doctors(void)
                 if (rc != I_OK)
                     return rc;
             }
-            ui_footer("/ Search doctors   P Search patients   D ISAM activity   Q Quit");
+            if (redraw == 2)
+                for (; doctor_id <= top + DOCTOR_PAGE_SIZE; doctor_id++)
+                    ui_clear_line(LIST_FIRST_ROW + doctor_id - 1 - top);
+            if (redraw == 1)
+                ui_footer("/ Search doctors   P Search patients   D ISAM activity   Q Quit");
+            else
+                fflush(stdout);
             redraw = 0;
         }
         key = ui_read_key();
@@ -1632,7 +1641,8 @@ static int ui_doctors(void)
         top = ((selected - 1) / DOCTOR_PAGE_SIZE) * DOCTOR_PAGE_SIZE;
         if (top != old_top)
         {
-            redraw = 1;
+            if (!redraw)
+                redraw = 2;
             refresh = 1;
         }
         if (!redraw && selected != old_selected)

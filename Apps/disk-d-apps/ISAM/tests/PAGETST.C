@@ -89,10 +89,19 @@ static int page_checks(void)
     CHECK(rc == I_OK, 8);
     db_stats(&stats);
     CHECK(!stats.exact_lookups && stats.physical_reads == 20, 9);
+    fflush(stdout);
+    outp(5, 61);
+    rc = ui_patient_page(30, 0, 0);
+    outp(5, 189);
+    CHECK(rc == I_OK, 9);
     db_reset();
     for (i = 0; i < PATIENT_PAGE_SIZE; ++i)
         CHECK(ui_patient_row(i, 0, 0) == I_OK, 10);
+    fflush(stdout);
+    outp(5, 62);
     CHECK(ui_patient_row(0, 0, 1) == I_OK && ui_patient_row(1, 0, 1) == I_OK, 11);
+    fflush(stdout);
+    outp(5, 190);
     db_stats(&stats);
     CHECK(!stats.physical_reads && !stats.exact_lookups && !stats.cursor_rows, 12);
     CHECK(load_patient_page(30, 10) == I_OK &&
@@ -100,15 +109,29 @@ static int page_checks(void)
         read_number(list_rows + 19 * sizeof(struct patient_row), 0, 5) == 30, 13);
     CHECK(load_patient_page(30, 20) == I_OK &&
         read_number(list_rows, 0, 5) == 21, 14);
+    fflush(stdout);
+    outp(5, 68);
+    rc = ui_patient_page(30, 20, 20);
+    outp(5, 196);
+    CHECK(rc == I_OK, 14);
 
     count = search_patient("A");
     CHECK(count > 0 && load_patient_page(count, 0) == I_OK, 15);
     for (i = 0; i < count && i < PATIENT_PAGE_SIZE; ++i)
         CHECK(read_number(list_rows + i * sizeof(struct patient_row), 0, 5) == roster_ids[i], 16);
     CHECK(load_history(1, 3) == I_OK && load_history_page(1, 3, 0) == I_OK, 17);
+    fflush(stdout);
+    outp(5, 66);
+    rc = ui_history_page(1, 3, 0, 0);
+    outp(5, 194);
+    CHECK(rc == I_OK, 17);
     db_reset();
-    CHECK(ui_history_entry(0, 0, 1) == I_OK &&
-        ui_history_entry(1, 0, 1) == I_OK, 18);
+    fflush(stdout);
+    outp(5, 63);
+    CHECK(ui_history_heading(0, 0, 1) == I_OK &&
+        ui_history_heading(1, 0, 1) == I_OK, 18);
+    fflush(stdout);
+    outp(5, 191);
     db_stats(&stats);
     CHECK(!stats.physical_reads && !stats.exact_lookups && !stats.cursor_rows, 19);
     memcpy(history_record, list_rows, HISTORY_SIZE);
@@ -118,6 +141,18 @@ static int page_checks(void)
         load_history(1, 4) == I_OK && load_history_page(1, 4, 1) == I_OK &&
         read_number(list_rows, PATIENT_KEY_LEN, 3) == 2 &&
         read_number(list_rows + 2 * HISTORY_SIZE, PATIENT_KEY_LEN, 3) == 4, 19);
+    fflush(stdout);
+    outp(5, 69);
+    rc = ui_history_page(1, 4, 3, 3);
+    outp(5, 197);
+    CHECK(rc == I_OK, 19);
+    memset(form_notes, 'X', H_NOTES_SIZE);
+    form_notes[H_NOTES_SIZE] = 0;
+    fflush(stdout);
+    outp(5, 70);
+    ui_wrapped_text(form_notes, 12, 29, H_NOTES_WIDTH);
+    fflush(stdout);
+    outp(5, 198);
     CHECK(load_roster(1) == 30 && load_patient_page(30, 0) == I_OK &&
         read_number(list_rows, 0, 5) == 1, 20);
     slot = find_patient(1);
@@ -145,7 +180,11 @@ static int page_checks(void)
         load_doctor_page(DOCTOR_COUNT) == I_EVERIFY &&
         load_doctor_page(0) == I_OK, 23);
     db_reset();
+    fflush(stdout);
+    outp(5, 67);
     CHECK(ui_doctor_row(1, 0, 2) == I_OK && ui_doctor_row(2, 0, 2) == I_OK, 24);
+    fflush(stdout);
+    outp(5, 195);
     db_stats(&stats);
     CHECK(!stats.physical_reads && !stats.exact_lookups && !stats.cursor_rows, 25);
     db_reset();

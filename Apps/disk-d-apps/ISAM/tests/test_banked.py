@@ -95,6 +95,7 @@ class BankedIsam(unittest.TestCase):
         self.slice_budget = 0
         self.phase_starts = {}
         self.measurements = {}
+        self.terminal_output = {}
         original_output = self.case.machine
 
         def output(port, value):
@@ -109,21 +110,25 @@ class BankedIsam(unittest.TestCase):
                 self.case.write_port(port, value)
                 if port & 255 == 5 and (
                         1 <= (value & 127) <= 13 or
-                        (value & 127) in (20, 21, 30, 31, 32, 34, 35, 40, 41, 42, 43, 44, 50, 51, 52, 55, 56, 57, 58, 59, 60)):
+                        (value & 127) in (20, 21, 30, 31, 32, 34, 35, 40, 41, 42, 43, 44, 50, 51, 52, 55, 56, 57, 58, 59, 60, 61, 62, 63, 66, 67, 68, 69, 70)):
                     # z80 1.0.0's public u32 getter decodes its high byte wrongly.
                     remaining = int.from_bytes(
                         original_output._StateBase__ticks_to_stop, "little")
                     snapshot = (
                         self.tstates + self.slice_budget - remaining,
                         self.bank_selections, self.library_calls,
-                        self.case.reads, len(self.case.writes))
+                        self.case.reads, len(self.case.writes), len(self.case.output))
                     if value < 128:
                         self.phase_starts[value] = snapshot
                     else:
                         before = self.phase_starts[value - 128]
                         self.measurements[value - 128] = dict(zip(
-                            ("tstates", "selections", "entries", "reads", "writes"),
+                            ("tstates", "selections", "entries", "reads", "writes",
+                             "console_bytes"),
                             (after - start for after, start in zip(snapshot, before))))
+                        if value - 128 in (61, 62, 63, 66, 67, 68, 69, 70):
+                            self.terminal_output[value - 128] = bytes(
+                                self.case.output[before[-1]:])
 
         original_output.set_output_callback(output)
         for name in ("DOCTOR.COM", "DOCGEN.COM", "ISAM.LIB", "BANKTST.COM"):
@@ -260,14 +265,44 @@ class BankedIsam(unittest.TestCase):
         output = self.run_until(len(self.case.output), b"/ Search all patients")
         self.assertIn(b"Farid Khan", output)
         start = len(self.case.output)
-        self.case.input.extend(b"\x1b[B" * 59)
+        self.case.input.extend(b"\x1b[B" * 19)
+        self.run_until(start, b"\x1b[7m00260")
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[B")
+        output = self.run_until(start, b"00280")
+        self.assertIn(b"\x1b[7m00261", output)
+        self.assertNotIn(b"\x1b[2J", output)
+        calls = self.library_calls
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[B")
+        self.run_until(start, b"\x1b[7m00262")
+        self.assertEqual(self.library_calls, calls)
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[A" * 2)
+        output = self.run_until(start, b"\x1b[7m00260")
+        self.assertIn(b"00241", output)
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[B" * 40)
         self.run_until(start, b"\x1b[7m00300")
         self.case.input.extend(b"\r")
         output = self.run_until(len(self.case.output), b"A Add note")
         self.assertIn(b"Patient 00300", output)
         self.assertIn(b"20230121", output)
         start = len(self.case.output)
-        self.case.input.extend(b"\x1b[B" * 29)
+        self.case.input.extend(b"\x1b[B" * 3)
+        output = self.run_until(start, b"20230621")
+        self.assertIn(b"\x1b[7m20230421", output)
+        calls = self.library_calls
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[B")
+        output = self.run_until(start, b"\x1b[7m20230521")
+        self.assertEqual(self.library_calls, calls)
+        self.assertNotIn(b"\x1b[K", output)
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[A" * 2)
+        self.run_until(start, b"\x1b[7m20230321")
+        start = len(self.case.output)
+        self.case.input.extend(b"\x1b[B" * 27)
         self.run_until(start, b"\x1b[7m20250621")
         self.case.input.extend(b"q")
         self.run_until(len(self.case.output), b"/ Search all patients")
@@ -381,6 +416,39 @@ class BankedIsam(unittest.TestCase):
         self.assertIn(b"PASS: batched relationship verification detects", output)
         self.assertIn(b"PASS: 2560-byte workspace holds 999 visits", output)
         self.assertIn(b"PASS: 45-doctor directory pages directly", output)
+        for phase in (61, 62, 63, 66, 67):
+            print(f"VT100 {phase}: {self.measurements[phase]}", flush=True)
+        # Both versions flush stdout inside each measured rendering phase.
+        limits = (
+            (61, 2665752 * 0.9, 1736 * 0.85),
+            (62, 176629 * 0.95, 158 * 0.95),
+            (63, 450987 * 0.25, 306 * 0.25),
+            (66, 1040233 * 0.85, 607 * 0.8),
+            (67, 199781 * 0.95, 178 * 0.95),
+        )
+        for phase, cpu, traffic in limits:
+            self.assertLess(self.measurements[phase]["tstates"], cpu)
+            self.assertLess(self.measurements[phase]["console_bytes"], traffic)
+            self.assertEqual(self.measurements[phase]["writes"], 0)
+        for phase in (62, 63, 67):
+            self.assertEqual(self.measurements[phase]["entries"], 0)
+            self.assertEqual(self.measurements[phase]["reads"], 0)
+            self.assertEqual(self.measurements[phase]["writes"], 0)
+        self.assertEqual(
+            self.terminal_output[63],
+            b"\x1b[12;3H20230102   Registration"
+            b"\x1b[17;3H\x1b[7m20230202   Consultation\x1b[0m")
+        self.assertEqual(self.terminal_output[61].count(b"\x1b[K"), 20)
+        self.assertEqual(self.terminal_output[66].count(b"\x1b[K"), 15)
+        for phase in (62, 67):
+            self.assertEqual(self.terminal_output[phase].count(b"\x1b[K"), 2)
+        for row in range(16, 26):
+            self.assertIn(f"\x1b[{row};1H\x1b[K".encode(), self.terminal_output[68])
+        for row in range(17, 27):
+            self.assertIn(f"\x1b[{row};1H\x1b[K".encode(), self.terminal_output[69])
+        self.assertEqual(self.terminal_output[70],
+                         b"\x1b[12;29H" + b"X" * 48 +
+                         b"\x1b[13;29H" + b"X" * 33)
         scalar, batch = self.measurements[40], self.measurements[41]
         full = self.measurements[42]
         old_verify, bulk_verify = self.measurements[43], self.measurements[44]
@@ -458,15 +526,17 @@ class BankedIsam(unittest.TestCase):
         self.assertEqual(self.library_calls, calls)
         page_start = len(self.case.output)
         self.case.input.extend(b"\x1b[B")
-        output = self.run_until(page_start, b"Q Quit")
+        output = self.run_until(page_start, b"\x1b[10;1H\x1b[K")
         self.assertIn(b"\x1b[7m006   Dr", output)
         self.assertNotIn(b"001   Dr", output)
         self.assertIn(b"008   Dr", output)
+        self.assertNotIn(b"\x1b[2J", output)
+        self.assertNotIn(b"Q Quit", output)
         # Includes the control-frame bank entries and one packed payload read.
         self.assertLessEqual(self.library_calls - calls, 40)
         page_start = len(self.case.output)
         self.case.input.extend(b"\x1b[A")
-        output = self.run_until(page_start, b"Q Quit")
+        output = self.run_until(page_start, b"\x1b[0m\x1b[K")
         self.assertIn(b"\x1b[7m005   Dr", output)
         self.assertIn(b"001   Dr", output)
         self.case.input.extend(b"/")
