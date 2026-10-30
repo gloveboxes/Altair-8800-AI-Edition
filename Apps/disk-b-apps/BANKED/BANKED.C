@@ -3,7 +3,7 @@
 #include <string.h>
 #include "BANKMEM.H"
 
-#define BANK_BYTES 63232U
+#define BANK_BYTES 5632U
 #define CHUNK_BYTES 256U
 #define RUN_SECONDS 43200UL
 #define TIMER_PORT 0x17
@@ -21,10 +21,10 @@ static unsigned long read_access_calls;
 static unsigned long write_access_calls;
 static unsigned long accesses_at_start;
 
-static int bank_write_access(bhandle handle, unsigned int offset,
+static int bank_write_access(bank_memory_handle_t handle, unsigned int offset,
                              const void *data, unsigned int bytes)
 {
-    if (!bwrite(handle, offset, data, bytes))
+    if (!bank_memory_write(handle, offset, data, bytes))
         return 0;
     if (write_access_calls != 0xFFFFFFFFUL)
         ++write_access_calls;
@@ -33,10 +33,10 @@ static int bank_write_access(bhandle handle, unsigned int offset,
     return 1;
 }
 
-static int bank_read_access(bhandle handle, unsigned int offset,
+static int bank_read_access(bank_memory_handle_t handle, unsigned int offset,
                             void *data, unsigned int bytes)
 {
-    if (!bread(handle, offset, data, bytes))
+    if (!bank_memory_read(handle, offset, data, bytes))
         return 0;
     if (read_access_calls != 0xFFFFFFFFUL)
         ++read_access_calls;
@@ -103,7 +103,7 @@ static unsigned char pattern_byte(unsigned int offset, unsigned int pattern)
 }
 
 /* Return 1 when complete, 0 on ESC, and -1 on a memory/API failure. */
-static int test_pattern(bhandle whole_bank, unsigned int pattern)
+static int test_pattern(bank_memory_handle_t whole_bank, unsigned int pattern)
 {
     unsigned int offset, i, phase, chunks_since_update;
     int key;
@@ -167,27 +167,27 @@ static int test_pattern(bhandle whole_bank, unsigned int pattern)
 
 static int allocator_checks(void)
 {
-    bhandle a, b, c, d, again_b, again_d;
+    bank_memory_handle_t a, b, c, d, again_b, again_d;
     unsigned char value;
 
-    a = bmalloc(1);
-    b = bmalloc(257);
-    c = bmalloc(4096);
-    d = bmalloc(8192);
-    if (!a || !b || !c || !d || bsize(a) != 256 ||
-        bsize(b) != 512 || bsize(c) != 4096 || bsize(d) != 8192)
+    a = bank_memory_allocate(1);
+    b = bank_memory_allocate(257);
+    c = bank_memory_allocate(1024);
+    d = bank_memory_allocate(2048);
+    if (!a || !b || !c || !d || bank_memory_size(a) != 256 ||
+        bank_memory_size(b) != 512 || bank_memory_size(c) != 1024 || bank_memory_size(d) != 2048)
         return 0;
 
     /* Full bursts take the direct public-BIOS path. Its base-range checks
      * must reject low memory, resident-page overlap and 16-bit wrapping. */
-    if (bread(a, 0, (void *)0x80, 16) ||
-        bwrite(a, 0, (void *)0x80, 16) ||
-        bread(a, 0, (void *)0xFEF0, 32) ||
-        bwrite(a, 0, (void *)0xFEF0, 32) ||
-        bread(a, 0, (void *)0xFFF0, 32) ||
-        bwrite(a, 0, (void *)0xFFF0, 32) ||
-        !bread(a, 256, (void *)0xFFFF, 0) ||
-        !bwrite(a, 256, (void *)0xFFFF, 0))
+    if (bank_memory_read(a, 0, (void *)0x80, 16) ||
+        bank_memory_write(a, 0, (void *)0x80, 16) ||
+        bank_memory_read(a, 0, (void *)0xFEF0, 32) ||
+        bank_memory_write(a, 0, (void *)0xFEF0, 32) ||
+        bank_memory_read(a, 0, (void *)0xFFF0, 32) ||
+        bank_memory_write(a, 0, (void *)0xFFF0, 32) ||
+        !bank_memory_read(a, 256, (void *)0xFFFF, 0) ||
+        !bank_memory_write(a, 256, (void *)0xFFFF, 0))
         return 0;
 
     value = 0xA5;
@@ -199,37 +199,37 @@ static int allocator_checks(void)
         buffer[0] != value)
         return 0;
     value = 0xC3;
-    if (!bank_write_access(d, 8191, &value, 1) || !bank_read_access(d, 8191, &buffer[0], 1) ||
+    if (!bank_write_access(d, 2047, &value, 1) || !bank_read_access(d, 2047, &buffer[0], 1) ||
         buffer[0] != value)
         return 0;
 
-    if (!bfree(b) || !bfree(d))
+    if (!bank_memory_free(b) || !bank_memory_free(d))
         return 0;
-    again_b = bmalloc(257);
-    again_d = bmalloc(8192);
-    if (again_b != b || again_d != d || !bfree(again_b) ||
-        !bfree(again_d) || !bfree(a) || !bfree(c) || bavail() != BANK_BYTES)
+    again_b = bank_memory_allocate(257);
+    again_d = bank_memory_allocate(2048);
+    if (again_b != b || again_d != d || !bank_memory_free(again_b) ||
+        !bank_memory_free(again_d) || !bank_memory_free(a) || !bank_memory_free(c) || bank_memory_available() != BANK_BYTES)
         return 0;
     return 1;
 }
 
 int main(void)
 {
-    bhandle whole_bank;
+    bank_memory_handle_t whole_bank;
     unsigned int pattern;
     unsigned long cycle;
     int result, duration_done;
 
-    if (!binit())
+    if (!bank_memory_initialize())
     {
         puts("BANKED: banked SRAM unavailable; check A16 wiring and firmware.");
         return 1;
     }
     puts("BANKED: resetting shared bank-1 heap (all old handles invalid).");
-    if (!breset())
+    if (!bank_memory_reset())
         return 1;
     printf("Usable extended RAM: %u bytes; base test buffer: %u bytes\n",
-           bavail(), CHUNK_BYTES);
+           bank_memory_available(), CHUNK_BYTES);
     puts("Test plan:");
     puts("  Allocation rounding, fragmentation, free/reuse and exhaustion.");
     puts("  One-byte transfers at allocation ends, bounds rejection and FEFFh.");
@@ -249,13 +249,13 @@ int main(void)
         return 1;
     }
 
-    whole_bank = bmalloc(BANK_BYTES);
+    whole_bank = bank_memory_allocate(BANK_BYTES);
     if (!whole_bank)
     {
         puts("FAIL: cannot allocate all usable banked SRAM.");
         return 1;
     }
-    if (bmalloc(1) || bmalloc(BANK_BYTES + 1U))
+    if (bank_memory_allocate(1) || bank_memory_allocate(BANK_BYTES + 1U))
     {
         puts("FAIL: full allocation did not exhaust the heap.");
         return 1;
@@ -282,7 +282,7 @@ int main(void)
     printf("Elapsed: 0 s; remaining: 43200 s; iterations: 0; "
            "bank data access calls total/read/write: %lu/%lu/%lu; avg data ops/s: 0\n",
            total_access_calls, read_access_calls, write_access_calls);
-    puts("Each cycle writes and verifies all 63232 bytes with 24 data patterns.");
+    puts("Each cycle writes and verifies all 5632 shared-pool bytes with 24 data patterns.");
     puts("Patterns: 00/FF/55/AA, address and inverse, walking 1s and 0s.");
 
     cycle = 0;
@@ -298,12 +298,12 @@ int main(void)
             result = test_pattern(whole_bank, pattern);
             if (result < 0)
             {
-                bfree(whole_bank);
+                bank_memory_free(whole_bank);
                 return 1;
             }
             if (result == 0)
             {
-                bfree(whole_bank);
+                bank_memory_free(whole_bank);
                 printf("Stopped by ESC; iterations completed: %lu\n",
                        completed_iterations);
                 printf("Bank data access calls total/read/write: %lu/%lu/%lu\n",
@@ -336,12 +336,12 @@ int main(void)
 #endif
     }
 
-    if (!bfree(whole_bank) || bavail() != BANK_BYTES)
+    if (!bank_memory_free(whole_bank) || bank_memory_available() != BANK_BYTES)
     {
         puts("FAIL: heap did not return to its initial free size.");
         return 1;
     }
-    printf("Free banked memory: %u bytes\n", bavail());
+    printf("Free banked memory: %u bytes\n", bank_memory_available());
     printf("Iterations completed: %lu\n", completed_iterations);
     printf("Bank data access calls total/read/write: %lu/%lu/%lu\n",
            total_access_calls, read_access_calls, write_access_calls);

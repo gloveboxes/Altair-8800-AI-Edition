@@ -20,7 +20,7 @@ entry point, affects the result.
 
 The two routines have no absolute references, so this example needs no code
 relocation. It allocates separate code, stack and context blocks, then frees
-all three. It needs BIOS ABI 2.4 and firmware allocator revision 4.
+all three. It needs BIOS ABI 2.6 and firmware allocator revision 6.
 
 Build from this directory with the local DCC toolchain:
 
@@ -28,5 +28,5 @@ Build from this directory with the local DCC toolchain:
 DCC_DIR=/path/to/dcc /path/to/dcc/dccmake
 ```
 
-`dccmake.txt` reuses the bank-memory wrappers in `../PRIMEBK1` and produces
+`dccmake.txt` reuses the shared [BANKSDK](../BANKSDK/README.md) wrappers and produces
 `build/SPREADS.COM`. Copy that COM to a CP/M drive and run `SPREADS`.

@@ -10,7 +10,11 @@ param(
 
 	[string] $DiskImage,
 
-	[switch] $BuildOnly
+	[switch] $BuildOnly,
+
+	[switch] $CollectOnly,
+
+	[switch] $ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,7 +28,9 @@ function Get-DccSetting {
 		[Parameter(Mandatory)]
 		[string] $Name,
 
-		[string[]] $Arguments = @()
+		[string[]] $Arguments = @(),
+
+		[string] $DefaultValue
 	)
 
 	$pattern = '^\s*' + [regex]::Escape($Name) + '\s*=\s*([^#\s]+)'
@@ -38,6 +44,7 @@ function Get-DccSetting {
 	}
 
 	if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+		if ($PSBoundParameters.ContainsKey('DefaultValue')) { return $DefaultValue }
 		throw "$Name must be supplied in DccArguments when $Path does not exist"
 	}
 	$values = @(foreach ($line in Get-Content -LiteralPath $Path) {
@@ -46,6 +53,7 @@ function Get-DccSetting {
 		}
 	})
 	if (-not $values) {
+		if ($PSBoundParameters.ContainsKey('DefaultValue')) { return $DefaultValue }
 		throw "$Name is not set in $Path"
 	}
 	$values[-1]
@@ -70,30 +78,52 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $configPath = Join-Path $appPath 'dccmake.txt'
 
 $outputBase = Get-DccSetting -Path $configPath -Name 'dcc-output' -Arguments $DccArguments
-$outputFile = if ($outputBase.EndsWith('.COM', [StringComparison]::OrdinalIgnoreCase)) {
-	$outputBase
+$format = Get-DccSetting -Path $configPath -Name 'dcc-output-format' -Arguments $DccArguments -DefaultValue 'com'
+if ($format -notin @('com', 'lib')) {
+	throw "Invalid dcc-output-format: $format"
 }
-else {
-	"$outputBase.COM"
+$outputBase = ($outputBase -replace '(?i)\.(COM|LIB)$', '').ToUpperInvariant()
+if ($outputBase -notmatch '^[A-Z0-9_]{1,8}$') {
+	throw "Expected an 8-character CP/M output base name: $outputBase"
 }
-$buildSetting = Get-DccSetting -Path $configPath -Name 'dcc-build-dir' -Arguments $DccArguments
+$outputFile = "$outputBase.$($format.ToUpperInvariant())"
+$buildSetting = Get-DccSetting -Path $configPath -Name 'dcc-build-dir' -Arguments $DccArguments -DefaultValue 'build'
 $buildDirectory = if ([IO.Path]::IsPathRooted($buildSetting)) {
 	$buildSetting
 }
 else {
 	Join-Path $appPath $buildSetting
 }
+$buildDirectory = [IO.Path]::GetFullPath($buildDirectory)
+$buildPrefix = $buildDirectory.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if ($appPath -eq $buildDirectory -or
+	$appPath.StartsWith($buildPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+	$repoRoot -eq $buildDirectory -or
+	$repoRoot.StartsWith($buildPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+	throw "Build directory must not be the application, repository, or an ancestor: $buildDirectory"
+}
 if ([string]::IsNullOrWhiteSpace($DiskImage)) {
 	$DiskImage = Join-Path $repoRoot 'disks' 'escape-posix.dsk'
 }
+if ($ValidateOnly) { return }
 
 Push-Location $appPath
 try {
-	Remove-Item -LiteralPath $buildDirectory -Recurse -Force -ErrorAction SilentlyContinue
-	Remove-Item -LiteralPath (Join-Path $appPath $outputFile) -Force -ErrorAction SilentlyContinue
-	Invoke-NativeCommand -Command $Dccmake -Arguments $DccArguments
+	if (-not $CollectOnly) {
+		if (Test-Path -LiteralPath $buildDirectory) {
+			Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+		}
+		$hostFile = Join-Path $appPath $outputFile
+		if (Test-Path -LiteralPath $hostFile) {
+			Remove-Item -LiteralPath $hostFile -Force
+		}
+		Invoke-NativeCommand -Command $Dccmake -Arguments $DccArguments
+	}
 	Move-Item -LiteralPath (Join-Path $buildDirectory $outputFile) -Destination $appPath -Force
-	Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+	# Library intermediates can include generated sources consumed by host builds.
+	if ($format -eq 'com') {
+		Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+	}
 
 	if (-not $BuildOnly) {
 		& (Join-Path $PSScriptRoot 'cpm-install.ps1') `

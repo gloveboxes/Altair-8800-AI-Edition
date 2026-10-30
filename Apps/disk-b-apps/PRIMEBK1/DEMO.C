@@ -113,7 +113,7 @@ BC_COMPOSITE:
 _bend:
 #endasm
 
-static int check_case(bhandle code, bhandle stack, bhandle context,
+static int check_case(bank_memory_handle_t code, bank_memory_handle_t stack, bank_memory_handle_t context,
                       unsigned int entry, unsigned int input,
                       unsigned int output, unsigned int last, int next)
 {
@@ -124,13 +124,13 @@ static int check_case(bhandle code, bhandle stack, bhandle context,
     if (stack)
     {
         memset(stack_tail, 0xA5, sizeof(stack_tail));
-        if (!bwrite(stack, 512 - sizeof(stack_tail), stack_tail, sizeof(stack_tail)))
+        if (!bank_memory_write(stack, 512 - sizeof(stack_tail), stack_tail, sizeof(stack_tail)))
             return 0;
     }
-    result = bmcall(code, stack, entry, context);
-    if (!bread(context, 0, data, sizeof(data)))
+    result = bank_bios_call(code, stack, entry, context);
+    if (!bank_memory_read(context, 0, data, sizeof(data)))
         return 0;
-    if (!bread(stack, 512 - sizeof(stack_tail), stack_tail, sizeof(stack_tail)) ||
+    if (!bank_memory_read(stack, 512 - sizeof(stack_tail), stack_tail, sizeof(stack_tail)) ||
         (stack_tail[14] == 0xA5 && stack_tail[15] == 0xA5))
         return 0;
     if (next)
@@ -144,9 +144,9 @@ static int check_case(bhandle code, bhandle stack, bhandle context,
 
 int main(void)
 {
-    bhandle code, stack_a, stack_b, context_a, context_b;
+    bank_memory_handle_t code, stack_a, stack_b, context_a, context_b;
     unsigned int code_bytes, fix_offset, next_fix, next_entry, sub_address, free_before;
-    unsigned char image[192], data[16], bank_header[16];
+    unsigned char image[192], data[16];
     int passed, freed;
 
     code = stack_a = stack_b = context_a = context_b = 0;
@@ -164,34 +164,18 @@ int main(void)
         puts("FAIL: embedded prime code does not fit the relocation buffer.");
         return 1;
     }
-    if (!binit())
+    if (!bank_memory_initialize())
     {
         puts("FAIL: banked SRAM/BIOS unavailable.");
         return 1;
     }
-    if ((bmstat() & 0x00FFU) < BMBIOS_ABI_MINOR)
-    {
-        puts("FAIL: BIOS ABI 2.4 with direct-offset CALL is required.");
-        return 1;
-    }
-    if (!bmread(0, bank_header, sizeof(bank_header)))
-    {
-        puts("FAIL: could not read bank-1 allocator revision.");
-        return 1;
-    }
-    if (bank_header[BMBIOS_CALL_REVISION_OFFSET] != BMBIOS_CALL_REVISION)
-    {
-        printf("FAIL: bank-1 direct CALL revision %u; need %u. Update Phase 10 firmware.\n",
-               bank_header[BMBIOS_CALL_REVISION_OFFSET], BMBIOS_CALL_REVISION);
-        return 1;
-    }
 
-    free_before = bavail();
-    code = bmalloc(code_bytes);
-    stack_a = bmalloc(512);
-    stack_b = bmalloc(512);
-    context_a = bmalloc(16);
-    context_b = bmalloc(16);
+    free_before = bank_memory_available();
+    code = bank_memory_allocate(code_bytes);
+    stack_a = bank_memory_allocate(512);
+    stack_b = bank_memory_allocate(512);
+    context_a = bank_memory_allocate(16);
+    context_b = bank_memory_allocate(16);
     if (!code || !stack_a || !stack_b || !context_a || !context_b)
     {
         puts("FAIL: could not allocate code, stacks and contexts.");
@@ -203,17 +187,17 @@ int main(void)
     image[fix_offset + 1] = (unsigned char)(sub_address >> 8);
     image[next_fix] = (unsigned char)sub_address;
     image[next_fix + 1] = (unsigned char)(sub_address >> 8);
-    if (!bwrite(code, 0, image, code_bytes))
+    if (!bank_memory_write(code, 0, image, code_bytes))
     {
         puts("FAIL: could not copy bank-1 prime code.");
         goto cleanup;
     }
     memset(data, 0, sizeof(data));
     data[0] = 30;
-    if (!bwrite(context_a, 0, data, sizeof(data)))
+    if (!bank_memory_write(context_a, 0, data, sizeof(data)))
         goto cleanup;
     data[0] = 30;
-    if (!bwrite(context_b, 0, data, sizeof(data)))
+    if (!bank_memory_write(context_b, 0, data, sizeof(data)))
         goto cleanup;
 
     if (!check_case(code, stack_a, context_a, 0, 30, 10, 29, 0) ||
@@ -223,7 +207,7 @@ int main(void)
         goto cleanup;
     }
     data[0] = 50;
-    if (!bwrite(context_a, 0, data, 1) || !bwrite(context_b, 0, data, 1) ||
+    if (!bank_memory_write(context_a, 0, data, 1) || !bank_memory_write(context_b, 0, data, 1) ||
         !check_case(code, stack_a, context_a, 0, 50, 15, 47, 0) ||
         !check_case(code, stack_b, context_b, next_entry, 50, 53, 0, 1))
     {
@@ -231,9 +215,9 @@ int main(void)
         goto cleanup;
     }
     data[0] = 254;
-    if (!bwrite(context_b, 0, data, 1) ||
+    if (!bank_memory_write(context_b, 0, data, 1) ||
         !check_case(code, stack_b, context_b, next_entry, 254, 0, 0, 1) ||
-        !bread(context_a, 0, data, sizeof(data)) ||
+        !bank_memory_read(context_a, 0, data, sizeof(data)) ||
         data[0] != 50 || data[1] != 15 || data[2] != 47)
     {
         puts("FAIL: no-next-prime case or context isolation.");
@@ -242,12 +226,12 @@ int main(void)
     passed = 1;
 
 cleanup:
-    if (context_b && !bfree(context_b)) freed = 0;
-    if (context_a && !bfree(context_a)) freed = 0;
-    if (stack_b && !bfree(stack_b)) freed = 0;
-    if (stack_a && !bfree(stack_a)) freed = 0;
-    if (code && !bfree(code)) freed = 0;
-    if (!freed || bavail() != free_before)
+    if (context_b && !bank_memory_free(context_b)) freed = 0;
+    if (context_a && !bank_memory_free(context_a)) freed = 0;
+    if (stack_b && !bank_memory_free(stack_b)) freed = 0;
+    if (stack_a && !bank_memory_free(stack_a)) freed = 0;
+    if (code && !bank_memory_free(code)) freed = 0;
+    if (!freed || bank_memory_available() != free_before)
     {
         puts("FAIL: bank-1 heap was not restored.");
         return 1;

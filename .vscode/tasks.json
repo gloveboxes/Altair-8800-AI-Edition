@@ -265,11 +265,11 @@
       }
     },
     {
-      "label": "Build ISAM DOCGEN for fixture generation",
+      "label": "Build banked ISAM library and clients",
       "type": "shell",
-      "command": "\"${env:DCC_DIR}/dccmake\" dcc-input=docgen.c,isamdb.c dcc-output=DOCGEN dcc-build-dir=build-docgen",
+      "command": "\"${env:DCC_DIR}/dccmake\"",
       "options": {
-        "cwd": "${workspaceFolder}/Apps/ISAM"
+        "cwd": "${workspaceFolder}/Apps/disk-d-apps/ISAM"
       },
       "problemMatcher": []
     },
@@ -278,16 +278,6 @@
       "dependsOrder": "sequence",
       "dependsOn": [
         "Build active DCC file for full CP/M debugging",
-        "Start DCC full CP/M debug terminal"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "Prepare ISAM DOCGEN fixture generation",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "Build ISAM DOCGEN for fixture generation",
-        "Build DCC full CP/M debugger host",
         "Start DCC full CP/M debug terminal"
       ],
       "problemMatcher": []

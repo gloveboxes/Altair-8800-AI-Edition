@@ -1,0 +1,14 @@
+dcc-input=HOST.C, SPAPI.C, ../PRIMEBK1/BIOSBANK.C
+dcc-output=SPRDHOST
+dcc-floatio=false
+dcc-flongio=false
+dcc-peep=true
+dcc-build-dir=build
+dcc-stack-bytes=512
+dcc-runtime=${DCC_DIR}/DCCRTL.MAC
+dcc-include-directory=${DCC_DIR}
+dcc-tool=${DCC_DIR}/dcc
+dccpeep-tool=${DCC_DIR}/dccpeep
+dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
+m80-command=${DCC_DIR}/m80c
+l80-command=${DCC_DIR}/l80c

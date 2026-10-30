@@ -1,6 +1,6 @@
-# Current extent allocator (ABI 2.3)
+# Current extent allocator (ABI 2.6)
 
-The current heap is 0800h–FEFFh (63,232 bytes). It uses separate extent-length,
+The current general heap is C800h–DDFFh (5,632 bytes). It uses separate extent-length,
 physical-predecessor and doubly linked free-list tables. All heap operations
 execute in bank 1 with a private assembly stack. Earlier sections below record
 historical two-bit-map implementations and their results.

@@ -1,158 +1,90 @@
-# MEMPERF: Z80 base RAM and banked-memory copy performance
+# MEMPERF: banked SRAM copy benchmark
 
-Build from this folder with the local DCC toolchain:
+Shared bank-memory and BIOS support comes from [BANKSDK](../BANKSDK/README.md),
+not private copies in this example.
 
-```sh
-export DCC_DIR=/Users/dave/GitHub/dcc
-"$DCC_DIR/dccmake"
-```
-
-Copy `build/MEMPERF.COM` to a CP/M disk and run `MEMPERF`.
-The distributed `MEMPERF.COM` at the folder root is the same release build.
-This requires matching BIOS ABI 2.3, extent-allocator firmware, and timer
-port `0x17` already used by BANKED. Stopwatch 0 is reset for
-each measurement and remains reserved for the duration of the program.
-
-The program allocates 32 KiB in the shared banked heap and a static 32 KiB
-buffer in ordinary Z80 memory. It preserves existing heap allocations and
-frees its own allocation before exit. A fragmented heap may prevent the
-allocation even when the total free size exceeds 32 KiB.
-
-Two cases are measured, each writing 32,768 bytes and then reading all of
-them back from banked RAM. Each case also measures ordinary bank-0 SRAM:
-
-* One 32 KiB BANKMEM API call per direction.
-* 128 BANKMEM API calls of 256 bytes per direction.
-
-The output places local RAM and banked RAM results side by side, with
-separate write/read times and KiB/s. Local RAM uses the DCC runtime's
-`memcpy` between two independent 16 KiB halves of the existing 32 KiB
-buffer. Each direction copies 16 KiB twice, so the timed payload is still
-32 KiB. In bulk mode that is two 16 KiB local copies versus one 32 KiB
-banked call. In chunked mode both perform 128 calls of 256 bytes. The
-display states this distinction. Two independent 32 KiB base buffers would
-not fit in the TPA alongside CP/M and the application.
-
-The banked cases include
-BANKMEM allocation validation, BIOS transfer, loop overhead and hardware
-I/O delays. Local cases include `memcpy` and loop overhead. Neither includes
-allocation, pattern preparation, poisoning,
-verification or console output. The comparison shows the cost of repeated
-API calls with smaller chunks. It is not a direct measurement of raw SRAM
-chip bandwidth.
-
-All source bytes are prepared before the write timer starts. All writes
-finish before any reads. The base buffer is filled with inverse expected
-values before the read timer starts, and every byte is checked after the
-read timer is latched. The address-dependent pattern catches aliased heap
-pages; poisoning catches reads which incorrectly report success without
-copying data. The local destination is also poisoned before each timed
-direction and verified afterwards. Code, stack and CP/M memory are not used
-as benchmark destinations.
-
-Timer commands are IN `0x17`, OUT `0x17,0` for parser recovery, OUT
-`0x17,0x40` to start stopwatch 0, then OUT `0x17,0x60` followed by four
-little-endian IN bytes to latch elapsed milliseconds. Readback/printing of
-the latched time is outside the measured interval. Timer resolution is one
-millisecond; a zero result is reported as below that resolution, without
-dividing by zero. Rates use integer arithmetic with one decimal place.
-
-The source is mirrored in Z80ROMlessSBC/examples/MEMPERF. Emulator checks
-live in `src/common/tests/memperf_z80_test.py` in that repository. Scripted
-timer values verify the display calculations; hardware timing must be
-measured on the board.
-
-All seven MEMPERF emulator checks pass, covering both real bank switching and
-a native-copy BIOS, exact bulk/chunked transfer sizes, read/write timing and
-rate calculations for local and banked RAM, parser recovery, zero-duration readings, timer failures,
-skipped/partial reads, cleanup and an unavailable bank. From the SBC repo:
+Build from this folder with the sibling DCC toolchain:
 
 ```sh
-build/disk-emulator/bin/python src/common/tests/memperf_z80_test.py
+DCC_DIR=/path/to/dcc /path/to/dcc/dccmake
 ```
 
-The shared BANKMEM library validates allocation capacity through the bank-1
-extent SIZE operation. It does not transfer or scan an allocation map in
-bank 0. Aligned payloads call READ/WRITE directly; partial transfers retain
-the C tail-buffer path. The following timing history predates the extent
-allocator and records earlier transfer optimizations.
+Copy `build/MEMPERF.COM` to a CP/M disk. BIOS ABI 2.6 and its matching
+bank-1 firmware/CP/M image are required. The program uses stopwatch 0 on
+port `17h` and frees its own banked allocation before exit.
 
-Measured Z80 cycles for the same MEMPERF timed intervals, converted to
-milliseconds at 20 MHz (Pico I/O delays excluded):
+Each timed direction repeats a 4,096-byte workload **32 times**, moving
+128 KiB without enlarging the 4 KiB buffer or bank allocation. Per repeat,
+the bulk case uses one 4 KiB BANKMEM API call and two 2 KiB local `memcpy`
+calls. The chunk case uses 16 calls of 256 bytes in either memory type.
+Preparation, poisoning, verification and printing are outside the timed
+intervals. Both directions are verified afterward. Reported milliseconds
+are the **total for all 32 repeats**, and KiB/s uses the full 128 KiB.
+The 5,632-byte general pool must have a contiguous 4 KiB extent available.
 
-| Banked case | Previous write/read | Optimized write/read |
-| --- | --- | --- |
-| One 32 KiB call | 65.48 / 65.79 ms | 59.96 / 60.27 ms |
-| 128 calls of 256 bytes | 939.99 / 940.31 ms | 233.31 / 233.63 ms |
+A single 4 KiB copy measured with whole milliseconds can only report
+800.0 KiB/s at 5 ms or 666.6 KiB/s at 6 ms. That is too coarse to diagnose
+small changes. Repetition amortizes this rounding without subtracting
+estimated overhead or bypassing the checked BANKMEM API. Loop, C-call and
+live allocation-validation costs remain part of the measurement.
 
-The subsequent assembly scanner and aligned-call changes reduce these same
-intervals further:
+`bmalloc`, `bfree` and `bsize` execute in bank 1; transfers use the mirrored
+READ/WRITE gateway. See [BANKED/BIOS-ABI.md](../BANKED/BIOS-ABI.md) for the
+current ABI and [ALLOCPRF](../ALLOCPRF/README.md) for allocator timing.
 
-| Banked case | C scanner | Assembly scanner and aligned path |
-| --- | --- | --- |
-| One 32 KiB call | 59.96 / 60.27 ms | 59.03 / 59.34 ms |
-| 128 calls of 256 bytes | 233.31 / 233.63 ms | 113.79 / 114.20 ms |
+## Reproducible CPU-cycle measurements
 
-A separate BIOS loop change then removes 21 Z80 T-states per 16-byte burst by
-using a shorter IX destination-end calculation. The emulator predicts about
-2.15 ms saved per 32 KiB direction at 20 MHz, before Pico pauses or wait
-states. The BIOS code is in the CP/M boot package. Current firmware mirrors
-its FF00h page into bank 1, so both copies match. Upgrade older firmware once
-to this mirroring loader; later compatible BIOS updates need only the CP/M
-system update. No application COM rebuild is needed for a BIOS optimization.
-
-A further BIOS pass normalizes direction once, keeps the destination in IX,
-and restores the caller's stack only on exit. Compared with that 217-byte
-BIOS, the current 218-byte implementation measures:
-
-| Banked case | Previous BIOS write/read | Current BIOS write/read |
-| --- | --- | --- |
-| One 32 KiB call | 56.874 / 57.182 ms | 43.243 / 44.063 ms |
-| 128 calls of 256 bytes | 111.203 / 111.513 ms | 95.942 / 96.857 ms |
-
-These are actual emulated Z80 instruction cycles converted to milliseconds
-at 20 MHz, excluding Pico pauses. The base-RAM intervals have exactly the
-same instruction counts before and after. Deploy the boot package and
-matching Drive A system records with page-mirroring firmware. The COM is
-unchanged by these BIOS optimizations. Hardware timings remain to be measured.
-
-If initialization fails, the diagnostic COM distinguishes a missing BIOS
-descriptor, an unavailable INFO result, a failed header read, and an incorrect
-BKM3 heap signature. For example, `00 00 00 00` instead of `42 4b 4d 33`
-can result from mismatched resident code in older firmware. Flashing the
-page-mirroring firmware fixes that version mismatch without replacing disk
-applications. The extra diagnostic code only runs on failure.
-
-Measure the compiled COM's actual instruction cycles from the SBC repository:
+The independent Z80 emulator measures the actual linked checked C entry points,
+not a replacement copy routine. Initialization, allocation and preparation
+are excluded; every measured call still queries the live allocation size.
+From the repository root, after building MEMPERF:
 
 ```sh
-build/disk-emulator/bin/python scripts/benchmark-memperf.py \
-  examples/MEMPERF/build/MEMPERF.COM
+PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
+  src/common/tests/banked_sdk_benchmark.py
+PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
+  src/common/tests/banked_transfer_benchmark.py
+PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
+  src/common/tests/banked_sdk_benchmark.py --services
 ```
 
-The standalone scanner check executes 97,920 allocation start/length/end-tag
-combinations on the Z80 emulator, plus invalid and freed handles:
+For 4 KiB total, with maskable interrupts disabled in both builds:
 
-```sh
-build/disk-emulator/bin/python src/common/tests/banked_allocator_z80_test.py
-```
+| Checked workload | Original baseline (T-states) | Optimized (T-states) | CPU work reduction |
+| --- | ---: | ---: | ---: |
+| One 4 KiB read | 113,477 | 94,890 | 16.4% |
+| One 4 KiB write | 111,412 | 94,870 | 14.8% |
+| Sixteen 256-byte reads | 179,792 | 129,360 | 28.1% |
+| Sixteen 256-byte writes | 177,472 | 129,040 | 27.3% |
 
-These cycle measurements are separate from the scripted stopwatch values
-printed by the correctness harness. Run the updated COM on the board to
-measure actual wall time. The remaining bulk-copy cost includes loading data
-into Z80 registers and switching the whole 64 KiB address space for each
-16-byte burst; this scan change does not remove that cost.
+The further hot-path pass reduces CPU work relative to the preceding optimized
+build by 2.4% for bulk copies, 5.2% for 256-byte chunks, and 10.7%-10.8% for 16-byte
+chunks. The default checked benchmark also measures one-byte chunks: reads save
+8.2% and writes save 6.7%. Those tiny writes still require a read/modify/write
+burst to preserve neighbours; batching adjacent operations is substantially
+cheaper when the application can do so.
 
-The BANKMEM library requires BIOS ABI 2.3 HEAP (`FF10h`). Allocation, free,
-size queries, available bytes and reset all run in bank 1. Its reserved
-0000h–07FFh region contains extent tables, code and a private stack. The
-application heap is 0800h–FEFFh: 63,232 bytes. Install matching firmware,
-boot package, drive A system records and rebuilt COM files together.
-BANKMEM checks `BKM3BEX1` before executing heap operations.
+The `--services` benchmark measures the actual resident gateway independently
+of C wrappers. These figures compare the preceding optimized build with the
+further pass, using the same operation sequence and disabled interrupts:
 
-For allocator timing use [ALLOCPRF](../ALLOCPRF/README.md). MEMPERF times
-payload transfers and excludes allocation/free. Verify the extent allocator:
+| Resident operation | Previous (T-states) | Current (T-states) | CPU work reduction |
+| --- | ---: | ---: | ---: |
+| Allocate 256 bytes | 1,876 | 1,559 | 16.9% |
+| Query live pool allocation size | 871 | 554 | 36.4% |
+| Query available bytes | 452 | 369 | 18.4% |
+| Trivial banked function call (E=6) | 4,322 | 2,923 | 32.4% |
+| Free that allocation | 2,284 | 1,776 | 22.2% |
 
-```sh
-build/disk-emulator/bin/python src/common/tests/banked_resident_allocator_z80_test.py
-```
+These are microbenchmarks, not predictions for arbitrary allocation patterns
+or library functions doing substantial work. The free list remains
+address-ordered first fit; allocation sizes, pinned regions and pool capacity
+are unchanged. Tests check every page-aligned handle, interior/stale handles,
+coalescing, packed context restoration and interleaved cross-drive searches.
+
+These are CPU-cycle results, **not measured Pico throughput**: PIO bank-select
+waits, other hardware waits and timer-port service time are not modeled.
+Regression tests cover both interrupt states and enforce separate raw/checked
+cycle budgets, data integrity, register/stack preservation and bank-switch counts.
+An end-to-end MEMPERF test also checks the 128 KiB rate calculation, eight timed
+directions, no output during timing and complete allocation recovery.

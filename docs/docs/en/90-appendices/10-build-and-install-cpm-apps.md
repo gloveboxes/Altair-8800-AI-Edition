@@ -54,13 +54,16 @@ Get-Command cpmcp
 Each app's `build-app.ps1` delegates to `scripts/build-dcc-app.ps1`, which
 performs these steps:
 
-1. Reads the last active `dcc-output` assignment from `dccmake.txt` and appends
-   `.COM`. For `dcc-output=ATTNC11`, the expected file is `ATTNC11.COM`.
+1. Reads the last active `dcc-output` and `dcc-output-format` assignments from
+   `dccmake.txt`. The default format is `.COM`; `lib` selects `.LIB`.
+   For `dcc-output=ATTNC11`, the expected file is `ATTNC11.COM`.
 2. Deletes the previous host output and temporary `build` directory. This
    prevents a failed build from installing a stale binary.
 3. Runs `dccmake` and checks its native exit code.
-4. Moves only the expected file from `build` into the application directory.
-   A missing output is a terminating error.
+4. Moves only the expected file from the configured build directory into the
+   application directory. A missing output is a terminating error. COM build
+   directories are removed; library intermediates are retained because a host
+   can consume generated sources.
 5. Calls `scripts/cpm-install.ps1` with the disk image, host file, and CP/M
    destination such as `0:ATTNC11.COM`.
 6. Deletes the old CP/M file with `cpmrm`, copies the new file with `cpmcp`,
@@ -69,21 +72,46 @@ performs these steps:
 PowerShell stops at the first failed command, so the disk installation only
 runs after a successful compile, assemble, and link.
 
-## Build all dcc applications
+## Build all applications and composite projects
 
 Build and install the complete dcc application cohort with:
 
 ```powershell
-pwsh ./Apps/BUILDALL/build-all.ps1
+pwsh ./Apps/build-all.ps1 -DccDirectory /path/to/dcc `
+    -LibraryLinker /path/to/Z80ROMlessSBC/l80cc
 ```
 
-The build-all script discovers every immediate `Apps` subdirectory containing
-`build-app.ps1`, sorts the scripts by application name, and invokes them
-serially. It stops on the first failure. Each successful wrapper installs its
-fresh `.COM` output into the default C: disk image before the next app starts.
+The script scans `Apps/disk-{all,a,b,c,d}-apps` recursively. Folder placement
+selects target drives; generated/build/test folders and `disk-ignore` are
+excluded. It discovers C configurations, standalone C sources, assembly and
+BASIC applications without requiring per-app `build-app.ps1` wrappers.
+Duplicate CP/M destinations are rejected before building or changing images.
 
-Applications without `build-app.ps1` are not part of this cohort. BDS C,
-assembly, and BASIC-only applications retain their own build workflows.
+For LIBDEMO, one root configuration defines the unit:
+
+```ini
+dcc-projects=lib,host
+```
+
+The root is scheduled once; the referenced child folders retain their
+individual configurations but are not scheduled separately. One `dccmake`
+invocation builds the library, generates typed wrappers, then builds the host.
+Only after all child builds succeed are their `.LIB` and `.COM` outputs
+collected and installed. Failure stops before installing any output of that
+unit. Earlier successful units remain installed; installation is still
+file-by-file, not a transaction covering all drives or outputs.
+
+`-LibraryLinker` (defaulting to `DCC_L80CC`) supplies the special fixed-address
+library linker only to LIB children. COM children keep their normal linker.
+Without an override, child configurations select their own linkers. The
+copied example's original relative linker path must be overridden for this
+repository layout. Neither a JSON manifest nor a Python library builder is
+required.
+
+Preview with `-ListOnly` without invoking tools or writing disks. The summary
+counts build units; a composite unit can produce more than one installed file.
+See [Apps/README.md](https://github.com/gloveboxes/esp32-altair-8800/blob/main/Apps/README.md)
+for assembly-only builds, image overrides and isolated regression commands.
 
 ## Reusing the installer
 

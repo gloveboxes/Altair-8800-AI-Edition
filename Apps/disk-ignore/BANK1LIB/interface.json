@@ -1,0 +1,9 @@
+{
+  "library": "SPREADS",
+  "exports": [
+    {"name": "_ONLOAD", "symbol": "_ONLOAD", "host": "spopen", "argument": "none", "lifecycle": "load"},
+    {"name": "_VEG", "symbol": "_VEG", "host": "veg", "argument": "inout_u16"},
+    {"name": "_MARM", "symbol": "_MARM", "host": "marm", "argument": "inout_u16"},
+    {"name": "_UNLOAD", "symbol": "_ONUNLOAD", "host": "spclos", "argument": "none", "lifecycle": "unload"}
+  ]
+}

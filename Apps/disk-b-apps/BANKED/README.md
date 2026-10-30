@@ -5,6 +5,9 @@ specific to the SBC; the ESP32 Altair port-7 implementation is not equivalent.
 The project copy lives in Z80ROMlessSBC/examples/BANKED; the requested app copy
 lives in esp32-altair-8800/Apps/disk-c-apps/BANKED.
 
+Shared bank-memory and BIOS support lives in [BANKSDK](../BANKSDK/README.md);
+this example contains only its application-specific code.
+
 Build with the local dcc toolchain:
 
 ```sh
@@ -15,7 +18,7 @@ export DCC_DIR=/Users/dave/GitHub/dcc
 Output: `build/BANKED.COM`. Copy it to a CP/M disk and run `BANKED` after
 loading the matching firmware. The app deliberately resets the shared banked
 heap, checks allocator fragmentation/reuse and the FEFFh boundary, then
-repeatedly writes and verifies all 63,232 usable bytes with 24 patterns. The
+repeatedly writes and verifies all 5,632 usable bytes with 24 patterns. The
 patterns include fixed byte values, address-derived values, and walking one
 and zero bits. Each pattern writes the entire bank before a separate
 read/compare sweep, exposing aliased addresses. Before every verification
@@ -65,9 +68,9 @@ capacity and reject overflow. Allocation contents are not cleared. Freed
 handles become invalid and may later be reused, as with ordinary malloc.
 
 Allocations use 256-byte units and an address-ordered free-extent list.
-Bank 1 reserves `0000h–07FFh` for metadata tables, assembly code and a private
-stack, and `FF00h–FFFFh` for the mirrored gateway. The heap is
-`0800h–FEFFh`: **247 blocks, 63,232 bytes**. Allocation splits free extents;
+Bank 1 reserves `0100h–C7FFh` for the fixed library, DCC heap and stack,
+`DE00h–E5FFh` for its loader, and `E600h–EDFFh` for the allocator. The general
+heap is `C800h–DDFFh`: **22 blocks, 5,632 bytes**. Allocation splits free extents;
 free merges adjacent ones. The size of a live allocation is read directly
 from a table. Available bytes are maintained in a counter. There is no
 per-allocation metadata inside payloads or bank-0 map cache.
@@ -82,10 +85,9 @@ transfers use a 16-byte bank-0 buffer. CP/M's DMA area is untouched.
 invalidates all allocations without changing code. Warm boot preserves the
 heap; firmware reload initializes it. One application owns the shared heap.
 
-Install matching **ABI 2.3 firmware, boot package, drive A system records and
-rebuilt COM files** together. The dcc runtime and A16 wiring are unchanged.
-READ/WRITE/INFO remain at `FF00h`/`FF03h`/`FF06h`; INFO reports version
-`0203h`, heap start `0800h`, and capacity `F700h`. See [BIOS-ABI.md](BIOS-ABI.md)
+Install matching **ABI 2.6 firmware, boot package, drive A system records and
+rebuilt COM files** together. INFO reports `0206h`, heap start `C800h`, and
+capacity `1600h`. See [BIOS-ABI.md](BIOS-ABI.md)
 for HEAP operations, contracts and the extent table layout.
 
 The same C library and COM pass the local native-copy BIOS backend model

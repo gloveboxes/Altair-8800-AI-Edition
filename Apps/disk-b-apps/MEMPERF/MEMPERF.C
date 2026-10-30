@@ -4,13 +4,15 @@
 #include "BANKMEM.H"
 #include "BIOSBANK.H"
 
-#define TEST_BYTES 32768U
-#define LOCAL_BYTES 16384U
+#define TEST_BYTES 4096U
+#define LOCAL_BYTES 2048U
+#define TIMED_PASSES 32U
+#define TIMED_KIB (4UL * TIMED_PASSES)
 #define TIMER_PORT 0x17
 #define STOPWATCH_START 0x40
 #define STOPWATCH_MS 0x60
 
-/* This benchmark deliberately spends 32 KiB of TPA to prepare every source
+/* This benchmark spends 4 KiB of TPA to prepare every source
  * byte before timing and to retain every read byte for later verification. */
 static unsigned char buffer[TEST_BYTES];
 
@@ -30,14 +32,14 @@ static void explain_bank_failure(void)
         puts("BIOS bank extension descriptor missing or incompatible.");
         return;
     }
-    version = bmstat();
+    version = bank_bios_version();
     if ((version >> 8) != BMBIOS_ABI_MAJOR)
     {
         printf("BIOS INFO reports banked SRAM unavailable (ABI %04x).\n", version);
         return;
     }
     memset(header, 0xEE, sizeof(header));
-    if (!bmread(0, header, sizeof(header)))
+    if (!bank_bios_read(0xE600, header, sizeof(header)))
     {
         puts("BIOS INFO succeeded, but the banked heap-header read failed.");
         return;
@@ -83,27 +85,27 @@ static void print_cell(unsigned long milliseconds)
         printf("<1 ms (below timer resolution)");
         return;
     }
-    /* 32 KiB * 1000 ms/s * 10 tenths; no floating point or overflow. */
-    rate_tenths = 320000UL / milliseconds;
+    rate_tenths = TIMED_KIB * 10000UL / milliseconds;
     printf("%lu ms; %lu.%lu KiB/s", milliseconds,
            rate_tenths / 10UL, rate_tenths % 10UL);
 }
 
-static int benchmark(bhandle data, unsigned int chunk_bytes, timings *result)
+static int benchmark(bank_memory_handle_t data, unsigned int chunk_bytes, timings *result)
 {
-    unsigned int offset, i;
+    unsigned int offset, i, pass;
     unsigned long write_ms, read_ms;
 
     for (i = 0; i < TEST_BYTES; ++i)
         buffer[i] = expected_byte(i);
 
     start_watch();
-    for (offset = 0; offset < TEST_BYTES; offset += chunk_bytes)
-        if (!bwrite(data, offset, buffer + offset, chunk_bytes))
-        {
-            puts("FAIL: banked write rejected.");
-            return 0;
-        }
+    for (pass = 0; pass < TIMED_PASSES; ++pass)
+        for (offset = 0; offset < TEST_BYTES; offset += chunk_bytes)
+            if (!bank_memory_write(data, offset, buffer + offset, chunk_bytes))
+            {
+                puts("FAIL: banked write rejected.");
+                return 0;
+            }
     write_ms = elapsed_ms();
     if (write_ms == 0xFFFFFFFFUL)
     {
@@ -116,12 +118,13 @@ static int benchmark(bhandle data, unsigned int chunk_bytes, timings *result)
         buffer[i] = (unsigned char)~expected_byte(i);
 
     start_watch();
-    for (offset = 0; offset < TEST_BYTES; offset += chunk_bytes)
-        if (!bread(data, offset, buffer + offset, chunk_bytes))
-        {
-            puts("FAIL: banked read rejected.");
-            return 0;
-        }
+    for (pass = 0; pass < TIMED_PASSES; ++pass)
+        for (offset = 0; offset < TEST_BYTES; offset += chunk_bytes)
+            if (!bank_memory_read(data, offset, buffer + offset, chunk_bytes))
+            {
+                puts("FAIL: banked read rejected.");
+                return 0;
+            }
     read_ms = elapsed_ms();
     if (read_ms == 0xFFFFFFFFUL)
     {
@@ -149,8 +152,7 @@ static int benchmark_local(unsigned int chunk_bytes, timings *result)
     unsigned char *io = buffer + LOCAL_BYTES;
     unsigned int i, offset, pass, local_chunk;
 
-    /* Reuse the 32 KiB buffer as two independent 16 KiB regions. Each
-     * timed direction copies the region twice, moving 32 KiB in total. */
+    /* Use two independent 2 KiB regions. Two passes move 4 KiB. */
     local_chunk = chunk_bytes;
     if (local_chunk > LOCAL_BYTES)
         local_chunk = LOCAL_BYTES;
@@ -160,7 +162,7 @@ static int benchmark_local(unsigned int chunk_bytes, timings *result)
         store[i] = (unsigned char)~expected_byte(i);
     }
     start_watch();
-    for (pass = 0; pass < 2; ++pass)
+    for (pass = 0; pass < 2U * TIMED_PASSES; ++pass)
         for (offset = 0; offset < LOCAL_BYTES; offset += local_chunk)
             memcpy(store + offset, io + offset, local_chunk);
     result->write_ms = elapsed_ms();
@@ -179,7 +181,7 @@ static int benchmark_local(unsigned int chunk_bytes, timings *result)
     for (i = 0; i < LOCAL_BYTES; ++i)
         io[i] = (unsigned char)~expected_byte(i);
     start_watch();
-    for (pass = 0; pass < 2; ++pass)
+    for (pass = 0; pass < 2U * TIMED_PASSES; ++pass)
         for (offset = 0; offset < LOCAL_BYTES; offset += local_chunk)
             memcpy(io + offset, store + offset, local_chunk);
     result->read_ms = elapsed_ms();
@@ -201,10 +203,11 @@ static void print_comparison(unsigned int chunk_bytes,
                              const timings *local, const timings *banked)
 {
     if (chunk_bytes == TEST_BYTES)
-        puts("Bulk: base RAM 2 x 16384-byte copies; banked RAM 1 x 32768-byte call.");
+        puts("Bulk: base RAM 2 x 2048-byte copies; banked RAM 1 x 4096-byte call.");
     else
-        puts("256-byte chunks: 128 calls per direction for both memory types.");
-    puts("32768 bytes per timed direction; local copies use runtime memcpy.");
+        puts("256-byte chunks: 16 calls per direction for both memory types.");
+    printf("%lu KiB per timed direction (%u repeats); local copies use runtime memcpy.\n",
+           TIMED_KIB, TIMED_PASSES);
     puts("Direction | Z80 base RAM | Banked RAM");
     printf("Write     | ");
     print_cell(local->write_ms);
@@ -221,27 +224,28 @@ static void print_comparison(unsigned int chunk_bytes,
 
 int main(void)
 {
-    bhandle data;
+    bank_memory_handle_t data;
     unsigned int free_before;
     int success;
     timings local, banked;
 
-    puts("MEMPERF: Z80 base RAM versus banked SRAM, 32 KiB per timed direction.");
-    puts("BANKMEM API: one 32 KiB call, then 128 x 256-byte calls.");
-    puts("32 KiB base buffer; preparation, poisoning and verification excluded.");
-    puts("Base RAM uses two 16 KiB buffer regions; neither code nor CP/M is overwritten.");
+    puts("MEMPERF: Z80 base RAM versus banked SRAM, repeated 4 KiB workload.");
+    puts("BANKMEM API: one 4 KiB call, then 16 x 256-byte calls.");
+    puts("4 KiB base buffer; preparation, poisoning and verification excluded.");
+    puts("Base RAM uses two 2 KiB buffer regions; neither code nor CP/M is overwritten.");
     puts("Timing: port 0x17, stopwatch 0, whole milliseconds; no output while timing.");
-    if (!binit())
+    puts("32 repeats move 128 KiB per direction to reduce 1 ms rounding noise.");
+    if (!bank_memory_initialize())
     {
         puts("FAIL: banked SRAM unavailable; check BIOS, firmware and A16 wiring.");
         explain_bank_failure();
         return 1;
     }
-    free_before = bavail();
-    data = bmalloc(TEST_BYTES);
+    free_before = bank_memory_available();
+    data = bank_memory_allocate(TEST_BYTES);
     if (!data)
     {
-        printf("FAIL: need a contiguous 32768-byte allocation; %u bytes free.\n",
+        printf("FAIL: need a contiguous 4096-byte allocation; %u bytes free.\n",
                free_before);
         return 1;
     }
@@ -258,13 +262,13 @@ int main(void)
         success = benchmark_local(256U, &local);
     if (success)
         print_comparison(256U, &local, &banked);
-    if (!bfree(data) || bavail() != free_before)
+    if (!bank_memory_free(data) || bank_memory_available() != free_before)
     {
         puts("FAIL: allocation cleanup or heap free-size check.");
         return 1;
     }
     if (!success)
         return 1;
-    printf("PASS: MEMPERF complete; %u bytes free.\n", bavail());
+    printf("PASS: MEMPERF complete; %u bytes free.\n", bank_memory_available());
     return 0;
 }

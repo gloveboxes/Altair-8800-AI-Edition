@@ -28,7 +28,6 @@ int main(void)
         g_cfg.tbls[0].name[i] = 0;
     
     strncpy(g_cfg.tbls[0].name, "NAMES", I_MXNM);
-    g_cfg.tbls[0].disk = 'C';
     g_cfg.tbls[0].recsz = 32;
     g_cfg.tbls[0].nkeys = 1;
     
@@ -53,7 +52,7 @@ int main(void)
     }
     
     /* Create table */
-    if (i_mktbl("NAMES") != I_OK)
+    if (i_mktbl(0) != I_OK)
     {
         puts("Create table failed");
         return 1;
@@ -84,7 +83,7 @@ int main(void)
         rec[11] = '0' + d0;
         printf("Insert rec %d: ID=%.4s Name=%.8s\r\n",
             id, rec, &rec[4]);
-        rc = i_insrt("NAMES", rec, 32);
+        rc = i_insrt(0, rec, 32);
         if (rc != I_OK)
         {
             printf("Insert failed: rc=%d\r\n", rc);
@@ -101,7 +100,7 @@ int main(void)
     {
         for (j = 0; j < 64; j++)
             rbuf[j] = 0;
-        rc = i_rdphys("NAMES", rbuf, i);
+        rc = i_rdphys(0, rbuf, i);
         if (rc == I_ENREC)
             continue;
         if (rc != I_OK)
@@ -137,7 +136,7 @@ int main(void)
     rec[8] = 'T';
     rec[9] = 'E';
     printf("\r\nUpdate rec %d: ID=%.4s Name=UPDATE\r\n", id, rec);
-    rc = i_uprec("NAMES", rec, 32, uidx);
+    rc = i_uprec(0, rec, 32, uidx);
     if (rc != I_OK)
     {
         printf("Update failed: rc=%d\r\n", rc);
@@ -145,7 +144,7 @@ int main(void)
     }
     for (j = 0; j < 64; j++)
         rbuf[j] = 0;
-    if (i_rdrec("NAMES", rbuf, uidx) != I_OK)
+    if (i_rdrec(0, rbuf, uidx) != I_OK)
     {
         puts("Read after update failed");
         return 1;
@@ -161,7 +160,7 @@ int main(void)
     
     /* Delete record 1 (index 0) */
     didx = 0;
-    rc = i_delrec("NAMES", didx);
+    rc = i_delrec(0, didx);
     if (rc != I_OK)
     {
         printf("Delete rec 1 failed: rc=%d\r\n", rc);
@@ -170,7 +169,7 @@ int main(void)
     
     /* Delete record 5 (now at index 4 since we deleted index 0) */
     didx = 4;
-    rc = i_delrec("NAMES", didx);
+    rc = i_delrec(0, didx);
     if (rc != I_OK)
     {
         printf("Delete rec 5 failed: rc=%d\r\n", rc);
@@ -179,7 +178,7 @@ int main(void)
     
     /* Delete record 10 (now at index 8 after 2 deletions) */
     didx = 8;
-    rc = i_delrec("NAMES", didx);
+    rc = i_delrec(0, didx);
     if (rc != I_OK)
     {
         printf("Delete rec 10 failed: rc=%d\r\n", rc);
@@ -194,7 +193,7 @@ int main(void)
     sample_count = 0;
     for (i = 0; i < g_cfg.tbls[0].maxrec && sample_count < 3; i++)
     {
-        if (i_rdphys("NAMES", rbuf, i) == I_ENREC)
+        if (i_rdphys(0, rbuf, i) == I_ENREC)
         {
             sample_slots[sample_count] = i;
             sample_count++;
@@ -205,7 +204,7 @@ int main(void)
     {
         for (j = 0; j < 64; j++)
             rbuf[j] = 0;
-        rc = i_rdphys("NAMES", rbuf, i);
+        rc = i_rdphys(0, rbuf, i);
         if (rc == I_ENREC)
             continue;
         if (rc != I_OK)
@@ -244,7 +243,7 @@ int main(void)
         rec[9] = '0' + d2;
         rec[10] = '0' + d1;
         rec[11] = '0' + d0;
-        rc = i_insrt("NAMES", rec, 32);
+        rc = i_insrt(0, rec, 32);
         if (rc != I_OK)
         {
             printf("Insert failed: rc=%d\r\n", rc);
@@ -259,7 +258,7 @@ int main(void)
         printf("  Sample reused physical slots:\r\n");
         for (i = 0; i < sample_count; i++)
         {
-            rc = i_rdphys("NAMES", rbuf, sample_slots[i]);
+            rc = i_rdphys(0, rbuf, sample_slots[i]);
             if (rc != I_OK)
             {
                 printf("    Slot %d still deleted (rc=%d)\r\n", sample_slots[i], rc);
@@ -280,7 +279,7 @@ int main(void)
     {
         for (j = 0; j < 64; j++)
             rbuf[j] = 0;
-        rc = i_rdphys("NAMES", rbuf, i);
+        rc = i_rdphys(0, rbuf, i);
         if (rc == I_ENREC)
             continue;
         if (rc != I_OK)

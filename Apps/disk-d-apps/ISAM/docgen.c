@@ -1,21 +1,25 @@
 #include "stdio.h"
 #include "string.h"
-#include "isamdb.h"
+#include "isam.h"
 #include "surgery.h"
 
 static char doctor_record[DOCTOR_SIZE];
 static char patient_record[PATIENT_SIZE];
 static char history_record[HISTORY_SIZE];
+static char load_batch[DB_BULK_BYTES];
+static int batch_count;
+static int history_total;
+static struct db_schema schema;
 
-static char *doctor_first[DOCTOR_COUNT] = {
+static char *doctor_first[] = {
     "Amelia", "Benjamin", "Clara", "Daniel",
     "Elena", "Farid", "Grace", "Hugo"
 };
-static char *doctor_last[DOCTOR_COUNT] = {
+static char *doctor_last[] = {
     "Hart", "Okafor", "Singh", "Morgan",
     "Rossi", "Khan", "Chen", "Davies"
 };
-static char *specialties[DOCTOR_COUNT] = {
+static char *specialties[8] = {
     "General Practice", "Cardiology", "Paediatrics", "Dermatology",
     "Women's Health", "Respiratory", "Diabetes", "Mental Health"
 };
@@ -54,7 +58,7 @@ static void put_field(char *record, int offset, int size, char *value)
     int i;
 
     for (i = 0; i < size; i++)
-        record[offset + i] = value && value[i] ? value[i] : 0;
+        record[offset + i] = value && *value ? *value++ : 0;
 }
 
 static void format_number(char *dest, int value, int width)
@@ -77,31 +81,6 @@ static void put_number(char *record, int offset, int width, int value)
     put_field(record, offset, width, number);
 }
 
-static void put_name_key(char *record, int key_offset, int name_offset,
-    int name_length)
-{
-    int i;
-    int value;
-
-    for (i = 0; i < name_length; i++)
-    {
-        value = record[name_offset + i];
-        if (value >= 'a' && value <= 'z')
-            value -= 'a' - 'A';
-        record[key_offset + i] = value;
-    }
-    memcpy(&record[key_offset + name_length], &record[P_ID], PATIENT_KEY_LEN);
-}
-
-static void write_patient_keys(char *record)
-{
-    put_name_key(record, P_LAST_KEY, P_LAST, 10);
-    put_name_key(record, P_FIRST_KEY, P_FIRST, 7);
-    memcpy(&record[P_DOCTOR_KEY], &record[P_DOCTOR_ID], DOCTOR_KEY_LEN);
-    memcpy(&record[P_DOCTOR_KEY + DOCTOR_KEY_LEN], &record[P_ID],
-        PATIENT_KEY_LEN);
-}
-
 static void make_history_key(char *key, int patient_id, int sequence)
 {
     format_number(key, patient_id, PATIENT_KEY_LEN);
@@ -114,33 +93,63 @@ static void configure_table(int index, char *name, int record_size,
 {
     int i;
 
-    strncpy(g_cfg.tbls[index].name, name, I_MXNM);
-    g_cfg.tbls[index].disk = 'C';
-    g_cfg.tbls[index].recsz = record_size;
-    g_cfg.tbls[index].nkeys = 1;
+    strncpy(schema.table[index].name, name, I_MXNM);
+    schema.table[index].size = record_size;
+    schema.table[index].keys = 1;
     for (i = 0; i < I_MXKEY; i++)
     {
-        g_cfg.tbls[index].keyoff[i] = 0;
-        g_cfg.tbls[index].keysz[i] = 0;
+        schema.table[index].offsets[i] = 0;
+        schema.table[index].widths[i] = 0;
     }
-    g_cfg.tbls[index].keysz[0] = key_size;
+    schema.table[index].widths[0] = key_size;
 }
 
 static void init_config(void)
 {
-    memset(&g_cfg, 0, sizeof(g_cfg));
-    strncpy(g_cfg.dbname, "SURGERY", I_MXNM);
-    g_cfg.ntbls = 3;
+    memset(&schema, 0, sizeof(schema));
+    strncpy(schema.name, "SURGERY", I_MXNM);
+    schema.tables = 3;
     configure_table(0, DOCTOR_TABLE, DOCTOR_SIZE, DOCTOR_KEY_LEN);
     configure_table(1, PATIENT_TABLE, PATIENT_SIZE, PATIENT_KEY_LEN);
-    g_cfg.tbls[1].nkeys = 4;
-    g_cfg.tbls[1].keyoff[1] = P_LAST_KEY;
-    g_cfg.tbls[1].keysz[1] = P_LAST_KEY_SIZE;
-    g_cfg.tbls[1].keyoff[2] = P_FIRST_KEY;
-    g_cfg.tbls[1].keysz[2] = P_FIRST_KEY_SIZE;
-    g_cfg.tbls[1].keyoff[3] = P_DOCTOR_KEY;
-    g_cfg.tbls[1].keysz[3] = P_DOCTOR_KEY_SIZE;
+    schema.table[1].keys = 4;
+    schema.table[1].offsets[1] = P_LAST | I_KEY_UPPER;
+    schema.table[1].widths[1] = P_LAST_KEY_SIZE;
+    schema.table[1].offsets[2] = P_FIRST | I_KEY_UPPER;
+    schema.table[1].widths[2] = P_FIRST_KEY_SIZE;
+    schema.table[1].offsets[3] = P_DOCTOR_ID;
+    schema.table[1].widths[3] = P_DOCTOR_KEY_SIZE;
+    schema.table[1].extra[1] = PATIENT_KEY_LEN;
+    schema.table[1].extra[2] = PATIENT_KEY_LEN;
+    schema.table[1].extra[3] = PATIENT_KEY_LEN;
     configure_table(2, HISTORY_TABLE, HISTORY_SIZE, HISTORY_KEY_LEN);
+}
+
+static int doctor_patient_count(int doctor_id)
+{
+    return PATIENT_MIN +
+        (doctor_id - 1) * (PATIENT_MAX - PATIENT_MIN) / (DOCTOR_COUNT - 1);
+}
+
+static int first_doctor_patient(int doctor_id)
+{
+    int first, doctor;
+    first = 1;
+    for (doctor = 1; doctor < doctor_id; ++doctor)
+        first += doctor_patient_count(doctor);
+    return first;
+}
+
+static int patient_doctor(int patient_id)
+{
+    int doctor, count;
+    for (doctor = 1; doctor < DOCTOR_COUNT; ++doctor)
+    {
+        count = doctor_patient_count(doctor);
+        if (patient_id <= count)
+            break;
+        patient_id -= count;
+    }
+    return doctor;
 }
 
 static void build_doctor(int doctor_id)
@@ -148,14 +157,27 @@ static void build_doctor(int doctor_id)
     int first_patient;
 
     memset(doctor_record, 0, DOCTOR_SIZE);
-    first_patient = (doctor_id - 1) * PATIENTS_PER_DOCTOR + 1;
+    first_patient = first_doctor_patient(doctor_id);
     put_number(doctor_record, D_ID, DOCTOR_KEY_LEN, doctor_id);
     put_field(doctor_record, D_FIRST, 12, doctor_first[doctor_id - 1]);
     put_field(doctor_record, D_LAST, 16, doctor_last[doctor_id - 1]);
-    put_field(doctor_record, D_SPECIALTY, 20, specialties[doctor_id - 1]);
+    put_field(doctor_record, D_SPECIALTY, 20, specialties[(doctor_id - 1) % 8]);
     put_number(doctor_record, D_ROOM, 3, 100 + doctor_id);
     put_number(doctor_record, D_FIRST_PATIENT, PATIENT_KEY_LEN, first_patient);
-    put_number(doctor_record, D_PATIENT_COUNT, 3, PATIENTS_PER_DOCTOR);
+    put_number(doctor_record, D_PATIENT_COUNT, 3, doctor_patient_count(doctor_id));
+}
+
+static int patient_history_count(int patient_id)
+{
+#if HISTORY_MIN == HISTORY_MAX
+    return HISTORY_MIN;
+#else
+    if (patient_id % 50 == 0)
+        return HISTORY_MAX;
+    if (patient_id % 25 == 0)
+        return HISTORY_MIN + (HISTORY_MAX - HISTORY_MIN) * 2 / 5;
+    return HISTORY_MIN + patient_id % 3;
+#endif
 }
 
 static void build_patient(int patient_id)
@@ -171,7 +193,7 @@ static void build_patient(int patient_id)
     strncpy(address, house, 35);
     strncat(address, " ", 35 - strlen(address));
     strncat(address, streets[(patient_id * 7) % 10], 35 - strlen(address));
-    doctor_id = ((patient_id - 1) / PATIENTS_PER_DOCTOR) + 1;
+    doctor_id = patient_doctor(patient_id);
     strcpy(phone, "555-");
     format_number(&phone[4], patient_id, PATIENT_KEY_LEN);
     put_number(patient_record, P_ID, PATIENT_KEY_LEN, patient_id);
@@ -183,8 +205,7 @@ static void build_patient(int patient_id)
     put_number(patient_record, P_AGE, 3, 1 + ((patient_id * 11) % 99));
     patient_record[P_GENDER] = "FMO"[patient_id % 3];
     put_field(patient_record, P_PHONE, 12, phone);
-    put_number(patient_record, P_HISTORY_COUNT, 3, HISTORY_PER_PATIENT);
-    write_patient_keys(patient_record);
+    put_number(patient_record, P_HISTORY_COUNT, 3, patient_history_count(patient_id));
 }
 
 static void build_history(int patient_id, int sequence)
@@ -194,32 +215,54 @@ static void build_history(int patient_id, int sequence)
     char date[9];
 
     memset(history_record, 0, HISTORY_SIZE);
-    doctor_id = ((patient_id - 1) / PATIENTS_PER_DOCTOR) + 1;
+    doctor_id = patient_doctor(patient_id);
     make_history_key(key, patient_id, sequence);
-    strcpy(date, "2023");
-    format_number(&date[4], sequence, 2);
+    format_number(date, 2023 + (sequence - 1) / 12, 4);
+    format_number(&date[4], 1 + (sequence - 1) % 12, 2);
     format_number(&date[6], 1 + (patient_id % 28), 2);
     put_field(history_record, H_KEY, HISTORY_KEY_LEN, key);
     put_number(history_record, H_DOCTOR_ID, DOCTOR_KEY_LEN, doctor_id);
     put_field(history_record, H_DATE, 8, date);
-    put_field(history_record, H_TYPE, 12, visit_types[sequence - 1]);
+    put_field(history_record, H_TYPE, 12,
+        visit_types[sequence == 1 ? 0 : 1 + sequence % 2]);
     put_field(history_record, H_NOTES, H_NOTES_SIZE,
         visit_notes[(patient_id + sequence * 3) % 8]);
 }
 
 static int create_database(void)
 {
-    int rc;
-
     init_config();
-    rc = i_cfwr(CFG_FILE);
-    if (rc == I_OK)
-        rc = i_mktbl(DOCTOR_TABLE);
-    if (rc == I_OK)
-        rc = i_mktbl(PATIENT_TABLE);
-    if (rc == I_OK)
-        rc = i_mktbl(HISTORY_TABLE);
-    return rc;
+    return db_new(CFG_FILE, &schema);
+}
+
+static int flush_records(int table, int size)
+{
+    int rc, completed;
+    if (!batch_count)
+        return I_OK;
+    rc = db_append(table, load_batch, batch_count * size, &completed);
+    if (rc != I_OK)
+    {
+        printf("Batch table %d stopped after %d of %d records rc=%d\r\n",
+            table, completed, batch_count, rc);
+        return rc;
+    }
+    batch_count = 0;
+    return I_OK;
+}
+
+static int queue_record(int table, const char *record, int size)
+{
+    int rc;
+    if (batch_count >= sizeof(load_batch) / size)
+    {
+        rc = flush_records(table, size);
+        if (rc != I_OK)
+            return rc;
+    }
+    memcpy(load_batch + batch_count * size, record, size);
+    batch_count++;
+    return I_OK;
 }
 
 static int load_synthetic_data(void)
@@ -230,43 +273,66 @@ static int load_synthetic_data(void)
     int rc;
 
     printf("Loading %d doctors...\r\n", DOCTOR_COUNT);
+    rc = db_build(0);
+    if (rc != I_OK) return rc;
     for (doctor_id = 1; doctor_id <= DOCTOR_COUNT; doctor_id++)
     {
         build_doctor(doctor_id);
-        rc = i_insrt(DOCTOR_TABLE, doctor_record, DOCTOR_SIZE);
+        rc = queue_record(0, doctor_record, DOCTOR_SIZE);
         if (rc != I_OK)
             return rc;
     }
+    rc = flush_records(0, DOCTOR_SIZE);
+    if (rc == I_OK) rc = db_finish(0);
+    if (rc != I_OK)
+        return rc;
     printf("Loading %d patients...\r\n", PATIENT_COUNT);
+    rc = db_build(1);
+    if (rc != I_OK) return rc;
     for (patient_id = 1; patient_id <= PATIENT_COUNT; patient_id++)
     {
         build_patient(patient_id);
-        rc = i_insrt(PATIENT_TABLE, patient_record, PATIENT_SIZE);
+        rc = queue_record(1, patient_record, PATIENT_SIZE);
         if (rc != I_OK)
             return rc;
     }
-    printf("Loading %d history entries...\r\n",
-        PATIENT_COUNT * HISTORY_PER_PATIENT);
+    rc = flush_records(1, PATIENT_SIZE);
+    if (rc == I_OK) rc = db_finish(1);
+    if (rc != I_OK)
+        return rc;
+    printf("Loading %d history entries...\r\n", history_total);
+    rc = db_build(2);
+    if (rc != I_OK) return rc;
     for (patient_id = 1; patient_id <= PATIENT_COUNT; patient_id++)
     {
-        for (sequence = 1; sequence <= HISTORY_PER_PATIENT; sequence++)
+        for (sequence = 1; sequence <= patient_history_count(patient_id); sequence++)
         {
             build_history(patient_id, sequence);
-            rc = i_insrt(HISTORY_TABLE, history_record, HISTORY_SIZE);
+            rc = queue_record(2, history_record, HISTORY_SIZE);
             if (rc != I_OK)
                 return rc;
         }
         if (patient_id % 40 == 0)
             printf("  History generated for %d patients\r\n", patient_id);
     }
-    return i_cfwr(CFG_FILE);
+    rc = flush_records(2, HISTORY_SIZE);
+    return rc == I_OK ? db_finish(2) : rc;
 }
 
 int main(void)
 {
-    int rc;
+    int rc, patient_id;
 
-    puts("\r\nDXISAM SURGERY DATABASE GENERATOR");
+    puts("\r\nSURGERY DATABASE GENERATOR - Banked ISAM Library");
+    history_total = 0;
+    for (patient_id = 1; patient_id <= PATIENT_COUNT; ++patient_id)
+        history_total += patient_history_count(patient_id);
+    if (history_total > HISTORY_LIMIT)
+    {
+        puts("History record limit exceeded; existing database was not changed.");
+        return 1;
+    }
+    puts("Ensure sufficient disk space before generation; existing data is replaced.");
     puts("Creating DOCTORS, PATIENTS and HISTORY tables...");
     rc = create_database();
     if (rc == I_OK)
@@ -274,9 +340,12 @@ int main(void)
     if (rc != I_OK)
     {
         printf("Database generation failed rc=%d\r\n", rc);
+        if (rc == I_EWRIT)
+            puts("Write failed; check free disk space before running DOCGEN again.");
+        db_close();
         return 1;
     }
     printf("Generated %d doctors, %d patients and %d history records.\r\n",
-        DOCTOR_COUNT, PATIENT_COUNT, PATIENT_COUNT * HISTORY_PER_PATIENT);
-    return 0;
+        DOCTOR_COUNT, PATIENT_COUNT, history_total);
+    return db_close() == I_OK ? 0 : 1;
 }

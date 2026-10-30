@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
-#include "../PRIMEBK1/BANKMEM.H"
-#include "../PRIMEBK1/BIOSBANK.H"
+#include "BANKMEM.H"
+#include "BIOSBANK.H"
 
 extern unsigned char bcode[];
 extern unsigned char bmarm[];
@@ -19,9 +19,9 @@ struct SpreadParams {
 /* A future bank-1 linker could provide these bindings. Keep the BIOS call and
  * bank-0/bank-1 copies inside the wrappers, away from the example call sites. */
 static struct {
-    bhandle code;
-    bhandle stack;
-    bhandle params;
+    bank_memory_handle_t code;
+    bank_memory_handle_t stack;
+    bank_memory_handle_t params;
     unsigned int marmite_offset;
     unsigned int free_before;
 } spread_module;
@@ -106,12 +106,12 @@ _bend:
 static int spread_call(unsigned int offset, struct SpreadParams *params)
 {
     int length;
-    if (!bwrite(spread_module.params, 0, params, sizeof(*params)))
+    if (!bank_memory_write(spread_module.params, 0, params, sizeof(*params)))
         return -1;
-    length = bmcall(spread_module.code, spread_module.stack, offset,
+    length = bank_bios_call(spread_module.code, spread_module.stack, offset,
                     spread_module.params);
     memset(params, 0xA5, sizeof(*params));
-    if (!bread(spread_module.params, 0, params, sizeof(*params)))
+    if (!bank_memory_read(spread_module.params, 0, params, sizeof(*params)))
         return -1;
     return length;
 }
@@ -144,33 +144,29 @@ static int spreads_unload(void)
 {
     int freed = 1;
 
-    if (spread_module.params && !bfree(spread_module.params)) freed = 0;
-    if (spread_module.stack && !bfree(spread_module.stack)) freed = 0;
-    if (spread_module.code && !bfree(spread_module.code)) freed = 0;
+    if (spread_module.params && !bank_memory_free(spread_module.params)) freed = 0;
+    if (spread_module.stack && !bank_memory_free(spread_module.stack)) freed = 0;
+    if (spread_module.code && !bank_memory_free(spread_module.code)) freed = 0;
     spread_module.code = spread_module.stack = spread_module.params = 0;
-    return freed && bavail() == spread_module.free_before;
+    return freed && bank_memory_available() == spread_module.free_before;
 }
 
 static int spreads_load(void)
 {
     unsigned int code_bytes = (unsigned int)(bend - bcode);
-    unsigned char header[16];
 
     spread_module.code = spread_module.stack = spread_module.params = 0;
     spread_module.marmite_offset = (unsigned int)(bmarm - bcode);
-    if (!code_bytes || spread_module.marmite_offset >= code_bytes || !binit() ||
-        (bmstat() & 255U) < BMBIOS_ABI_MINOR ||
-        !bmread(0, header, sizeof(header)) ||
-        header[BMBIOS_CALL_REVISION_OFFSET] != BMBIOS_CALL_REVISION)
+    if (!code_bytes || spread_module.marmite_offset >= code_bytes || !bank_memory_initialize())
     {
-        puts("FAIL: BIOS ABI 2.4 and bank-1 allocator revision 4 required.");
+        puts("FAIL: BIOS ABI 2.6 and matching bank-1 services required.");
         return 0;
     }
 
-    spread_module.free_before = bavail();
-    spread_module.code = bmalloc(code_bytes);
-    spread_module.stack = bmalloc(256);
-    spread_module.params = bmalloc(sizeof(struct SpreadParams));
+    spread_module.free_before = bank_memory_available();
+    spread_module.code = bank_memory_allocate(code_bytes);
+    spread_module.stack = bank_memory_allocate(256);
+    spread_module.params = bank_memory_allocate(sizeof(struct SpreadParams));
     if (!spread_module.code || !spread_module.stack || !spread_module.params)
     {
         puts("FAIL: bank-1 allocation.");
@@ -178,7 +174,7 @@ static int spreads_load(void)
             puts("FAIL: bank-1 heap was not restored.");
         return 0;
     }
-    if (!bwrite(spread_module.code, 0, bcode, code_bytes))
+    if (!bank_memory_write(spread_module.code, 0, bcode, code_bytes))
     {
         puts("FAIL: bank-1 code copy.");
         if (!spreads_unload())

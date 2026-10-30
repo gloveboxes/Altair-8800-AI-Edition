@@ -1,0 +1,16 @@
+dcc-input=../docgen.c, ../isclient.c, ../generated/B1HOST.C, ../../../disk-b-apps/BANKSDK/BANKLIB.C, ../../../disk-b-apps/BANKSDK/BANKMEM.C, ../../../disk-b-apps/BANKSDK/BIOSBANK.C
+dcc-output=DOCGEN
+dcc-floatio=false
+dcc-flongio=false
+dcc-stack-check=true
+dcc-stack-bytes=768
+dcc-peep=true
+dcc-debug=false
+dcc-build-dir=build
+dcc-runtime=${DCC_DIR}/DCCRTL.MAC
+dcc-include-directory=${DCC_DIR}, .., ../generated, ../../../disk-b-apps/BANKSDK
+dcc-tool=${DCC_DIR}/dcc
+dccpeep-tool=${DCC_DIR}/dccpeep
+dccrtlstrip-tool=${DCC_DIR}/dccrtlstrip
+m80c-tool=${DCC_DIR}/m80c
+l80c-tool=${DCC_DIR}/l80c

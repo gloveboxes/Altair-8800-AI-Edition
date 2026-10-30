@@ -10,3 +10,14 @@
 /*.MAP
 /C:*
 /ntvcm.log
+/generated/
+/lib/build/
+/lib/*.LIB
+/doctor/build/
+/doctor/*.COM
+/doctor/*.DBG
+/docgen/build/
+/docgen/*.COM
+/docgen/*.DBG
+/tests/build/
+/tests/__pycache__/

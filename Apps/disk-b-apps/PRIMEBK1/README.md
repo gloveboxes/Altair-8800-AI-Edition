@@ -1,5 +1,11 @@
 # BANKCODE: direct entry into two bank-1 functions
 
+Shared banked-memory and BIOS support lives in [BANKSDK](../BANKSDK/README.md).
+For compiler-generated typed library calls, its [BANKLIB.H](../BANKSDK/BANKLIB.H)
+and [BANKLIB.C](../BANKSDK/BANKLIB.C) provide signature-checked dispatch and bounded
+cross-bank value transfers. See [LIBDEMO](../LIBDEMO/README.md) for automatic
+exports, runtime enumeration, and bank-owned objects accessed through handles.
+
 This DCC application allocates one bank-1 code block, two 512-byte stacks and
 two independent context blocks. The code block contains two entry points:
 offset 0 counts primes through an 8-bit limit; a second offset finds the next
@@ -42,8 +48,8 @@ cd examples/BANKCODE
 DCC_DIR=/path/to/dcc /path/to/dcc/dccmake
 ```
 
-Copy `BANKCODE.COM` to a CP/M drive. This example requires BIOS ABI 2.4 and
-bank-1 allocator revision 4 (at bank-1 offset `0008h`), so update both the
+Copy `BANKCODE.COM` to a CP/M drive. This example requires BIOS ABI 2.6 and
+bank-1 allocator revision 6, checked through the public capability query, so update both the
 CP/M boot package and Phase 10 firmware before running it.
 
 The Z80 emulator regression runs the compiled COM with CP/M and the resident
