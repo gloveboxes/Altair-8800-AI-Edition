@@ -11,6 +11,8 @@
 #define BMBIOS_READ 0xFF00
 #define BMBIOS_WRITE 0xFF03
 #define BMBIOS_INFO 0xFF06
+#define BMBIOS_CHECKED_READ 0xF806 /* A=handle page, DE=address in extent */
+#define BMBIOS_CHECKED_WRITE 0xF809
 #define BMBIOS_SIGNATURE 0xFF09
 #define BMBIOS_VERSION 0xFF0D
 #define BMBIOS_ABI_MAJOR 1
@@ -33,7 +35,7 @@
 #define BANK_BIOS_IO 8
 #define BANK_BIOS_STALE 9
 #define BANK_BIOS_EXHAUSTED 10
-#define BANK_BIOS_FEATURES 31U
+#define BANK_BIOS_FEATURES 63U
 #define BANK_LIBRARY_REQUEST_BYTES 32
 #define BANK_LIBRARY_LOAD 0
 #define BANK_LIBRARY_INVALIDATE 1
@@ -46,7 +48,7 @@ typedef struct {
     unsigned int byte_read, byte_write, library_request, library_request_bytes;
     unsigned int exports_address, image_origin, code_handle, stack_handle;
     unsigned int token_address, frame_bytes, export_count, signature_bytes;
-    unsigned int allocator_revision, reserved1, reserved2, reserved3;
+    unsigned int allocator_revision, checked_read, checked_write, reserved;
 } bank_bios_info_t;
 /* Descriptive names map to six-character M80/L80 public symbols. */
 #define bank_bios_version bmstat

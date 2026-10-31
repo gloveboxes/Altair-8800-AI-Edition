@@ -6,8 +6,10 @@
 #include "BIOSBANK.H"
 
 /* Capability is stable for this program's lifetime; avoid a trapped IN for
- * every chunk. Heap metadata itself remains entirely in bank 1. */
-static unsigned char bank_ready;
+ * every chunk. Heap metadata itself remains entirely in bank 1. The flag is
+ * public (six-character bmrdy) so the transfer adapter can test it directly. */
+#define bank_ready bmrdy
+unsigned char bank_ready;
 static bank_bios_info_t capabilities;
 /* Call is a direct BIOS alias, so all memory APIs share status. */
 extern unsigned int bmres;
@@ -33,6 +35,8 @@ int bank_memory_initialize(void)
         capabilities.abi != BMBIOS_ABI ||
         (capabilities.features & BANK_BIOS_FEATURES) != BANK_BIOS_FEATURES ||
         capabilities.allocator_revision != BMBIOS_CALL_REVISION ||
+        capabilities.checked_read != BMBIOS_CHECKED_READ ||
+        capabilities.checked_write != BMBIOS_CHECKED_WRITE ||
         !capabilities.allocation_bytes ||
         (capabilities.allocation_bytes & (capabilities.allocation_bytes - 1U)))
     {
@@ -101,8 +105,10 @@ int bank_memory_free(bank_memory_handle_t handle)
     return bank_bios_free(handle);
 }
 
-/* Keep the checked four-argument call in one DCC stack frame. Allocation size
- * is still queried on every call: no cached bounds can survive free/reset. */
+/* The BIOS checked entries look up the live extent on every call, so no
+ * cached bounds can survive free/reset. A valid handle is 256-byte aligned:
+ * its page selects the extent and handle+offset is the bank-1 address.
+ * Stack on entry to _bxfer: ret, handle, offset, buffer, bytes; A=direction. */
 #asm
 ;@dcc.lto begin _bread
 	public _bread
@@ -119,57 +125,71 @@ _bwrite:
 ;@dcc.lto begin _bxfer
 	public _bxfer
 _bxfer:
-	push ix
-	ld ix,0
-	add ix,sp
 	push af
-	ld l,(ix+4)
-	ld h,(ix+5)
-	push hl
-	call _bsize
-	pop bc
+	ld a,(_bmrdy)
+	or a
+	jr nz,BX_READY
+	call _binit
 	ld a,h
 	or l
-	jr z,BX_FAILED
-	ld c,(ix+6)
-	ld b,(ix+7)
+	jr z,BX_DONE
+BX_READY:
+	ld hl,4
+	add hl,sp
+	ld a,(hl)
 	or a
-	sbc hl,bc
+	jr nz,BX_HANDLE
+	inc hl
+	ld b,(hl)
+	inc hl
+	ld e,(hl)
+	inc hl
+	ld a,(hl)
+	add a,b
 	jr c,BX_ARGUMENT
-	ld c,(ix+10)
-	ld b,(ix+11)
-	or a
-	sbc hl,bc
-	jr c,BX_ARGUMENT
-	ld l,(ix+4)
-	ld h,(ix+5)
-	ld e,(ix+6)
-	ld d,(ix+7)
-	add hl,de
-	ex de,hl
-	ld l,(ix+8)
-	ld h,(ix+9)
+	ld d,a
+	ld a,b
+	ex af,af'
+	inc hl
+	ld c,(hl)
+	inc hl
+	ld b,(hl)
+	inc hl
+	ld a,(hl)
+	inc hl
+	ld h,(hl)
+	ld l,a
+	push hl
+	ld h,b
+	ld l,c
+	pop bc
 	pop af
 	or a
 	jr nz,BX_WRITE
-	call 0f800h
+	ex af,af'
+	call 0f806h
 	jr BX_RESULT
 BX_WRITE:
-	call 0f803h
+	ex af,af'
+	call 0f809h
 BX_RESULT:
-	ld (_bmres),a
-	ld hl,0
-	jr c,BX_RETURN
+	ld l,a
+	ld h,0
+	ld (_bmres),hl
+	ld l,h
+	ret c
 	inc l
-BX_RETURN:
-	pop ix
 	ret
+BX_HANDLE:
+	ld hl,3
+	jr BX_STATUS
 BX_ARGUMENT:
 	ld hl,2
+BX_STATUS:
 	ld (_bmres),hl
-BX_FAILED:
-	pop af
 	ld hl,0
-	jr BX_RETURN
+BX_DONE:
+	pop af
+	ret
 ;@dcc.lto end _bxfer
 #endasm

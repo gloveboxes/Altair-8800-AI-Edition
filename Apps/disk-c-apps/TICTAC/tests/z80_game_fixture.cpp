@@ -79,6 +79,69 @@ static void out(uint8_t port, uint8_t byte)
     }
 }
 
+static void call_guest(unsigned address, const std::vector<uint16_t> &arguments)
+{
+    reg.sp = 0xe000;
+    memory[reg.sp] = 0xf0;
+    memory[reg.sp + 1] = 0xff;
+    for (unsigned index = 0; index < arguments.size(); ++index) {
+        memory[reg.sp + 2 + 2 * index] = arguments[index] & 255;
+        memory[reg.sp + 3 + 2 * index] = arguments[index] >> 8;
+    }
+    reg.pc = address;
+    for (unsigned steps = 0; reg.pc != 0xfff0; ++steps) {
+        assert(steps < 1000000);
+        if (reg.pc == 0xf10c) {
+            output += char(reg.c);
+            reg.pc = memory[reg.sp] + 256 * memory[reg.sp + 1];
+            reg.sp += 2;
+        } else {
+            assert(reg.pc != 0 && reg.pc != 5);
+            x80_emulate(1);
+        }
+    }
+}
+
+static void console_tests(const std::map<std::string, unsigned> &addresses)
+{
+    const unsigned text_address = 0xc000;
+    auto call = [&](const char *name, const std::vector<uint16_t> &arguments) {
+        call_guest(addresses.at(std::string("TICTAC:") + name), arguments);
+    };
+    auto write = [&](const std::string &text) {
+        std::memcpy(memory + text_address, text.c_str(), text.size() + 1);
+        call("write_text", {uint16_t(text_address)});
+    };
+    call("cursor", {5, 18});
+    call("color", {107});
+    write("$\r\n");
+    call("write_int", {0});
+    write(" ");
+    call("write_int", {32767});
+    write(" ");
+    call("write_int", {0x8000});
+    call("reset_color", {});
+    assert(output.empty());
+    call("console_flush", {});
+    assert(output == "\033[5;18H\033[107m$\r\n0 32767 -32768\033[0m");
+    output.clear();
+
+    write(std::string(2047, '.'));
+    call("color", {31});
+    write("$");
+    call("write_int", {0x8000});
+    call("console_flush", {});
+    assert(output == std::string(2047, '.') + "\033[31m$-32768");
+    output.clear();
+
+    write(std::string(2048, '.'));
+    call("write_int", {0x8000});
+    call("console_flush", {});
+    assert(output == std::string(2048, '.') + "-32768");
+    output.clear();
+    puts("Z80 exact ANSI/decimal formatting and buffer-boundary output PASS");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2 || argc == 3);
@@ -107,6 +170,7 @@ int main(int argc, char **argv)
     memory[1] = 0x03;
     memory[2] = 0xf1;
     z80_reset(&cpu, no_in, no_out, no_in, &disk, input, out);
+    console_tests(addresses);
     reg.pc = 0x100;
     reg.sp = 0xeff0;
     for (unsigned steps = 0; steps < 20000000; ++steps) {
@@ -115,6 +179,10 @@ int main(int argc, char **argv)
             assert(drawing_keys.size() == 2 && drawing_key_position == 2);
             if (!escape_only) assert(starts[1] == 2 && random_calls > 0 && arrow_position == 4);
             assert(output.find("Thanks for playing!") != std::string::npos);
+            assert(output.find("\033[2J\033[H\033[?25l\033[1;1H\033[36mTICTAC") == 0);
+            assert(output.find("\033[8;1H\033[36mYou(X): \033[33m0") != std::string::npos);
+            assert(output.find("\033[28;1H\033[?25h\033[0mThanks for playing!\r\n") !=
+                   std::string::npos);
             unsigned board = addresses.at("TICTAC:_BRD");
             for (unsigned row = 0; row < 5; ++row) {
                 for (unsigned column = 0; column < 5; ++column) {

@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = path.resolve(here, '../../..');
+const repo = path.resolve(here, '../../../..');
 assert.equal(process.argv.length, 5,
     'Usage: node regression.mjs BUILD_DIR DCC_DIR NTVCM_DIR');
 const [work, dcc, ntvcm] = process.argv.slice(2).map(value => path.resolve(value));
@@ -112,14 +112,28 @@ async function until(marker, first = '') {
 try {
     await call('c:');
     for (let game = 0; game < 2; ++game) {
-        await until('Your turn', await call('tictac'));
+        const startup = await until('Your turn', await call('tictac'));
+        assert(startup.includes('\x1b[2J\x1b[H\x1b[?25l\x1b[1;1H\x1b[36mTICTAC'),
+            'Incorrect VT100 initialization/title position');
+        assert(startup.includes('\x1b[8;1H\x1b[36mYou(X): \x1b[33m0'),
+            'Incorrect initial score position/value');
+        const cursors = [...startup.matchAll(/\x1b\[(\d+);(\d+)H/g)];
+        assert(cursors.length > 200, 'Missing board cursor positioning');
+        for (const [, row, column] of cursors) {
+            assert(+row >= 1 && +row <= 28 && +column >= 1 && +column <= 80,
+                `Out-of-screen cursor position: ${row};${column}`);
+        }
+        const colors = new Set([0, 30, 31, 32, 33, 34, 35, 36, 37,
+            41, 43, 44, 90, 97, 100, 107]);
+        for (const [, code] of startup.matchAll(/\x1b\[(\d+)m/g))
+            assert(colors.has(+code), `Invalid terminal color: ${code}`);
         const first = await call(' ');
         const output = await until('Your turn', first);
         assert(output.includes('CPU thinking'), 'Human placement did not reach CPU turn');
         assert(output.includes('  OO  '), 'CPU did not place its piece');
         await until('Thanks for playing!', await call('q'));
     }
-    console.log('Real Z80/CP-M: startup, human/CPU turns, Q and relaunch PASS');
+    console.log('Real Z80/CP-M: exact VT100 setup, cursor/colors/scores, human/CPU turns, Q and relaunch PASS');
 } finally {
     if (pending) clearTimeout(pending.timer);
     child.stdin.end();

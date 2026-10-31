@@ -13,7 +13,8 @@ system image must be deployed together.
 
 READ/WRITE require lengths divisible by 16 and ranges ending no later than
 `FF00h`. Success returns A=0/carry clear. Higher-level `bread`/`bwrite`
-handle partial transfers. Raw access to pinned resident regions is reserved
+handle partial transfers through the checked `F806h`/`F809h` entries, which
+validate the live allocation extent on every call. Raw access to pinned resident regions is reserved
 for system code.
 
 | E | Service operation |

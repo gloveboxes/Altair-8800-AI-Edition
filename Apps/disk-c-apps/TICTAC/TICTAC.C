@@ -14,7 +14,7 @@
 
 #include <stdlib.h>
 
-#include "../COMMON/DXSVC.H"
+#include "../../COMMON/DXSVC.H"
 
 #define BSIZ 5
 #define WLEN 4
@@ -82,14 +82,14 @@ static void write_text(const char *text)
 static void write_int(int value)
 {
     char digits[5];
-    unsigned magnitude = (unsigned)value;
+    unsigned magnitude;
     unsigned count = 0;
     unsigned char byte;
 
-    if (value < 0) {
+    if (value < 0)
         console_put_byte('-');
-        magnitude = 0u - magnitude;
-    }
+    /* Prime the conversion loop on both paths for dcc's loop optimizer. */
+    magnitude = value < 0 ? 0u - (unsigned)value : (unsigned)value;
     do {
         digits[count++] = (char)('0' + magnitude % 10);
         magnitude /= 10;

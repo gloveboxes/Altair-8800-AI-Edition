@@ -4,7 +4,7 @@
 the cursor, Space places X, and Q or Escape quits. The CPU plays O.
 
 This is the retained game's dcc port, not the retired BDS C build. It links
-the shared client in `../COMMON/DXSVC.C`: countdowns use port 23 and random
+the shared client in `../../COMMON/DXSVC.C`: countdowns use port 23 and random
 tie-breaking uses utility service `0x21` on ports 2/3/4. Input uses nonblocking
 CP/M BDOS function 6; output uses direct BIOS `CONOUT`. Old disk-installed BDS
 binaries still use retired ports and can
@@ -26,6 +26,11 @@ Arrow/Ctrl-S cannot pause drawing, and drawing does not consume Right
 Arrow/Ctrl-D. ANSI sequences, literal `$` and all byte values are preserved;
 BIOS output has none of BDOS function 6's reserved input selectors.
 Signed decimal scores and cursor/color parameters are formatted locally.
+The formatter primes the unsigned magnitude after the sign-output branch.
+This avoids a dcc peephole loop-registerization bug that left positive values
+uninitialized, emitting bogus cursor/color parameters (such as `9873`) and
+drawing over the bottom line instead of the board. Replace the disk-installed
+`TICTAC.COM` with the rebuilt executable to pick up the fix.
 
 Only the per-byte buffer append helper is `static inline`; flush, string and
 number-formatting routines remain out-of-line to limit code growth.
@@ -47,7 +52,7 @@ For focused host tests without creating or installing disk images:
 
 ```sh
 cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-non-prototype \
-  -fsanitize=address,undefined Apps/TICTAC/tests/game_test.c \
+  -fsanitize=address,undefined Apps/disk-c-apps/TICTAC/tests/game_test.c \
   -o /tmp/tictac-game-test
 /tmp/tictac-game-test
 rm /tmp/tictac-game-test
@@ -62,12 +67,16 @@ service calls are mocked; these are functional tests, not hardware measurements.
 With the MCP server built and the existing host tools installed:
 
 ```sh
-node Apps/TICTAC/tests/regression.mjs /tmp/tictac-tests /path/to/dcc /path/to/ntvcm
+node Apps/disk-c-apps/TICTAC/tests/regression.mjs /tmp/tictac-tests /path/to/dcc /path/to/ntvcm
 ```
 
 This checks the game logic, builds with dcc, and plays human/CPU turns
 under the real Z80/CP-M emulator with the shared host service backend.
 A bounded Z80 fixture checks two successive turns, the exact timer/random
 port protocol, raw BIOS output, keys queued during drawing, arrow input, and
-quitting with Q and Escape. All mutable disks
+quitting with Q and Escape. It also checks exact ANSI and signed decimal output
+from the compiled formatter, including full-buffer drains during sign and
+escape-sequence output. The real CP/M BIOS run checks startup positioning,
+all board cursor coordinates and colors, and initial zero scores rather than
+only looking for text. All mutable disks
 and generated test files stay in the specified directory outside the checkout.

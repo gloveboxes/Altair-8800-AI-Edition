@@ -37,6 +37,9 @@ current ABI and [ALLOCPRF](../ALLOCPRF/README.md) for allocator timing.
 The independent Z80 emulator measures the actual linked checked C entry points,
 not a replacement copy routine. Initialization, allocation and preparation
 are excluded; every measured call still queries the live allocation size.
+The adapter calls the BIOS checked entries, which read the live extent through
+a mirrored helper instead of the allocator service, so each checked call costs
+about 1,340 T-states beyond the 16-byte bursts.
 From the repository root, after building MEMPERF:
 
 ```sh
@@ -52,14 +55,14 @@ For 4 KiB total, with maskable interrupts disabled:
 
 | Checked workload | T-states | Bank selects |
 | --- | ---: | ---: |
-| One 4 KiB read | 94,890 | 514 |
-| One 4 KiB write | 94,870 | 514 |
-| Sixteen 256-byte reads | 129,360 | 544 |
-| Sixteen 256-byte writes | 129,040 | 544 |
-| 256 16-byte reads | 695,296 | 1,024 |
-| 256 16-byte writes | 690,176 | 1,024 |
-| 4,096 one-byte reads | 14,819,328 | 16,384 |
-| 4,096 one-byte writes | 18,857,984 | 24,576 |
+| One 4 KiB read | 93,889 | 514 |
+| One 4 KiB write | 93,869 | 514 |
+| Sixteen 256-byte reads | 113,089 | 544 |
+| Sixteen 256-byte writes | 112,769 | 544 |
+| 256 16-byte reads | 434,705 | 1,024 |
+| 256 16-byte writes | 429,585 | 1,024 |
+| 4,096 one-byte reads | 10,649,617 | 16,384 |
+| 4,096 one-byte writes | 14,688,273 | 24,576 |
 
 One-byte writes require a read/modify/write burst to preserve neighbours;
 batching adjacent operations is substantially cheaper when the application
