@@ -117,6 +117,18 @@ unsigned int bank_library_last_error(void)
     return error_code;
 }
 
+/* Callers may hold pool leases only while the library session is current. */
+unsigned int bank_library_check(void)
+{
+    error_code = BL_OK;
+    if (!ready || !workspace)
+    {
+        error_code = BL_ARGUMENT;
+        return 0;
+    }
+    return live();
+}
+
 unsigned int bank_library_export_count(void)
 {
     return ready ? count : 0;

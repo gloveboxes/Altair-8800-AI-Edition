@@ -3,17 +3,10 @@
 #include "string.h"
 #include "isamdb.h"
 
-#ifdef ISAM_BANK_LIBRARY
 #define engine_close page_close
 #define engine_read page_read
 #define engine_write page_write
 #define engine_seek page_seek
-#else
-#define engine_close close
-#define engine_read read
-#define engine_write write
-#define engine_seek lseek
-#endif
 
 #define PRIMARY_INDEX_HEADER_SIZE 24
 #define PRIMARY_INDEX_MAGIC_0 'D'
@@ -46,10 +39,8 @@ static char key_record_workspace[I_RECSZ];
 /* Mutations are serialized; keep plans off the small bank-1 stack. */
 static struct key_change key_changes[I_MXKEY];
 #define FILE_CACHE_SIZE 6
-#ifdef ISAM_BANK_LIBRARY
 static struct persistent_metadata header_cache[FILE_CACHE_SIZE];
 static unsigned char header_known[FILE_CACHE_SIZE];
-#endif
 static struct {
     int fd;
     int identity;
@@ -140,17 +131,13 @@ static void close_table_files(void)
     file_clock = 0;
     memset(file_slots, 0xff, sizeof(file_slots));
     memset(fd_slots, 0xff, sizeof(fd_slots));
-#ifdef ISAM_BANK_LIBRARY
     memset(header_known, 0, sizeof(header_known));
-#endif
 }
 
 static void invalidate_table_files(void)
 {
     close_table_files();
-#ifdef ISAM_BANK_LIBRARY
     discard_pages(-1);
-#endif
 }
 
 static void index_extension(int key_index, char *extension)
@@ -213,18 +200,14 @@ static int open_table_file(int table_index, const char *extension, int flags)
         close_cached_fd(&file_cache[slot].fd);
         file_cache[slot].references = 0;
         file_cache[slot].identity = identity;
-#ifdef ISAM_BANK_LIBRARY
         header_known[slot] = 0;
-#endif
         build_table_filename(table_index, filename, extension);
         file_cache[slot].fd = open(filename, O_RDWR);
         if (file_cache[slot].fd == ERROR)
             return ERROR;
         file_slots[identity] = slot;
         fd_slots[file_cache[slot].fd] = slot;
-#ifdef ISAM_BANK_LIBRARY
         page_files[file_cache[slot].fd] = identity;
-#endif
     }
     if (file_clock == 65535U)
     {
@@ -314,7 +297,6 @@ static int read_index_header(int fd, int tidx, int key_index,
     struct persistent_metadata *metadata)
 {
     char hdr[PRIMARY_INDEX_HEADER_SIZE];
-#ifdef ISAM_BANK_LIBRARY
     int slot;
 
     slot = fd_slots[fd];
@@ -324,9 +306,8 @@ static int read_index_header(int fd, int tidx, int key_index,
         *metadata = header_cache[slot];
         return I_OK;
     }
-#endif
 
-    if (engine_seek(fd, 0L, 0) < 0L)
+    if (engine_seek(fd, 0L) < 0)
         return I_EINDEX;
     if (engine_read(fd, hdr, PRIMARY_INDEX_HEADER_SIZE) != PRIMARY_INDEX_HEADER_SIZE)
         return I_EINDEX;
@@ -347,13 +328,11 @@ static int read_index_header(int fd, int tidx, int key_index,
         metadata->free_head < -1 ||
         metadata->free_head >= metadata->high_water_slot)
         return I_EINDEX;
-#ifdef ISAM_BANK_LIBRARY
     if (slot >= 0)
     {
         header_cache[slot] = *metadata;
         header_known[slot] = 1;
     }
-#endif
     return I_OK;
 }
 
@@ -361,13 +340,11 @@ static int write_index_header(int fd, int tidx, int key_index,
     const struct persistent_metadata *metadata)
 {
     char hdr[PRIMARY_INDEX_HEADER_SIZE];
-#ifdef ISAM_BANK_LIBRARY
     int slot;
 
     slot = fd_slots[fd];
     if (slot >= 0)
         header_known[slot] = 0;
-#endif
 
     memset(hdr, 0, PRIMARY_INDEX_HEADER_SIZE);
     hdr[0] = PRIMARY_INDEX_MAGIC_0;
@@ -381,7 +358,7 @@ static int write_index_header(int fd, int tidx, int key_index,
     write_little_endian_16(hdr + 8, g_cfg.tbls[tidx].recsz);
     encode_metadata(hdr + 10, metadata);
     write_little_endian_16(hdr + 20, metadata_checksum(hdr));
-    if (engine_seek(fd, 0L, 0) < 0L)
+    if (engine_seek(fd, 0L) < 0)
         return I_EWRIT;
     if (engine_write(fd, hdr, PRIMARY_INDEX_HEADER_SIZE) != PRIMARY_INDEX_HEADER_SIZE)
         return I_EWRIT;
@@ -442,29 +419,6 @@ static void set_free_link(char *record, int next_slot)
 {
     write_little_endian_16(record + 1,
         next_slot < 0 ? NO_FREE_SLOT : next_slot);
-}
-
-static int rebuild_free_link(int table_index, int physical_slot, int next_slot)
-{
-    int file_descriptor;
-    int rc;
-    long offset;
-    char link[2];
-
-    write_little_endian_16(link,
-        next_slot < 0 ? NO_FREE_SLOT : next_slot);
-    file_descriptor = open_table_file(table_index, "DAT", O_RDWR);
-    if (file_descriptor == ERROR)
-        return I_EOPEN;
-    offset = (long)physical_slot * g_cfg.tbls[table_index].recsz + 1L;
-    rc = I_OK;
-    if (engine_seek(file_descriptor, offset, 0) < 0L ||
-        engine_write(file_descriptor, link, 2) != 2)
-        rc = I_EWRIT;
-    if (rc == I_OK && fsync(file_descriptor) != 0)
-        rc = I_EWRIT;
-    close_table_file(file_descriptor);
-    return rc;
 }
 
 int pki_create(int tblnam)
@@ -565,7 +519,7 @@ static int read_index_entry(int fd, int tidx, int key_index, int position,
     ksz = g_cfg.tbls[tidx].keysz[key_index];
     /* A negative position continues an already positioned index stream. */
     if (position >= 0 &&
-        engine_seek(fd, index_entry_offset(ksz + 2, position), 0) < 0L)
+        engine_seek(fd, index_entry_offset(ksz + 2, position)) < 0)
         return I_EREAD;
     if (engine_read(fd, cursor_key, ksz + 2) != ksz + 2)
         return I_EREAD;
@@ -584,7 +538,7 @@ static int write_index_entry(int fd, int tidx, int key_index, int position,
     ksz = g_cfg.tbls[tidx].keysz[key_index];
     memcpy(ent, key, ksz);
     write_little_endian_16(ent + ksz, phys);
-    if (engine_seek(fd, index_entry_offset(ksz + 2, position), 0) < 0L)
+    if (engine_seek(fd, index_entry_offset(ksz + 2, position)) < 0)
         return I_EWRIT;
     if (engine_write(fd, ent, ksz + 2) != ksz + 2)
         return I_EWRIT;
@@ -611,11 +565,10 @@ static int move_index_entries(int file_descriptor, int table_index,
             source_position = first_position;
         block_size = block_entries * entry_size;
         if (engine_seek(file_descriptor,
-            index_entry_offset(entry_size, source_position), 0) < 0L ||
+            index_entry_offset(entry_size, source_position)) < 0 ||
             engine_read(file_descriptor, record_workspace, block_size) != block_size ||
             engine_seek(file_descriptor,
-                index_entry_offset(entry_size, source_position + direction),
-                0) < 0L ||
+                index_entry_offset(entry_size, source_position + direction)) < 0 ||
             engine_write(file_descriptor, record_workspace, block_size) != block_size)
             return I_EWRIT;
         entry_count -= block_entries;
@@ -625,7 +578,7 @@ static int move_index_entries(int file_descriptor, int table_index,
     return I_OK;
 }
 
-static int compare_keys(const char *left, const char *right, int len)
+static inline int compare_keys(const char *left, const char *right, int len)
 {
     return memcmp(left, right, len);
 }
@@ -647,7 +600,7 @@ static int find_lower_bound(int fd, int tidx, int key_index, int count,
     *found = 0;
     while (lo < hi)
     {
-        stats_add(&i_runtime_stats.index_comparisons, 1);
+        stats_add(&i_runtime_stats.index_comparisons);
         mid = lo + ((unsigned int)(hi - lo) >> 1);
         rc = read_index_entry(fd, tidx, key_index, mid, entkey, &phys);
         if (rc != I_OK)
@@ -672,7 +625,7 @@ static int find_lower_bound(int fd, int tidx, int key_index, int count,
 static int lookup_slot(int tidx, int key_index, int fd, int count, const char *key)
 {
     int found, phys, rc, width;
-    stats_add(&i_runtime_stats.exact_lookups, 1);
+    stats_add(&i_runtime_stats.exact_lookups);
     found = 0;
     if (lookup_position >= 0 && lookup_position < count)
     {
@@ -680,7 +633,7 @@ static int lookup_slot(int tidx, int key_index, int fd, int count, const char *k
         if (rc != I_OK)
             return rc;
         width = g_cfg.tbls[tidx].keysz[key_index];
-        stats_add(&i_runtime_stats.index_comparisons, 1);
+        stats_add(&i_runtime_stats.index_comparisons);
         found = !compare_keys(cursor_key, key, width);
     }
     if (!found)
@@ -718,11 +671,6 @@ int idx_find(int table, int key_index, const char *key, char *rec)
             return I_EINDEX;
     }
     return slot;
-}
-
-int key_find(int tblnam, const char *key, char *rec)
-{
-    return idx_find(tblnam, 0, key, rec);
 }
 
 static int prepare_key_changes(int tidx, const char *oldrec,
@@ -862,28 +810,6 @@ static int apply_key_changes(int tidx, const char *rec, int phys,
     return I_OK;
 }
 
-int key_add(int tblnam, const char *rec, int phys)
-{
-    const char *saved_record;
-    int rc;
-    int tidx;
-
-    tidx = checked_table(tblnam);
-    if (tidx < 0)
-        return tidx;
-    if (rec == record_workspace)
-    {
-        memcpy(key_record_workspace, rec, g_cfg.tbls[tidx].recsz);
-        saved_record = key_record_workspace;
-    }
-    else
-        saved_record = rec;
-    rc = prepare_key_changes(tidx, 0, saved_record, phys, key_changes);
-    if (rc != I_OK)
-        return rc;
-    return apply_key_changes(tidx, saved_record, phys, key_changes);
-}
-
 static int erase_index_key(int tidx, int key_index, const char *key,
     int phys, int tombstone)
 {
@@ -948,28 +874,6 @@ static int erase_keys(int tidx, const char *rec, int phys, int tombstone)
     return I_OK;
 }
 
-int key_remove(int tblnam, const char *rec, int phys)
-{
-    int tidx;
-    tidx = checked_table(tblnam);
-    return tidx < 0 ? tidx : erase_keys(tidx, rec, phys, 0);
-}
-
-int key_update(int tblnam, const char *oldrec,
-    const char *newrec, int phys)
-{
-    int rc;
-    int tidx;
-
-    tidx = checked_table(tblnam);
-    if (tidx < 0)
-        return tidx;
-    rc = prepare_key_changes(tidx, oldrec, newrec, phys, key_changes);
-    if (rc != I_OK)
-        return rc;
-    return apply_key_changes(tidx, newrec, phys, key_changes);
-}
-
 /* Negative position continues the stream; call boundaries always seek first. */
 static int read_cursor_slot(int fd, struct i_cursor *cursor, int position)
 {
@@ -995,7 +899,7 @@ static int read_cursor_slot(int fd, struct i_cursor *cursor, int position)
         return I_ENREC;
     if (phys < 0 || phys >= g_cfg.tbls[cursor->table_index].maxrec)
         return I_EINDEX;
-    stats_add(&i_runtime_stats.cursor_rows, 1);
+    stats_add(&i_runtime_stats.cursor_rows);
     return phys;
 }
 
@@ -1022,7 +926,7 @@ int idx_open(int tblnam, int key_index, const char *prefix,
     char lower_key[I_MXKEYLN];
     struct persistent_metadata metadata;
 
-    stats_add(&i_runtime_stats.cursor_starts, 1);
+    stats_add(&i_runtime_stats.cursor_starts);
     tidx = checked_table(tblnam);
     if (tidx < 0)
         return tidx;
@@ -1051,11 +955,6 @@ int idx_open(int tblnam, int key_index, const char *prefix,
     if (prefix_length > 0)
         memcpy(cursor->prefix, prefix, prefix_length);
     return read_cursor_record(tblnam, cursor, rec);
-}
-
-int cur_first(int tblnam, struct i_cursor *cursor, char *rec)
-{
-    return idx_open(tblnam, 0, 0, 0, cursor, rec);
 }
 
 int cur_next(int tblnam, struct i_cursor *cursor, char *rec)
@@ -1098,7 +997,7 @@ static int read_data_slot(int file_descriptor, int record_size,
     long offset;
 
     offset = (long)physical_slot * record_size;
-    if (engine_seek(file_descriptor, offset, 0) < 0L)
+    if (engine_seek(file_descriptor, offset) < 0)
         return I_EREAD;
     if (engine_read(file_descriptor, record, record_size) != record_size)
         return I_EREAD;

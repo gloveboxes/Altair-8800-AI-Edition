@@ -2,9 +2,9 @@
 
 The Banked ISAM Library is a generic fixed-record ISAM library for dcc / CP/M 2.2. The engine,
 database configuration, file descriptors, indexes and caches live in **bank 1**.
-DOCTOR and DOCGEN are **bank-0 clients**. There is no legacy client facade,
-configuration mirror, automatic schema synchronization or low-level index-edit
-API in the client.
+DOCTOR and DOCGEN are **bank-0 clients**. The only client surface is the native
+`db_*` API in [isam.h](isam.h); there is no configuration mirror, automatic
+schema synchronization or low-level index-edit API in the client.
 
 ## Building and running
 
@@ -212,7 +212,7 @@ physical slots in exactly the requested order, including duplicates. Pass a
 null view for full records. Slots are native 16-bit integers; this handles
 noncontiguous search results without one RPC per record.
 
-`db_lookup(table, key, values, count, value_size, view, rows, capacity)` does
+`db_pick(table, key, values, count, value_size, view, rows, capacity)` does
 the same using packed configured-key values rather than slots. `value_size`
 must match that key's configured width. Use known slots when available to
 avoid searching indexes again.
@@ -246,8 +246,10 @@ The client lazily allocates one reusable 4 KiB `bmalloc` lease. Bank 1 accesses
 the registered storage directly. Payloads use one `bwrite`/`bread` per batch,
 not per record or a series of 256-byte calls. Control frames remain small and
 counted; bulk payloads do not travel inside RPC frames. The client validates
-completion sizes and checks pool epochs before access/free, so allocator reset
-cannot corrupt or free a subsequent owner's allocation.
+completion sizes. Writes to the lease first call `bank_library_check()`, so a
+pool reset cannot corrupt or free a subsequent owner's allocation. Reads skip
+that query: the library call that follows validates the pool epoch itself, and a
+stale epoch clears the lease and returns `I_EBANK`.
 
 The shared 5632-byte pool holds the loader workspace (512 bytes), the bulk
 lease (4096) and 1024 free bytes. Scalar-only clients do not allocate the lease.
@@ -405,7 +407,7 @@ checking disabled because DCC's transient panic startup is not library-safe.
 ## Size and performance
 
 The native redesign removes client configuration/counter synchronization,
-name resolution on every operation, generic legacy dispatchers, intermediate
+name resolution on every operation, generic dispatchers, intermediate
 record buffers and cursor translation.
 
 | Retained DOCTOR component | Previous bytes | Native bytes |
@@ -417,22 +419,102 @@ record buffers and cursor translation.
 The native builds initially reduced DOCTOR from 40192 to 34176 bytes. Adding
 generic slot/key gathering, projections, actual screen-page caches and batched
 verification and the paged doctor directory made it 38016 bytes. Terminal redraw
-improvements bring it to 38272 bytes, still below 38 KiB, with the same 2560-byte
-page workspace and 2048-byte checked stack.
-DOCGEN is 18432 bytes including variable rosters, skewed histories and the cap.
-The library is 44288 bytes, 384 bytes larger for streamed index decoding and
-bounded ordered lookups; both client binary sizes are unchanged by this pass.
-Client + generated code is 6029 bytes versus the old 11418 (47% smaller);
-total bank plumbing is 11795 versus 17179 (31% smaller).
-Regression budgets include the new generic reads and verification: client +
-generated code at 6 KiB, total bank plumbing at 12 KiB, and DOCTOR at 38 KiB.
+improvements bring it to 38272 bytes. A later client cleanup (below) brought it
+to 37504 bytes, still with the same 2560-byte page workspace and 2048-byte
+checked stack.
+DOCGEN is 19328 bytes including variable rosters, skewed histories, the cap and
+the 94 first-name / 87 last-name tables (names are chosen by a deterministic
+16-bit hash, so reruns generate identical data).
+The library is 43136 bytes. Client + generated code is 5519 bytes versus the old
+11418 (52% smaller); total bank plumbing is 11308 versus 17179 (34% smaller).
+Regression budgets: client + generated code at 5632 bytes, total bank plumbing at
+11776, DOCTOR at 37888, DOCGEN at 19456 and `ISAM.LIB` at 43264.
 The preceding optimization pass saved 128 DOCTOR binary
 bytes and 1536 workspace bytes; DOCGEN's binary size was unchanged. The generic
 builder/composite-key support adds 2432 library bytes, offset on disk by the
 5250 raw patient-data bytes removed. These are retained binary sizes,
 not source-line counts; the 4 KiB page cache is allocated at runtime.
-The bank-1 heap has 527 bytes left after allocating that cache. Tests reserve
+The bank-1 heap has 1248 bytes left after allocating that cache. Tests reserve
 at least 512 bytes of headroom plus the unchanged 1024-byte stack.
+
+### Library cleanup pass
+
+The page cache (`isacache.c`) was the dominant library cost: a PC-sampling
+profile of a DOCTOR paging workload put `page_read` at 24% of bank-1 time, with
+`page_seek` and `memcpy` adding another 13%. It tracked positions as 32-bit
+`long` values, which dcc compiles to long inline arithmetic on every hit. Positions
+are now an unsigned sector plus a byte offset, so a cache hit uses only 16-bit
+arithmetic; only a miss builds a 32-bit offset for `lseek`. The set mapping,
+replacement policy and invalidate-on-write behaviour are unchanged, so hit/miss
+counts are identical in every test. The engine seek is origin-less (every caller
+already seeks absolutely) and offsets of 8 MiB or more are rejected. Other changes:
+
+- six uncalled source functions (`key_find`, `key_add`, `key_remove`,
+  `key_update`, `cur_first`, `rebuild_free_link`) and their prototypes removed;
+- `stats_add` is a saturating-increment macro (all callers add 1);
+- `DB_INFO` copied the table name from the table *index* used as a pointer; it
+  now copies `g_cfg.tbls[table].name`, and BANKTST checks the name and size;
+- the redundant `name = table` aliases in `iscall`/`ispost` are gone;
+- `compare_keys` is `static inline` (a one-line `memcmp` wrapper), which saves
+  0-1.5% CPU at no size cost. Inlining the 16-bit little-endian codecs and the
+  `table_valid`/`key_valid` checks was measured and rejected: they have many
+  call sites and grew `ISAM.LIB` by 768-1024 bytes for under 1% speed. Inlining
+  the client's `transport_result` added 256 DOCTOR / 128 DOCGEN bytes for 0.1%.
+
+`ISAM.LIB` shrank 896 bytes (44032 -> 43136); DOCTOR and DOCGEN are unchanged.
+Raising the descriptor cache from 6 to 8 entries was measured and had no
+effect, so it stays at 6. Measured on the emulator (T-states, before -> after;
+selections, reads and writes are unchanged):
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| BPERF 3 (key lookups) | 1,875,183 | 1,739,123 |
+| BPERF 5 | 3,483,843 | 3,187,235 |
+| BPERF 8 (scalar rows) | 23,892,259 | 22,980,681 |
+| BPERF 10 (bulk rows) | 9,433,024 | 8,420,650 |
+| BPERF 11 | 3,105,618 | 2,617,690 |
+| BPERF 12 | 648,556 | 573,683 |
+| Index page (first) | 226,032 | 209,149 |
+| Index work 59 | 1,686,139 | 1,495,018 |
+| Index work 60 | 606,319 | 520,485 |
+| Single-row inserts | 42,559,068 | 41,483,939 |
+| Index build, scalar | 725,942,524 | 684,287,110 |
+| Relations, scalar | 194.5M | 180.2M |
+| Relations, batch | 53.8M | 49.7M |
+| VT100 page (66) | 804,153 | 797,725 |
+
+CPU falls 0-12% depending on how read-heavy the phase is (the biggest gains are
+in index-page and projected-key phases); the CP/M file system itself is now the
+largest remaining cost.
+
+### Client cleanup pass
+
+This pass removed the unused standalone engine build (`ISAM_BANK_LIBRARY`
+conditionals), the logical-record API (`i_rdrec`, `i_uprec`, `i_delrec`,
+`i_findlog`) with its scan counters, the `db_lookup` alias (use `db_pick`), the
+direct-link test programs and the old operation-number gaps. In the client, every
+bulk fetch dropped a library-control epoch query and a redundant size check
+(`bread`/`bwrite` already check sizes and each library call validates the pool
+epoch); lease writes use the new `bank_library_check()`. DOCTOR shrank 640 bytes
+and DOCGEN 384 bytes. `ISAM.LIB` is unchanged because it never contained the
+standalone code. Measured on the emulator (T-states, before -> after):
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| BPERF 1 (scan) | 718,605 | 717,725 |
+| BPERF 5 | 3,483,043 | 3,483,843 |
+| BPERF 10 (bulk) | 9,476,810 | 9,433,024 |
+| BPERF 11 | 3,112,639 | 3,105,618 |
+| BPERF 12 | 655,577 | 648,556 |
+| Index page (first) | 233,053 | 226,032 |
+| Relations, scalar | 194.8M | 194.5M |
+
+Bank selections fell for BPERF 10, 11 and 12 (3032 -> 2960, 260 -> 248,
+88 -> 76), index pages (130 -> 118) and scalar relations (52,324 -> 51,736);
+other phases are unchanged. A few workloads are within 0.2% either way (for
+example index work 58 and VT100 66 are about 0.2% slower). The per-call guard is
+a macro so its early returns leave the caller directly; a separate call frame
+cost more than the check it wrapped.
 
 Indexed-page regression: five 128-byte rows at positions 0 and 35 each require
 exactly five index rows, five data-record reads and zero preceding-row scans,
@@ -554,8 +636,8 @@ once per suite using [FIXTURE.H](tests/FIXTURE.H), preserving the earlier
 8-doctor/240-patient/720-history workload for performance comparisons.
 [FIXDOC.C](tests/FIXDOC.C) builds DOCTOR with the same overrides, as does
 [PAGETST.C](tests/PAGETST.C). Production DOCGEN and DOCTOR use the defaults in
-[surgery.h](surgery.h); the overrides are test-only. [fixtures](fixtures/) and
-the installed disk remain unchanged.
+[surgery.h](surgery.h); the overrides are test-only. The installed disk
+remains unchanged.
 
 [GENTST.C](tests/GENTST.C) runs the production record builders under the banked
 emulator and checks all 6 doctors, 300 patients and 1998 history records,
@@ -608,10 +690,6 @@ including temporary index-sort files, completes on that same image.
   offsets, malformed schemas, one-byte projected scans, sorted-run merging,
   cache retention across durable writes, duplicate/interrupted build isolation,
   and building/rebuilding 4000 active keys across the 64 KiB boundary.
-- [pktest.c](pktest.c) and [CORETST.C](tests/CORETST.C) separately test private
-  engine mutation/index integrity and absence of journal files by direct
-  linking. They are not a
-  compatibility adapter for banked clients.
 - [BPERF.C](tests/BPERF.C) measures 13 read workloads and scalar/bulk insertion.
   [test_banked.py](tests/test_banked.py) enforces size, CPU, bank traffic,
   sector-read and unchanged durability-write budgets.

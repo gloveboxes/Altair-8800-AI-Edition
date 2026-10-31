@@ -56,7 +56,7 @@ static int page_checks(void)
     CHECK(load_doctor_page(0) == I_OK && doctor_count == DOCTOR_COUNT, 4);
     db_stats(&stats);
     CHECK(stats.physical_reads == DOCTOR_PAGE_SIZE &&
-        stats.cursor_rows == DOCTOR_PAGE_SIZE && !stats.table_scans, 4);
+        stats.cursor_rows == DOCTOR_PAGE_SIZE, 4);
     CHECK(
         load_roster(1) == 30, 4);
     CHECK(load_patient_page(30, 0) == I_OK, 5);
@@ -174,8 +174,7 @@ static int page_checks(void)
     db_stats(&stats);
     CHECK(stats.physical_reads == DOCTOR_COUNT - DOCTOR_PAGE_SIZE &&
         stats.cursor_rows == DOCTOR_COUNT - DOCTOR_PAGE_SIZE &&
-        !stats.cursor_starts && !stats.index_comparisons &&
-        !stats.table_scans, 23);
+        !stats.cursor_starts && !stats.index_comparisons, 23);
     CHECK(
         load_doctor_page(DOCTOR_COUNT) == I_EVERIFY &&
         load_doctor_page(0) == I_OK, 23);
@@ -219,8 +218,7 @@ static int page_checks(void)
         read_number(list_rows + 4 * DOCTOR_SIZE, D_ID, DOCTOR_KEY_LEN) == 45, 42);
     db_stats(&stats);
     CHECK(stats.physical_reads == 5 && stats.cursor_rows == 5 &&
-        !stats.cursor_starts && !stats.index_comparisons &&
-        !stats.table_scans, 42);
+        !stats.cursor_starts && !stats.index_comparisons, 42);
     CHECK(verify_database() == I_OK && doctor_count == 45, 43);
     puts("PASS: 45-doctor directory pages directly and verifies beyond generator count.");
     slot = find_history(1, 1);

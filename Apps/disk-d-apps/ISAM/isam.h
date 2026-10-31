@@ -92,11 +92,11 @@ void db_stats(struct i_stats *stats);
 #define DB_NEXT 117
 #define DB_RESET 118
 #define DB_STATS 119
-#define DB_PICK 122
-#define DB_BUILD 124
-#define DB_FINISH 125
-#define DB_APPEND 126
-#define DB_PAGE 127
+#define DB_PICK 120
+#define DB_BUILD 121
+#define DB_FINISH 122
+#define DB_APPEND 123
+#define DB_PAGE 124
 
 #define db_build(t) db_call(DB_BUILD, (t), 0, 0, 0)
 #define db_finish(t) db_call(DB_FINISH, (t), 0, 0, 0)
@@ -104,7 +104,6 @@ int db_append(int table, const char *records, int bytes, int *completed);
 
 #define db_fetch(t, s, n, v, r, c) \
     db_pick((t), DB_PHYSICAL, (s), (n), sizeof(int), (v), (r), (c))
-#define db_lookup db_pick
 
 #define db_info(t, p) db_call(DB_INFO, (t), 0, (p), sizeof(*(p)))
 /* GET consumes a search key at the start of the caller's record buffer. */

@@ -69,7 +69,7 @@ static int check_transfer(void)
         bank_library_last_error() == BL_ARGUMENT, 63);
     CHECK(db_call(DB_STATS, 0, 0, invalid, 1) == I_ESIZE &&
         db_call(DB_RESET, 0, 0, invalid, 1) == I_ESIZE &&
-        db_call(120, 0, 0, 0, 0) == I_EBANK &&
+        db_call(125, 0, 0, 0, 0) == I_EBANK &&
         db_call(-1, 0, 0, invalid, 1) == I_EBANK &&
         bank_library_last_error() == BL_OK, 64);
     for (i = 0; i < sizeof(invalid); ++i)
@@ -96,6 +96,8 @@ static int check_transfer(void)
         db_read(0, 0, guarded.record, I_RECSZ) == I_ENREC &&
         db_add(0, input, I_RECSZ) == I_OK &&
         db_info(0, &info) == I_OK && info.records == 1 && info.slots == 1 &&
+        !strcmp(info.definition.name, "BOUNDARY") &&
+        info.definition.size == I_RECSZ &&
         db_verify(0, &report) == I_OK && !report.errors, 69);
     db_stats(&stats);
     CHECK(stats.exact_lookups && stats.physical_reads, 70);

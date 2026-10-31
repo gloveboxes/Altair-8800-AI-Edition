@@ -29,6 +29,7 @@
 #define bank_library_export_signature blsig
 #define bank_library_call blcall
 #define bank_library_call_bound blbnd
+#define bank_library_check blchk
 #define bank_library_last_error blerr
 #define bank_library_set_error blfail
 #define BANK_LIBRARY_CALL_TOKEN_ADDRESS BL_TOKEN_ADDRESS
@@ -50,6 +51,8 @@ unsigned int bank_library_call(const char *name, const char *signature,
 unsigned int bank_library_call_bound(bank_library_binding_t *binding,
                                      const char *name, const char *signature,
                                      void *frame, unsigned int bytes);
+/* True only while the open library and pool epoch are still current. */
+unsigned int bank_library_check(void);
 unsigned int bank_library_last_error(void);
 void bank_library_set_error(unsigned int error);
 

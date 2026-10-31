@@ -1512,17 +1512,9 @@ static void ui_isam_stats(void)
             "    Index cursor starts     %5d\r\n"
             "    Index cursor rows       %5d\r\n\r\n"
             "TABLE DATA\r\n\r\n"
-            "    Physical records read   %5d\r\n"
-            "    Table scan calls        %5d\r\n"
-            "    Table slots scanned     %5d",
+            "    Physical records read   %5d",
             stats.exact_lookups, stats.index_comparisons,
-            stats.cursor_starts, stats.cursor_rows, stats.physical_reads,
-            stats.table_scans, stats.scan_slots);
-        ui_move(21, 3);
-        if (stats.table_scans == 0)
-            printf("STATUS: No table scans; access used indexes.");
-        else
-            printf("STATUS: Table scans occurred.");
+            stats.cursor_starts, stats.cursor_rows, stats.physical_reads);
         ui_footer("R Reset counters   Esc/Q return");
         key = ui_read_key();
         if (key == KEY_ESC || key == 'q' || key == 'Q')
@@ -1663,7 +1655,7 @@ static int verify_history_batch(int count)
     int rc;
     expected = list_rows + VERIFY_BATCH * HISTORY_KEY_LEN;
     rows = expected + VERIFY_BATCH * DOCTOR_KEY_LEN;
-    rc = db_lookup(history_table, 0, list_rows, count, HISTORY_KEY_LEN,
+    rc = db_pick(history_table, 0, list_rows, count, HISTORY_KEY_LEN,
         &history_doctor_view, rows, VERIFY_BATCH * DOCTOR_KEY_LEN);
     if (rc != I_OK)
         return rc;

@@ -2,16 +2,21 @@
 
 #define CACHE_PAGES 32
 #define CACHE_SETS (CACHE_PAGES / 2)
+#define PAGE_SHIFT 7
+#define PAGE_BYTES 128
 
 static char *page_data;
-static struct {
-    long offset;
-    int fd;
-    int bytes;
-} pages[CACHE_PAGES];
+static unsigned page_sector[CACHE_PAGES];
+/* Stable table/index identity of each page; -1 is empty. */
+static int page_owner[CACHE_PAGES];
+static unsigned char page_bytes[CACHE_PAGES];
 static unsigned char page_victim[CACHE_SETS];
-/* Cache hits move logical positions without seeking the runtime descriptor. */
-static long file_position[11];
+/*
+ * Positions are sector * 128 + offset, kept as two integers so cache hits need
+ * no 32-bit arithmetic and never seek the runtime descriptor.
+ */
+static unsigned position_sector[11];
+static unsigned char position_offset[11];
 static unsigned char position_known[11];
 /* Stable table/index identities preserve clean pages across durable closes. */
 static int page_files[11];
@@ -20,13 +25,13 @@ static void discard_pages(int fd)
 {
     int i;
     for (i = 0; i < CACHE_PAGES; ++i)
-        if (fd < 0 || pages[i].fd == page_files[fd])
-            pages[i].fd = -1;
+        if (fd < 0 || page_owner[i] == page_files[fd])
+            page_owner[i] = -1;
 }
 
 static int start_pages(void)
 {
-    page_data = malloc(CACHE_PAGES * 128);
+    page_data = malloc(CACHE_PAGES * PAGE_BYTES);
     if (!page_data)
         return I_EBANK;
     discard_pages(-1);
@@ -43,127 +48,114 @@ static void stop_pages(void)
     discard_pages(-1);
 }
 
-static long page_position(int fd)
+/* Learn a descriptor's position once, when no seek has set it. */
+static int page_seek(int fd, long offset);
+
+static int learn_position(int fd)
 {
-    long position;
-    if (!position_known[fd])
-    {
-        position = lseek(fd, 0L, 1);
-        if (position < 0L)
-            return -1L;
-        file_position[fd] = position;
-        position_known[fd] = 1;
-    }
-    return file_position[fd];
+    return page_seek(fd, lseek(fd, 0L, 1)) == 0;
 }
 
-static long page_seek(int fd, long offset, int origin)
+static int page_seek(int fd, long offset)
 {
-    long position;
-    if (!page_data || fd < 3 || fd >= 11 || origin == 2 ||
-        origin < 0 || origin > 2)
-    {
-        position = lseek(fd, offset, origin);
-        if (fd >= 3 && fd < 11 && position >= 0L)
-        {
-            file_position[fd] = position;
-            position_known[fd] = 1;
-        }
-        return position;
-    }
-    position = offset;
-    if (origin == 1)
-    {
-        position = page_position(fd);
-        if (position < 0L)
-            return position;
-        position += offset;
-    }
-    if (position < 0L)
-        return lseek(fd, -1L, 0);
-    file_position[fd] = position;
+    unsigned low, high;
+    if (!page_data || fd < 3 || fd >= 11)
+        return lseek(fd, offset, 0) < 0L ? -1 : 0;
+    if (offset < 0L || offset >= 0x800000L)
+        return -1;
+    low = (unsigned)offset;
+    high = (unsigned)(offset >> 16);
+    position_sector[fd] = (low >> PAGE_SHIFT) | (high << (16 - PAGE_SHIFT));
+    position_offset[fd] = low & (PAGE_BYTES - 1);
     position_known[fd] = 1;
-    return position;
+    return 0;
 }
 
 static int page_read(int fd, void *buffer, unsigned int count)
 {
-    long position;
-    long sector;
+    unsigned sector, offset, slot, set, done;
+    int take, identity;
     char *output;
-    int set;
-    int slot;
-    int offset;
-    int take;
-    int done;
-    int bytes, identity;
 
     if (!page_data || fd < 3 || fd >= 11 || page_files[fd] < 0)
         return read(fd, buffer, count);
-    identity = page_files[fd];
-    position = page_position(fd);
-    if (position < 0L)
+    if (!position_known[fd] && !learn_position(fd))
         return -1;
+    identity = page_files[fd];
+    sector = position_sector[fd];
+    offset = position_offset[fd];
     output = buffer;
     done = 0;
     while (count)
     {
-        sector = position & ~127L;
-        offset = (unsigned int)position & 127;
-        set = ((unsigned int)(position >> 7) + identity * 3) & (CACHE_SETS - 1);
-        slot = set * 2;
-        if (pages[slot].fd != identity || pages[slot].offset != sector)
+        set = (sector + identity * 3) & (CACHE_SETS - 1);
+        slot = set << 1;
+        if (page_owner[slot] != identity || page_sector[slot] != sector)
         {
             ++slot;
-            if (pages[slot].fd != identity || pages[slot].offset != sector)
+            if (page_owner[slot] != identity || page_sector[slot] != sector)
             {
-                slot = set * 2 + page_victim[set];
-                pages[slot].fd = -1;
-                if (lseek(fd, sector, 0) < 0L)
+                slot = (set << 1) + page_victim[set];
+                page_owner[slot] = -1;
+                if (lseek(fd, (long)sector << PAGE_SHIFT, 0) < 0L)
                     return -1;
-                bytes = read(fd, page_data + slot * 128, 128);
-                if (bytes < 0)
+                take = read(fd, page_data + (slot << PAGE_SHIFT), PAGE_BYTES);
+                if (take < 0)
                     return -1;
-                pages[slot].fd = identity;
-                pages[slot].offset = sector;
-                pages[slot].bytes = bytes;
+                page_owner[slot] = identity;
+                page_sector[slot] = sector;
+                page_bytes[slot] = take;
             }
         }
         page_victim[set] = 1 - (slot & 1);
-        take = pages[slot].bytes - offset;
+        take = (int)page_bytes[slot] - (int)offset;
         if (take <= 0)
             break;
-        if (take > count)
+        if ((unsigned)take > count)
             take = count;
-        memcpy(output + done, page_data + slot * 128 + offset, take);
+        memcpy(output + done, page_data + (slot << PAGE_SHIFT) + offset, take);
         done += take;
-        position += take;
         count -= take;
+        offset += take;
+        if (offset >= PAGE_BYTES)
+        {
+            offset -= PAGE_BYTES;
+            ++sector;
+        }
     }
-    file_position[fd] = position;
+    position_sector[fd] = sector;
+    position_offset[fd] = offset;
     return done;
 }
 
 static int page_write(int fd, const void *buffer, unsigned int count)
 {
-    long position;
-    long end;
-    int bytes, slot;
+    unsigned first, last, slot, total;
+    int bytes;
     if (!page_data || fd < 3 || fd >= 11)
         return write(fd, buffer, count);
-    position = page_position(fd);
-    if (position < 0L || lseek(fd, position, 0) < 0L)
+    if (!position_known[fd] && !learn_position(fd))
         return -1;
-    end = position + count;
-    for (slot = 0; slot < CACHE_PAGES; ++slot)
-        if (pages[slot].fd == page_files[fd] && pages[slot].offset < end &&
-            pages[slot].offset + 128L > position)
-            pages[slot].fd = -1;
+    first = position_sector[fd];
+    if (lseek(fd, ((long)first << PAGE_SHIFT) + position_offset[fd], 0) < 0L)
+        return -1;
+    if (count)
+    {
+        last = first + ((position_offset[fd] + count - 1) >> PAGE_SHIFT);
+        for (slot = 0; slot < CACHE_PAGES; ++slot)
+            if (page_owner[slot] == page_files[fd] &&
+                page_sector[slot] >= first && page_sector[slot] <= last)
+                page_owner[slot] = -1;
+    }
     bytes = write(fd, buffer, count);
     if (bytes != count)
         discard_pages(fd);
     if (bytes > 0)
-        file_position[fd] += bytes;
+    {
+        total = position_offset[fd] + bytes;
+        position_sector[fd] += total >> PAGE_SHIFT;
+        position_offset[fd] = total & (PAGE_BYTES - 1);
+    }
     return bytes;
 }
 

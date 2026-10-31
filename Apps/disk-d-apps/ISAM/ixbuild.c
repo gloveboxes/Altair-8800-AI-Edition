@@ -251,12 +251,8 @@ static int build_indexes(int table, int high_water, int generation)
     if (high_water < 0)
         return I_EINDEX;
     invalidate_table_files();
-#ifdef ISAM_BANK_LIBRARY
     scratch = page_data;
     page_data = 0;
-#else
-    scratch = malloc(SORT_BYTES);
-#endif
     if (!scratch)
         return I_EBANK;
     rc = mark_build(table);
@@ -303,12 +299,8 @@ static int build_indexes(int table, int high_water, int generation)
             building_table = -1;
         }
     }
-#ifdef ISAM_BANK_LIBRARY
     page_data = scratch;
     discard_pages(-1);
-#else
-    free(scratch);
-#endif
     return rc;
 }
 
@@ -344,7 +336,7 @@ static int append_build(int table, const char *records, int bytes)
     if (fd < 0)
         return I_EOPEN;
     rc = I_OK;
-    if (engine_seek(fd, (long)g_cfg.tbls[table].maxrec * size, 0) < 0L ||
+    if (engine_seek(fd, (long)g_cfg.tbls[table].maxrec * size) < 0 ||
         engine_write(fd, records, bytes) != bytes || fsync(fd) != 0)
         rc = I_EWRIT;
     close_table_file(fd);

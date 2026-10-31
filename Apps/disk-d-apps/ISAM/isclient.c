@@ -5,44 +5,39 @@
 #include "API.H"
 #include "BANKLIB.H"
 #include "BANKMEM.H"
-#include "BIOSBANK.H"
 
 static int opened;
-static bhandle bulk_handle;
-static unsigned int bulk_epoch;
-static bank_bios_info_t capabilities;
-static unsigned char epoch_request[BANK_LIBRARY_REQUEST_BYTES];
+static bank_memory_handle_t bulk_handle;
 
-static int transport_result(int result)
+static int bank_fail(const char *what, unsigned code)
 {
-    if (bank_library_last_error() == BL_OK)
-        return result;
-    printf("ISAM bank transport failed: %u\r\n", bank_library_last_error());
+    printf("ISAM %s: %u\r\n", what, code);
     return I_EBANK;
 }
 
+static int transport_result(int result)
+{
+    unsigned error = bank_library_last_error();
+    return error == BL_OK ? result : bank_fail("bank transport failed", error);
+}
+
+/* A macro so its early returns leave the caller directly. */
+#define CALL_GUARD(data, bytes) \
+    if ((bytes) > I_RECSZ || ((bytes) && !(data))) \
+        return I_ESIZE; \
+    if (!opened) \
+        return bank_fail("library is not open", 0)
+
 int db_call(int operation, int table, int argument, void *data, unsigned bytes)
 {
-    if (bytes > I_RECSZ || (bytes && !data))
-        return I_ESIZE;
-    if (!opened)
-    {
-        puts("ISAM library is not open.");
-        return I_EBANK;
-    }
+    CALL_GUARD(data, bytes);
     return transport_result(iscall(operation, table, argument,
         (unsigned char *)data, bytes));
 }
 
 int db_send(int operation, int table, int argument, const void *data, unsigned bytes)
 {
-    if (bytes > I_RECSZ || (bytes && !data))
-        return I_ESIZE;
-    if (!opened)
-    {
-        puts("ISAM library is not open.");
-        return I_EBANK;
-    }
+    CALL_GUARD(data, bytes);
     return transport_result(ispost(operation, table, argument,
         (const unsigned char *)data, bytes));
 }
@@ -61,10 +56,7 @@ int db_open(const char *configuration)
 {
     int rc;
     if (opened || bulk_handle)
-    {
-        puts("ISAM session is already open or needs buffer cleanup.");
-        return I_EBANK;
-    }
+        return bank_fail("session is already open or needs buffer cleanup", 0);
     if (!bank_library_open("ISAM.LIB"))
     {
         printf("Cannot load ISAM.LIB: bank error %u\r\n", bank_library_last_error());
@@ -101,53 +93,24 @@ int db_table(const char *name)
     return name_call(DB_TABLE, name);
 }
 
-static int read_epoch(unsigned int *epoch)
+/* The lease is valid only while its library session and pool epoch are. */
+static int lease_live(void)
 {
-    memset(epoch_request, 0, sizeof(epoch_request));
-    epoch_request[0] = sizeof(epoch_request);
-    epoch_request[2] = 1;
-    epoch_request[4] = BANK_LIBRARY_QUERY;
-    if (!bank_bios_library_control(capabilities.library_request, epoch_request))
-    {
-        printf("ISAM buffer epoch query failed: %u\r\n", bank_bios_last_error());
-        return I_EBANK;
-    }
-    *epoch = epoch_request[30] | ((unsigned int)epoch_request[31] << 8);
-    return I_OK;
-}
-
-static int bulk_live(void)
-{
-    unsigned int epoch;
-    if (read_epoch(&epoch) != I_OK)
-        return I_EBANK;
-    if (epoch != bulk_epoch)
-    {
-        /* RESET may give this address to another owner. */
-        bulk_handle = 0;
-        puts("ISAM bulk buffer lease is stale.");
-        return I_EBANK;
-    }
-    if (bsize(bulk_handle) != DB_BULK_BYTES)
-    {
-        bulk_handle = 0;
-        puts("ISAM bulk buffer allocation is invalid.");
-        return I_EBANK;
-    }
-    return I_OK;
+    if (bank_library_check())
+        return I_OK;
+    /* RESET may give this address to another owner. */
+    bulk_handle = 0;
+    return bank_fail("bulk buffer lease is stale", bank_library_last_error());
 }
 
 static int release_bulk(void)
 {
     if (!bulk_handle)
         return I_OK;
-    if (bulk_live() != I_OK)
+    if (lease_live() != I_OK)
         return I_EBANK;
-    if (!bfree(bulk_handle))
-    {
-        printf("ISAM buffer release failed: %u\r\n", bmeror());
-        return I_EBANK;
-    }
+    if (!bank_memory_free(bulk_handle))
+        return bank_fail("buffer release failed", bank_memory_last_error());
     bulk_handle = 0;
     return I_OK;
 }
@@ -155,48 +118,33 @@ static int release_bulk(void)
 int db_close(void)
 {
     int rc;
-    rc = I_OK;
+    rc = release_bulk();
     if (opened)
     {
         if (!bank_library_close())
-        {
-            printf("Cannot unload ISAM.LIB: bank error %u\r\n",
-                bank_library_last_error());
-            rc = I_EBANK;
-        }
+            rc = bank_fail("library unload failed", bank_library_last_error());
         opened = 0;
     }
-    if (release_bulk() != I_OK)
-        rc = I_EBANK;
     return rc;
 }
 
-static int ensure_bulk(void)
+/* Reads need no pre-check: the following library call validates the epoch. */
+static int ensure_bulk(int writing)
 {
     int rc, bytes;
     if (!opened)
-    {
-        puts("ISAM library is not open.");
-        return I_EBANK;
-    }
+        return bank_fail("library is not open", 0);
     if (bulk_handle)
-        return bulk_live();
-    if (!bank_bios_query(&capabilities))
-    {
-        printf("ISAM buffer capabilities failed: %u\r\n", bank_bios_last_error());
-        return I_EBANK;
-    }
-    rc = read_epoch(&bulk_epoch);
-    if (rc != I_OK)
-        return rc;
-    bulk_handle = bmalloc(DB_BULK_BYTES);
+        return writing ? lease_live() : I_OK;
+    bulk_handle = bank_memory_allocate(DB_BULK_BYTES);
     if (!bulk_handle)
+        return bank_fail("bulk allocation failed", bank_memory_last_error());
+    rc = lease_live();
+    if (rc == I_OK)
     {
-        printf("ISAM bulk allocation failed: %u\r\n", bmeror());
-        return I_EBANK;
+        bytes = DB_BULK_BYTES;
+        rc = db_call(DB_BIND, 0, bulk_handle, &bytes, sizeof(bytes));
     }
-    bytes = DB_BULK_BYTES;
-    rc = db_call(DB_BIND, 0, bulk_handle, &bytes, sizeof(bytes));
     if (rc != I_OK)
         release_bulk();
     return rc;
@@ -220,10 +168,7 @@ static int init_scan(int table, int key, const char *prefix, int length,
 int db_walk(struct db_scan *scan, char *record, unsigned bytes)
 {
     if (!opened || !scan)
-    {
-        puts("ISAM cursor requires an open session and valid state.");
-        return I_EBANK;
-    }
+        return bank_fail("cursor requires an open session", 0);
     return transport_result(iswalk(&scan->cursor, (unsigned char *)record, bytes));
 }
 
@@ -235,6 +180,14 @@ int db_first(int table, int key, const char *prefix, int length,
     return rc == I_OK ? db_walk(scan, record, bytes) : rc;
 }
 
+static int bulk_copy(int writing, unsigned offset, void *data, unsigned bytes)
+{
+    if (writing ? bank_memory_write(bulk_handle, offset, data, bytes) :
+        bank_memory_read(bulk_handle, offset, data, bytes))
+        return I_OK;
+    return bank_fail("bulk transfer failed", bank_memory_last_error());
+}
+
 static int fetch_rows(int operation, struct db_scan *scan, char *rows, int capacity)
 {
     int rc;
@@ -243,11 +196,12 @@ static int fetch_rows(int operation, struct db_scan *scan, char *rows, int capac
     scan->count = scan->bytes = 0;
     if (capacity > DB_BULK_BYTES)
         capacity = DB_BULK_BYTES;
-    rc = ensure_bulk();
+    rc = ensure_bulk(0);
     if (rc != I_OK)
         return rc;
     scan->bytes = capacity;
-    rc = db_call(operation, scan->cursor.table_index, 0, scan, sizeof(*scan));
+    rc = transport_result(iscall(operation, scan->cursor.table_index, 0,
+        (unsigned char *)scan, sizeof(*scan)));
     if (rc == I_EBANK)
     {
         scan->count = scan->bytes = 0;
@@ -259,13 +213,11 @@ static int fetch_rows(int operation, struct db_scan *scan, char *rows, int capac
         scan->bytes != scan->count * scan->width)
     {
         scan->count = scan->bytes = 0;
-        puts("ISAM scan returned an invalid completion.");
-        return I_EBANK;
+        return bank_fail("scan returned an invalid completion", 0);
     }
-    if (scan->bytes && !bread(bulk_handle, 0, rows, scan->bytes))
+    if (scan->bytes && bulk_copy(0, 0, rows, scan->bytes) != I_OK)
     {
         scan->count = scan->bytes = 0;
-        printf("ISAM batch read failed: %u\r\n", bmeror());
         return I_EBANK;
     }
     return rc;
@@ -318,14 +270,12 @@ int db_pick(int table, int index, const void *values, int count, int value_size,
     input_bytes = count * value_size;
     if (capacity > DB_BULK_BYTES)
         capacity = DB_BULK_BYTES;
-    rc = ensure_bulk();
+    rc = ensure_bulk(1);
     if (rc != I_OK)
         return rc;
-    if (!bwrite(bulk_handle, DB_BULK_BYTES - input_bytes, values, input_bytes))
-    {
-        printf("ISAM selector transfer failed: %u\r\n", bmeror());
-        return I_EBANK;
-    }
+    rc = bulk_copy(1, DB_BULK_BYTES - input_bytes, (void *)values, input_bytes);
+    if (rc != I_OK)
+        return rc;
     memset(&request, 0, sizeof(request));
     request.index = index;
     request.count = count;
@@ -333,22 +283,15 @@ int db_pick(int table, int index, const void *values, int count, int value_size,
     request.width = value_size;
     if (view)
         request.view = *view;
-    rc = db_call(DB_PICK, table, 0, &request, sizeof(request));
+    rc = transport_result(iscall(DB_PICK, table, 0, (unsigned char *)&request,
+        sizeof(request)));
     if (rc != I_OK)
         return rc;
     if (request.count != count || request.width < 1 || request.width > I_RECSZ ||
         count > (DB_BULK_BYTES - input_bytes) / request.width ||
         count > capacity / request.width || request.bytes != count * request.width)
-    {
-        puts("ISAM fetch returned an invalid completion.");
-        return I_EBANK;
-    }
-    if (!bread(bulk_handle, 0, rows, request.bytes))
-    {
-        printf("ISAM fetch read failed: %u\r\n", bmeror());
-        return I_EBANK;
-    }
-    return I_OK;
+        return bank_fail("fetch returned an invalid completion", 0);
+    return bulk_copy(0, 0, rows, request.bytes);
 }
 
 static int send_batch(int operation, int table, const char *records,
@@ -362,26 +305,23 @@ static int send_batch(int operation, int table, const char *records,
         return I_ESIZE;
     if (bytes)
     {
-        rc = ensure_bulk();
+        rc = ensure_bulk(1);
+        if (rc == I_OK)
+            rc = bulk_copy(1, 0, (void *)records, bytes);
         if (rc != I_OK)
             return rc;
-        if (!bwrite(bulk_handle, 0, records, bytes))
-        {
-            printf("ISAM batch write failed: %u\r\n", bmeror());
-            return I_EBANK;
-        }
     }
+    if (!opened)
+        return bank_fail("library is not open", 0);
     memset(reply, 0, sizeof(reply));
-    rc = db_call(operation, table, bytes, reply, sizeof(reply));
+    rc = transport_result(iscall(operation, table, bytes, (unsigned char *)reply,
+        sizeof(reply)));
     if (rc == I_EBANK || rc == I_ENTBL || rc == I_EBUILD)
         return rc;
     if (reply[1] < 3 || reply[1] > I_RECSZ ||
         reply[0] < 0 || reply[0] > bytes / reply[1] ||
         (rc == I_OK && (bytes % reply[1] || reply[0] != bytes / reply[1])))
-    {
-        puts("ISAM insert returned an invalid completion.");
-        return I_EBANK;
-    }
+        return bank_fail("insert returned an invalid completion", 0);
     *completed = reply[0];
     return rc;
 }

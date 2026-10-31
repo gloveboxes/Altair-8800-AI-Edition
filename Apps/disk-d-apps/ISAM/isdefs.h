@@ -50,8 +50,6 @@ struct i_stats {
     int index_comparisons;
     int cursor_starts;
     int cursor_rows;
-    int table_scans;
-    int scan_slots;
     int physical_reads;
 };
 

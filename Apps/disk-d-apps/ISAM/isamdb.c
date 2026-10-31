@@ -6,9 +6,7 @@
  * symbols from colliding at the CP/M linker.
  */
 #include "iscore.c"
-#ifdef ISAM_BANK_LIBRARY
 #include "isacache.c"
-#endif
 #include "isindex.c"
 #include "isfile.c"
 #undef close

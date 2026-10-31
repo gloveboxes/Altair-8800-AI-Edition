@@ -53,13 +53,7 @@ static void make_index_key(int table, int key, const char *record, char *out)
                 out[i] -= 'a' - 'A';
 }
 
-static void stats_add(int *counter, int amount)
-{
-    if (amount > 32767 - *counter)
-        *counter = 32767;
-    else
-        *counter += amount;
-}
+#define stats_add(counter) do { if (*(counter) < 32767) ++*(counter); } while (0)
 
 void istat_reset(void)
 {

@@ -23,18 +23,50 @@ static char *specialties[8] = {
     "General Practice", "Cardiology", "Paediatrics", "Dermatology",
     "Women's Health", "Respiratory", "Diabetes", "Mental Health"
 };
-static char *first_names[20] = {
-    "Alex", "Blair", "Casey", "Drew", "Elliot",
-    "Finley", "Gale", "Harper", "Indigo", "Jordan",
-    "Kai", "Logan", "Morgan", "Nico", "Oakley",
-    "Peyton", "Quinn", "Riley", "Sawyer", "Taylor"
+static char *first_names[] = {
+    "Abigail", "Alex", "Amara", "Andre", "Anika", "Aroha", "Beatrice",
+    "Benedict", "Bianca", "Bruno", "Callum", "Camila", "Carlos", "Chloe",
+    "Cleo", "Cormac", "Dakota", "Darius", "Delphine", "Dev", "Dmitri",
+    "Edith", "Eleanor", "Elijah", "Esme", "Evander", "Farah", "Fatima",
+    "Felix", "Fiona", "Gabriel", "Georgia", "Gianna", "Gus", "Hamish",
+    "Hana", "Harvey", "Hassan", "Imogen", "Inez", "Isaac", "Ivy",
+    "Jamal", "Jasmine", "Jonas", "Josephine", "Kezia", "Kiran", "Kwame",
+    "Lachlan", "Lena", "Leo", "Liam", "Lucia", "Marcus", "Mateo",
+    "Maya", "Mei", "Mohammed", "Nadia", "Naomi", "Nina", "Noah",
+    "Olga", "Oliver", "Omar", "Orla", "Pablo", "Paddy", "Priya",
+    "Quentin", "Rafael", "Rhys", "Rosa", "Ruby", "Samira", "Sebastian",
+    "Sienna", "Soren", "Stella", "Tariq", "Thea", "Tobias", "Tomas",
+    "Uma", "Ursula", "Valentina", "Victor", "Wendy", "Xavier", "Yasmin",
+    "Yusuf", "Zara", "Zoltan"
 };
-static char *last_names[20] = {
-    "Anderson", "Bennett", "Carter", "Dalton", "Ellis",
-    "Fletcher", "Garcia", "Hayes", "Iverson", "Jackson",
-    "Knight", "Lawson", "Maddox", "Nolan", "Owens",
-    "Prescott", "Quincy", "Ramsey", "Sawyer", "Thatcher"
+static char *last_names[] = {
+    "Abbott", "Adeyemi", "Ahmed", "Alvarez", "Andersson", "Baptiste",
+    "Barker", "Barnes", "Bianchi", "Brennan", "Campbell", "Castillo",
+    "Chaudhry", "Cho", "Coleman", "Crawford", "Dang", "Delgado",
+    "Donovan", "Dubois", "Edwards", "Ellison", "Eriksen", "Farrell",
+    "Fernandez", "Fitzgerald", "Foster", "Gallagher", "Grant", "Gupta",
+    "Hamilton", "Hoang", "Hughes", "Ibrahim", "Ito", "Ivanov",
+    "Jensen", "Jovanovic", "Kapoor", "Keane", "Kowalski", "Lambert",
+    "Larsen", "Lindqvist", "Lopez", "Mahmoud", "Marsh", "Mbeki",
+    "Mitchell", "Moreau", "Murphy", "Nakamura", "Nash", "Nguyen",
+    "Novak", "O'Brien", "Okonkwo", "Olsen", "Osei", "Patel",
+    "Pereira", "Petrov", "Quigley", "Rahman", "Reyes", "Rivera",
+    "Roberts", "Sandhu", "Schmidt", "Silva", "Sullivan", "Tanaka",
+    "Thompson", "Tran", "Turner", "Underwood", "Vance", "Vasquez",
+    "Wallace", "Walsh", "Whitaker", "Wright", "Yamamoto", "Young",
+    "Zamora", "Zhang", "Zielinski"
 };
+
+#define NAME_COUNT(table) ((unsigned)(sizeof(table) / sizeof(table[0])))
+
+/* 16-bit xorshift: a deterministic scramble so reruns generate the same data. */
+static unsigned scramble(unsigned x)
+{
+    x ^= x << 7;
+    x ^= x >> 9;
+    x ^= x << 8;
+    return x;
+}
 static char *streets[10] = {
     "Maple Ave", "Oak Street", "Pine Road", "Cedar Lane", "Elm Drive",
     "Birch Way", "Spruce Court", "Willow Blvd", "Cherry Path", "Ash Terrace"
@@ -183,6 +215,7 @@ static int patient_history_count(int patient_id)
 static void build_patient(int patient_id)
 {
     int doctor_id;
+    unsigned seed;
     char address[36];
     char house[6];
     char phone[13];
@@ -198,9 +231,11 @@ static void build_patient(int patient_id)
     format_number(&phone[4], patient_id, PATIENT_KEY_LEN);
     put_number(patient_record, P_ID, PATIENT_KEY_LEN, patient_id);
     put_number(patient_record, P_DOCTOR_ID, DOCTOR_KEY_LEN, doctor_id);
-    put_field(patient_record, P_FIRST, 12, first_names[(patient_id - 1) % 20]);
+    seed = patient_id * 0x9E37u + 0x1D2Bu;
+    put_field(patient_record, P_FIRST, 12,
+        first_names[scramble(scramble(seed)) % NAME_COUNT(first_names)]);
     put_field(patient_record, P_LAST, 16,
-        last_names[((patient_id - 1) * 3) % 20]);
+        last_names[(scramble(seed ^ 0x5BD1u) + patient_id) % NAME_COUNT(last_names)]);
     put_field(patient_record, P_ADDRESS, 36, address);
     put_number(patient_record, P_AGE, 3, 1 + ((patient_id * 11) % 99));
     patient_record[P_GENDER] = "FMO"[patient_id % 3];

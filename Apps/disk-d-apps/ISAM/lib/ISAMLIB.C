@@ -1,4 +1,3 @@
-#define ISAM_BANK_LIBRARY
 #include "../isamdb.c"
 #undef close
 #include "../isam.h"
@@ -363,13 +362,11 @@ static int pick_rows(int table, struct db_pick *request)
 int ispost(unsigned int operation, int table, int argument,
     const unsigned char *data, unsigned int bytes)
 {
-    int name;
     if (operation == DB_DEFINE)
         return bytes == sizeof(struct db_schema) ?
             define_database((const struct db_schema *)data) : I_ESIZE;
     if (!table_valid(table))
         return I_ENTBL;
-    name = table;
     if (building_table >= 0)
         return I_EBUILD;
     if (operation == DB_PROBE)
@@ -377,14 +374,14 @@ int ispost(unsigned int operation, int table, int argument,
         if (!key_valid(table, argument))
             return I_EINDEX;
         return bytes == g_cfg.tbls[table].keysz[argument] ?
-            idx_find(name, argument, (const char *)data, 0) : I_ESIZE;
+            idx_find(table, argument, (const char *)data, 0) : I_ESIZE;
     }
     if (bytes != g_cfg.tbls[table].recsz)
         return I_ESIZE;
     if (operation == DB_ADD)
-        return i_insrt(name, (char *)data, bytes);
+        return i_insrt(table, (char *)data, bytes);
     if (operation == DB_PUT)
-        return i_wrphys(name, (char *)data, bytes, argument);
+        return i_wrphys(table, (char *)data, bytes, argument);
     return I_EBANK;
 }
 
@@ -393,7 +390,7 @@ int iscall(unsigned int operation, int table, int argument,
 {
     struct db_info *info;
     unsigned int address, frame;
-    int name, rc, i, wanted, width, *completed;
+    int rc, i, wanted, width, *completed;
     switch (operation)
     {
     case DB_OPEN:
@@ -442,7 +439,6 @@ int iscall(unsigned int operation, int table, int argument,
     }
     if (!table_valid(table))
         return I_ENTBL;
-    name = table;
     if (building_table >= 0 && operation != DB_APPEND &&
         operation != DB_FINISH && operation != DB_REBUILD)
         return I_EBUILD;
@@ -451,27 +447,27 @@ int iscall(unsigned int operation, int table, int argument,
     case DB_INFO:
         if (bytes != sizeof(struct db_info)) return I_ESIZE;
         info = (struct db_info *)data;
-        memcpy(info->definition.name, name, I_MXNM);
+        memcpy(info->definition.name, g_cfg.tbls[table].name, I_MXNM);
         memcpy(&info->definition.size, &g_cfg.tbls[table].recsz,
             sizeof(struct db_info) - I_MXNM);
         return I_OK;
     case DB_GET:
         if (!key_valid(table, argument)) return I_EINDEX;
         if (bytes != g_cfg.tbls[table].recsz) return I_ESIZE;
-        return idx_find(name, argument, (char *)data, (char *)data);
+        return idx_find(table, argument, (char *)data, (char *)data);
     case DB_READ:
         return bytes == g_cfg.tbls[table].recsz ?
-            i_rdphys(name, (char *)data, argument) : I_ESIZE;
+            i_rdphys(table, (char *)data, argument) : I_ESIZE;
     case DB_DELETE:
-        return bytes ? I_ESIZE : i_delphys(name, argument);
+        return bytes ? I_ESIZE : i_delphys(table, argument);
     case DB_VERIFY:
         if (bytes != sizeof(struct i_verify)) return I_ESIZE;
         memset(data, 0, bytes);
-        return table_verify(name, (struct i_verify *)data);
+        return table_verify(table, (struct i_verify *)data);
     case DB_REBUILD:
         if (building_table >= 0 && building_table != table)
             return I_EBUILD;
-        return bytes ? I_ESIZE : pki_rebuild(name);
+        return bytes ? I_ESIZE : pki_rebuild(table);
     case DB_BUILD:
         return bytes ? I_ESIZE : begin_build(table);
     case DB_FINISH:
@@ -501,7 +497,7 @@ int iscall(unsigned int operation, int table, int argument,
         }
         while (*completed < wanted)
         {
-            rc = i_insrt(name, (char *)bulk_address + *completed * width, width);
+            rc = i_insrt(table, (char *)bulk_address + *completed * width, width);
             if (rc != I_OK) return rc;
             ++*completed;
         }

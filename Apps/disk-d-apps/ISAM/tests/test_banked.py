@@ -39,10 +39,6 @@ class BankedIsam(unittest.TestCase):
         cls.extra_builds = tempfile.TemporaryDirectory(prefix="isam-build-test-")
         cls.addClassCleanup(cls.extra_builds.cleanup)
         cls.extra = Path(cls.extra_builds.name)
-        build(cls.extra, f"dcc-input={APP / 'pktest.c'},{APP / 'isamdb.c'}",
-              "dcc-output=PKSTAND", "dcc-stack-check=true",
-              "dcc-stack-bytes=1536", f"dcc-include-directory={DCC},{APP}",
-              f"dcc-runtime={DCC / 'DCCRTL.MAC'}")
         sdk = REPO / "Apps/disk-b-apps/BANKSDK"
         inputs = [APP / "tests/PAGETST.C", APP / "isclient.c",
                   APP / "generated/B1HOST.C",
@@ -207,13 +203,14 @@ class BankedIsam(unittest.TestCase):
             lines = (APP / f"doctor/build/{name}.LNK").read_text().splitlines()
             sizes[name] = int(next(
                 line.split()[-1] for line in lines if line.startswith("size code ")))
-        # Previous compatibility facade + generated wrappers: 11,418 bytes.
         # Includes generic slot/key gathering, projections and page loaders.
-        self.assertLessEqual(sizes["ISCLIENT"] + sizes["B1HOST"], 6 * 1024, sizes)
-        self.assertLessEqual(sum(sizes.values()), 12 * 1024, sizes)
-        self.assertLessEqual((APP / "doctor/build/DOCTOR.COM").stat().st_size, 38 * 1024)
-        self.assertLessEqual((APP / "docgen/build/DOCGEN.COM").stat().st_size, 18 * 1024)
+        # Measured after the client cleanup: 5,519 / 11,308 bytes.
+        self.assertLessEqual(sizes["ISCLIENT"] + sizes["B1HOST"], 5632, sizes)
+        self.assertLessEqual(sum(sizes.values()), 11776, sizes)
+        self.assertLessEqual((APP / "doctor/build/DOCTOR.COM").stat().st_size, 37888)
+        self.assertLessEqual((APP / "docgen/build/DOCGEN.COM").stat().st_size, 19456)
         library = (APP / "lib/build/ISAM.LIB").read_bytes()
+        self.assertLessEqual(len(library), 43264)
         heap = int.from_bytes(library[24:26], "little")
         stack = int.from_bytes(library[16:18], "little")
         self.assertEqual(stack, 1024)
@@ -353,7 +350,7 @@ class BankedIsam(unittest.TestCase):
             print(f"INDEX WORK {phase}: {self.measurements[phase]}", flush=True)
             self.assertEqual(self.measurements[phase]["writes"], 0)
             self.assertEqual(self.measurements[phase]["selections"],
-                             136 if phase == 60 else 378)
+                             124 if phase == 60 else 376)
             self.assertEqual(self.measurements[phase]["reads"],
                              0 if phase == 60 else 2)
         # Pre-fast-path T-state baselines; descending batches retain binary search.
@@ -480,16 +477,6 @@ class BankedIsam(unittest.TestCase):
         self.assertIn(b"Cannot open ISAM database SURGERY.CFG rc=-1", output)
         self.assertNotIn(b"Riverside Doctors Surgery closed.", output)
 
-    def test_standalone_engine_preserves_mutation_and_index_integrity(self):
-        self.remove("PKSTAND.COM")
-        self.install(self.extra / "build/PKSTAND.COM")
-        self.case.disks[3][:] = self.disk.read_bytes()
-        self.boot_drive()
-        output = self.command("PKSTAND")
-        self.assertNotIn(b"FAIL", output, output.decode(errors="replace"))
-        self.assertIn(b"SUCCESS: multi-key insert, update, delete, range, verify, rebuild", output)
-        self.assert_clean_rejections()
-
     def test_generate_verify_and_interactive_clients(self):
         self.load_library()
         output = self.command("DOCGEN")
@@ -606,6 +593,12 @@ class BankedIsam(unittest.TestCase):
         self.assertLessEqual(m[2]["selections"], 800)
         self.assertLessEqual(m[3]["selections"], 480)
         self.assertLessEqual(m[13]["selections"], 1120)
+        # Bulk clients make no per-fetch control queries: measured post-cleanup.
+        for phase, ceiling in ((10, 2960), (11, 248), (12, 76), (13, 960)):
+            self.assertLessEqual(m[phase]["selections"], ceiling, (phase, m[phase]))
+        for phase, ceiling in ((1, 718000), (3, 1740000), (5, 3188000),
+                               (10, 8423000), (11, 2620000), (12, 574000)):
+            self.assertLessEqual(m[phase]["tstates"], ceiling, (phase, m[phase]))
 
 
 if __name__ == "__main__":

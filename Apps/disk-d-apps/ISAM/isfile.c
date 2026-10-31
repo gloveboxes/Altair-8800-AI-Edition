@@ -98,13 +98,13 @@ int i_insrt(int tblnam, char *rec, int rsiz)
             {
                 phys = reuse_phys;
                 offset = (long)phys * nbytes;
-                if (engine_seek(fd, offset, 0) < 0L)
+                if (engine_seek(fd, offset) < 0)
                 {
                     close(fd);
                     return I_EWRIT;
                 }
                 if (engine_read(fd, sbuf, nbytes) != nbytes ||
-                    sbuf[0] != I_DELFLAG || engine_seek(fd, offset, 0) < 0L)
+                    sbuf[0] != I_DELFLAG || engine_seek(fd, offset) < 0)
                 {
                     close(fd);
                     return I_EINDEX;
@@ -121,7 +121,7 @@ int i_insrt(int tblnam, char *rec, int rsiz)
             {
                 phys = metadata.high_water_slot;
                 offset = (long)phys * nbytes;
-                if (engine_seek(fd, offset, 0) < 0L)
+                if (engine_seek(fd, offset) < 0)
                 {
                     close(fd);
                     return I_EWRIT;
@@ -157,77 +157,16 @@ int i_insrt(int tblnam, char *rec, int rsiz)
             return finish_mutation(i, fd, &new_metadata);
 }
 
-/* Find physical index of Nth logical (non-deleted) record */
-#ifndef ISAM_BANK_LIBRARY
-static int i_findlog(int tblnam, int logidx, int *physidx)
-{
-    int fd;
-    int i, tsz, nbytes;
-    int phys, logical;
-    long offset;
-    char *sbuf;
-
-    stats_add(&i_runtime_stats.table_scans, 1);
-    sbuf = record_workspace;
-    i = checked_table(tblnam);
-    if (i < 0)
-        return i;
-            tsz = g_cfg.tbls[i].recsz;
-            
-            fd = open_table_file(i, "DAT", O_RDONLY);
-            if (fd == ERROR)
-                return I_EOPEN;
-            
-            nbytes = tsz;
-            if (nbytes > I_RECSZ)
-            {
-                close(fd);
-                return I_EREAD;
-            }
-            
-            logical = 0;
-            for (phys = 0; phys < g_cfg.tbls[i].maxrec; phys++)
-            {
-                stats_add(&i_runtime_stats.scan_slots, 1);
-                offset = (long)phys * nbytes;
-                if (engine_seek(fd, offset, 0) < 0L)
-                {
-                    close(fd);
-                    return I_EREAD;
-                }
-                if (engine_read(fd, sbuf, nbytes) != nbytes)
-                {
-                    close(fd);
-                    return I_EREAD;
-                }
-                
-                if (sbuf[0] != I_DELFLAG)
-                {
-                    if (logical == logidx)
-                    {
-                        *physidx = phys;
-                        close(fd);
-                        return I_OK;
-                    }
-                    logical++;
-                }
-            }
-            
-            close(fd);
-            return I_ENREC;
-}
-#endif
-
 static int read_record_slot(int table, int fd, char *rec, int slot)
 {
     int size;
     long offset;
-    stats_add(&i_runtime_stats.physical_reads, 1);
+    stats_add(&i_runtime_stats.physical_reads);
     if (slot < 0 || slot >= g_cfg.tbls[table].maxrec)
         return I_ENREC;
     size = g_cfg.tbls[table].recsz;
     offset = (long)slot * size;
-    if (engine_seek(fd, offset, 0) < 0L || engine_read(fd, rec, size) != size)
+    if (engine_seek(fd, offset) < 0 || engine_read(fd, rec, size) != size)
         return I_EREAD;
     return rec[0] == I_DELFLAG ? I_ENREC : I_OK;
 }
@@ -286,7 +225,7 @@ int i_wrphys(int tblnam, char *rec, int rsiz, int phys)
                 return I_EUPDT;
             }
             offset = (long)phys * nbytes;
-            if (engine_seek(fd, offset, 0) < 0L)
+            if (engine_seek(fd, offset) < 0)
             {
                 close(fd);
                 return I_EUPDT;
@@ -307,7 +246,7 @@ int i_wrphys(int tblnam, char *rec, int rsiz, int phys)
                 close(fd);
                 return rc;
             }
-            if (engine_seek(fd, offset, 0) < 0L)
+            if (engine_seek(fd, offset) < 0)
             {
                 close(fd);
                 return I_EUPDT;
@@ -375,7 +314,7 @@ int i_delphys(int tblnam, int phys)
             }
             
             offset = (long)phys * nbytes;
-            if (engine_seek(fd, offset, 0) < 0L)
+            if (engine_seek(fd, offset) < 0)
             {
                 close(fd);
                 return I_EUPDT;
@@ -400,7 +339,7 @@ int i_delphys(int tblnam, int phys)
             new_metadata.generation++;
             sbuf[0] = I_DELFLAG;
             set_free_link(sbuf, metadata.free_head);
-            if (engine_seek(fd, offset, 0) < 0L)
+            if (engine_seek(fd, offset) < 0)
             {
                 close(fd);
                 return I_EUPDT;
@@ -425,56 +364,5 @@ int i_delphys(int tblnam, int phys)
             }
             return finish_mutation(i, fd, &new_metadata);
 }
-
-/* Read record by index (0-based) from table data file */
-#ifndef ISAM_BANK_LIBRARY
-int i_rdrec(int tblnam, char *rec, int rnum)
-{
-    int phys;
-    int rc;
-    
-    if (rnum < 0)
-        return I_ENREC;
-    
-    /* Find physical index of logical record */
-    rc = i_findlog(tblnam, rnum, &phys);
-    if (rc != I_OK)
-        return rc;
-    return i_rdphys(tblnam, rec, phys);
-}
-
-/* Update record by index using temp file rewrite */
-int i_uprec(int tblnam, char *rec, int rsiz, int rnum)
-{
-    int phys;
-    int rc;
-    
-    if (rnum < 0)
-        return I_ENREC;
-    
-    /* Find physical index of logical record */
-    rc = i_findlog(tblnam, rnum, &phys);
-    if (rc != I_OK)
-        return rc;
-    
-    return i_wrphys(tblnam, rec, rsiz, phys);
-}
-
-/* Delete record by logical index via the indexed physical delete path. */
-int i_delrec(int tblnam, int rnum)
-{
-    int phys;
-    int rc;
-
-    if (rnum < 0)
-        return I_ENREC;
-
-    rc = i_findlog(tblnam, rnum, &phys);
-    if (rc != I_OK)
-        return rc;
-
-    return i_delphys(tblnam, phys);
-}
-#endif
 
 #undef close

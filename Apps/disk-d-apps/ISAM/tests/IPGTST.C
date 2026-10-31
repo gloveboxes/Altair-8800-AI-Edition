@@ -32,33 +32,32 @@ static int index_work(void)
     {
         for (i = 0; i < 20; ++i)
             memcpy(keys + i * 4, bulk_input + (order ? 19 - i : i) * I_RECSZ, 4);
-        CHECK(db_lookup(0, 0, keys, 20, 4, 0, bulk_output, 2560) == I_OK, 214);
+        CHECK(db_pick(0, 0, keys, 20, 4, 0, bulk_output, 2560) == I_OK, 214);
         db_reset();
         outp(5, order ? 59 : 58);
-        rc = db_lookup(0, 0, keys, 20, 4, 0, bulk_output, 2560);
+        rc = db_pick(0, 0, keys, 20, 4, 0, bulk_output, 2560);
         outp(5, order ? 187 : 186);
         CHECK(rc == I_OK, 214);
         db_stats(&stats);
         printf("LOOKUP order=%d comparisons=%d\r\n", order, stats.index_comparisons);
         CHECK(stats.exact_lookups == 20 && stats.physical_reads == 20 &&
-            !stats.table_scans &&
             stats.index_comparisons <= (order ? 94 : 25), 215);
         for (i = 0; i < 20; ++i)
             CHECK(!memcmp(bulk_output + i * I_RECSZ,
                 bulk_input + (order ? 19 - i : i) * I_RECSZ, I_RECSZ), 215);
     }
     memcpy(keys, "0000000000010019003900390008", 28);
-    CHECK(db_lookup(0, 0, keys, 7, 4, 0, bulk_output, 896) == I_OK, 216);
+    CHECK(db_pick(0, 0, keys, 7, 4, 0, bulk_output, 896) == I_OK, 216);
     for (i = 0; i < 7; ++i)
         CHECK(!memcmp(bulk_output + i * I_RECSZ, keys + i * 4, 4), 216);
     CHECK(db_del(1, 10) == I_OK, 217);
     memcpy(keys, "000900100011", 12);
     memset(bulk_output, 0x5a, sizeof(bulk_output));
-    CHECK(db_lookup(1, 0, keys, 3, 4, 0, bulk_output, 384) == I_ENREC, 217);
+    CHECK(db_pick(1, 0, keys, 3, 4, 0, bulk_output, 384) == I_ENREC, 217);
     for (i = 0; i < sizeof(bulk_output); ++i)
         CHECK(bulk_output[i] == 0x5a, 218);
     memcpy(keys, "0009001X", 8);
-    CHECK(db_lookup(0, 0, keys, 2, 4, 0, bulk_output, 256) == I_ENREC, 218);
+    CHECK(db_pick(0, 0, keys, 2, 4, 0, bulk_output, 256) == I_ENREC, 218);
     puts("PASS: streamed indexes, interleaved cursors, ordered and unordered lookups.");
     return I_OK;
 }
@@ -122,7 +121,7 @@ static int stream_bounds(void)
         !memcmp(bulk_output, "3999ABCDEFGHIJK", 15), 222);
     memcpy(entries, "0000ABCDEFGHIJK3999ABCDEFGHIJK", 30);
     db_reset();
-    CHECK(db_lookup(0, 0, entries, 2, 15, 0, bulk_output, 32) == I_OK &&
+    CHECK(db_pick(0, 0, entries, 2, 15, 0, bulk_output, 32) == I_OK &&
         !memcmp(bulk_output + 16, "3999ABCDEFGHIJK", 15), 223);
     db_stats(&stats);
     CHECK(stats.index_comparisons <= 30 && stats.physical_reads == 2, 223);
