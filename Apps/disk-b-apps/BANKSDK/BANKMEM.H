@@ -4,14 +4,13 @@
 typedef unsigned int bank_memory_handle_t;
 typedef bank_memory_handle_t bhandle;
 
-/* Preserve the six-character linker ABI and existing source clients. */
+/* Descriptive names map to six-character M80/L80 public symbols. */
 #define bank_memory_initialize binit
 #define bank_memory_reset breset
 #define bank_memory_allocate bmalloc
 #define bank_memory_free bfree
 #define bank_memory_size bsize
 #define bank_memory_available bavail
-#define bank_memory_execute bmexec
 #define bank_memory_call bmcall
 #define bank_memory_last_error bmeror
 #define bank_memory_read bread
@@ -24,9 +23,6 @@ int bank_memory_free(bank_memory_handle_t handle);
 unsigned int bank_memory_size(bank_memory_handle_t handle);
 unsigned int bank_memory_available(void);
 unsigned int bank_memory_last_error(void);
-/* A zero stack handle selects the BIOS private stack. */
-unsigned int bank_memory_execute(bank_memory_handle_t code_handle,
-                                 bank_memory_handle_t stack_handle);
 unsigned int bank_memory_call(bank_memory_handle_t code_handle,
                               bank_memory_handle_t stack_handle,
                               unsigned int entry_offset,

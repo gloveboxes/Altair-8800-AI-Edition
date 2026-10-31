@@ -13,15 +13,14 @@
 #define BL_CLEANUP 9
 #define BL_LIFECYCLE 10
 #define BL_EXHAUSTED 11
-#define BL_CHECKSUM 12
-#define BL_STALE 13
+#define BL_STALE 12
 #define BL_FRAME_MAX 256
 #define BL_SIGNATURE_MAX 255
 
 /* Bank-1 adapters may use this per-call, non-repeating object token. */
 #define BL_TOKEN_ADDRESS 0xE4D6
 
-/* Preserve the six-character linker ABI and existing source clients. */
+/* Descriptive names map to six-character M80/L80 public symbols. */
 #define bank_library_open blopen
 #define bank_library_close blclos
 #define bank_library_export_count blcnt

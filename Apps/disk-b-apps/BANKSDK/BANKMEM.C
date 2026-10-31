@@ -1,4 +1,4 @@
-/* DCC banked shared pool, ABI 2.6: resident BDOS, loader and extent
+/* DCC banked shared pool, ABI 1.0: resident BDOS, loader and extent
  * allocator occupy high bank-1 memory. General bmalloc allocations use
  * C800h..DDFFh (5,632 bytes) in 256-byte units.
  */
@@ -9,7 +9,7 @@
  * every chunk. Heap metadata itself remains entirely in bank 1. */
 static unsigned char bank_ready;
 static bank_bios_info_t capabilities;
-/* Execute/call are direct BIOS aliases, so all memory APIs share status. */
+/* Call is a direct BIOS alias, so all memory APIs share status. */
 extern unsigned int bmres;
 
 unsigned int bank_memory_last_error(void)
@@ -21,16 +21,16 @@ int bank_memory_initialize(void)
 {
     bank_ready = 0;
     bmres = BANK_BIOS_UNAVAILABLE;
-    if (memcmp((void *)BMBIOS_SIGNATURE, "BMX2", 4) ||
+    if (memcmp((void *)BMBIOS_SIGNATURE, "BMX1", 4) ||
         *(unsigned char *)BMBIOS_VERSION != BMBIOS_ABI_MAJOR ||
         *(unsigned char *)BMBIOS_MINOR < BMBIOS_ABI_MINOR)
         return 0;
-    if (bank_bios_version() != 0x0206)
+    if (bank_bios_version() != BMBIOS_ABI)
         return 0;
     if (!bank_bios_query(&capabilities))
         return 0;
     if (capabilities.bytes != 48 || capabilities.revision != 1 ||
-        capabilities.abi != 0x0206 ||
+        capabilities.abi != BMBIOS_ABI ||
         (capabilities.features & BANK_BIOS_FEATURES) != BANK_BIOS_FEATURES ||
         capabilities.allocator_revision != BMBIOS_CALL_REVISION ||
         !capabilities.allocation_bytes ||

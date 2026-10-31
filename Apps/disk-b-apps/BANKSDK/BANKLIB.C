@@ -47,7 +47,6 @@ static unsigned int service(void)
     case BANK_BIOS_MEMORY: error_code = BL_MEMORY; break;
     case BANK_BIOS_DISPATCH: error_code = BL_DISPATCH; break;
     case BANK_BIOS_FORMAT: error_code = BL_FORMAT; break;
-    case BANK_BIOS_CHECKSUM: error_code = BL_CHECKSUM; break;
     case BANK_BIOS_IO: error_code = BL_IO; break;
     case BANK_BIOS_STALE: error_code = BL_STALE; break;
     case BANK_BIOS_EXHAUSTED: error_code = BL_EXHAUSTED; break;
@@ -404,9 +403,9 @@ unsigned int bank_library_open(const char *filename)
         error_code = BL_ARGUMENT;
         return 0;
     }
-    if (bank_bios_version() != 0x0206 || !bank_bios_query(&capabilities) ||
+    if (bank_bios_version() != BMBIOS_ABI || !bank_bios_query(&capabilities) ||
         capabilities.bytes != 48 || capabilities.revision != 1 ||
-        capabilities.abi != 0x0206 ||
+        capabilities.abi != BMBIOS_ABI ||
         (capabilities.features & BANK_BIOS_FEATURES) != BANK_BIOS_FEATURES ||
         capabilities.allocator_revision != BMBIOS_CALL_REVISION ||
         capabilities.library_request_bytes != sizeof(request) ||

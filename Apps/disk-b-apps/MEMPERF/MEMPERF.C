@@ -23,32 +23,15 @@ typedef struct {
 
 static void explain_bank_failure(void)
 {
-    unsigned char header[BMBIOS_BURST_BYTES];
-    unsigned int version;
-
-    if (memcmp((void *)BMBIOS_SIGNATURE, "BMX2", 4) ||
+    if (memcmp((void *)BMBIOS_SIGNATURE, "BMX1", 4) ||
         *(unsigned char *)BMBIOS_VERSION != BMBIOS_ABI_MAJOR)
     {
-        puts("BIOS bank extension descriptor missing or incompatible.");
+        puts("BIOS bank extension descriptor missing or does not match ABI 1.0.");
         return;
     }
-    version = bank_bios_version();
-    if ((version >> 8) != BMBIOS_ABI_MAJOR)
-    {
-        printf("BIOS INFO reports banked SRAM unavailable (ABI %04x).\n", version);
-        return;
-    }
-    memset(header, 0xEE, sizeof(header));
-    if (!bank_bios_read(0xE600, header, sizeof(header)))
-    {
-        puts("BIOS INFO succeeded, but the banked heap-header read failed.");
-        return;
-    }
-    printf("Heap signature: %02x %02x %02x %02x; expected 42 4b 4d 33 (BKM3).\n",
-           header[0], header[1], header[2], header[3]);
-    if (memcmp(header + 4, "BEX1", 4))
-        puts("Bank-1 allocator missing; flash matching Phase 10 firmware, then restart.");
-    puts("Check that both banks have the same resident BIOS page.");
+    printf("Banked SRAM unavailable: INFO %04x, status %u.\n",
+           bank_bios_version(), bank_memory_last_error());
+    puts("Install matching firmware and CP/M system image, then restart.");
 }
 
 static unsigned char expected_byte(unsigned int offset)

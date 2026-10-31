@@ -81,20 +81,19 @@ IX/IY and interrupt state. No BDOS or base-bank C stack access runs there.
 Payload copies still use 16-byte register bursts through READ/WRITE. Partial
 transfers use a 16-byte bank-0 buffer. CP/M's DMA area is untouched.
 
-`binit` checks BIOS ABI 2 and the installed `BKM3BEX1` header. `breset`
+`binit` checks the BIOS ABI 1.0 descriptor, INFO and the capability query. `breset`
 invalidates all allocations without changing code. Warm boot preserves the
 heap; firmware reload initializes it. One application owns the shared heap.
 
-Install matching **ABI 2.6 firmware, boot package, drive A system records and
-rebuilt COM files** together. INFO reports `0206h`, heap start `C800h`, and
+Install matching **ABI 1.0 firmware, boot package, drive A system records and
+rebuilt COM files** together. INFO reports `0100h`, heap start `C800h`, and
 capacity `1600h`. See [BIOS-ABI.md](BIOS-ABI.md)
 for HEAP operations, contracts and the extent table layout.
 
-The same C library and COM pass the local native-copy BIOS backend model
-without touching the SBC's workspace or port 7. The stock ESP firmware still
-needs its own compatible BIOS extension and extra memory; copying this C app
-does not install that backend. The stock interactive debugger
-has flat memory; use the dedicated banked emulator fixture for this app:
+Another CP/M host needs its own implementation of this BIOS extension and
+extra memory; copying this C app does not install that backend. The stock
+interactive debugger has flat memory; use the dedicated banked emulator
+fixture for this app:
 
 ```sh
 DCC_DIR=/Users/dave/GitHub/dcc /Users/dave/GitHub/dcc/dccmake \
@@ -109,8 +108,8 @@ build/disk-emulator/bin/python src/common/tests/banked_heap_z80_test.py \
   --program examples/BANKED/build/emulator/BANKED.COM
 ```
 
-Run that command from Z80ROMlessSBC. This executes the compiled COM under the
-real CP/M/BIOS image with modeled A16. It checks software behavior; 20 MHz
+This executes the compiled COM under the real CP/M/BIOS image and bank-1
+resident code with modeled A16 switching. It checks software behavior; 20 MHz
 electrical timing and throughput require the physical board.
 
 See [TESTING.md](TESTING.md) for verification results and the corrected host

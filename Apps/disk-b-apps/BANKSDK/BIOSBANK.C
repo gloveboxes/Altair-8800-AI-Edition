@@ -34,25 +34,7 @@ _bmrset:
 	jp _bmcap
 ;@dcc.lto end _bmrset
 
-;@dcc.lto begin _bmexec
-	public _bmexec
-_bmexec:
-	ld hl,2
-	add hl,sp
-	ld e,(hl)
-	inc hl
-	ld d,(hl)
-	inc hl
-	ld c,(hl)
-	inc hl
-	ld b,(hl)
-	ex de,hl
-	ld e,5
-	call 0ff10h
-	jp _bmcap
-;@dcc.lto end _bmexec
-
-; E=6: ordinary DCC C function entry at code+IX. IY is copied to the
+; E=5: ordinary DCC C function entry at code+IX. IY is copied to the
 ; selected bank-1 stack as the function's one pointer argument.
 ;@dcc.lto begin _bmcall
 	public _bmcall
@@ -74,7 +56,7 @@ _bmcall:
 	pop iy
 	pop ix
 	ex de,hl
-	ld e,6
+	ld e,5
 	call 0ff10h
 	call _bmcap
 	pop iy
@@ -167,7 +149,7 @@ _bmcap:
 	jr BMC_STORE
 BMC_ERROR:
 	push hl
-	ld e,11
+	ld e,9
 	call 0ff10h
 BMC_STORE:
 	ld (_bmres),hl
@@ -186,7 +168,7 @@ _bmqury:
 	push ix
 	ld ix,0
 	add ix,sp
-	ld e,9
+	ld e,7
 	call 0ff10h
 	ld a,h
 	or l
@@ -223,7 +205,7 @@ _bmctrl:
 	jr c,BMCT_IO
 	ld l,(ix+6)
 	ld h,(ix+7)
-	ld e,10
+	ld e,8
 	call 0ff10h
 	push hl
 	ld e,(ix+6)
@@ -242,7 +224,7 @@ _bmctrl:
 	inc l
 	jr BMCT_END
 BMCT_IO:
-	ld hl,9
+	ld hl,8
 	ld (_bmres),hl
 	ld hl,0
 BMCT_END:

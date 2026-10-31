@@ -22,9 +22,8 @@ DCC generates the contracts, host wrappers and bank-1 adapters from
 [ISAMLIB.C](lib/ISAMLIB.C); do not edit generated files.
 Clients link [isclient.c](isclient.c), generated bindings and the shared
 [BANKSDK](../../disk-b-apps/BANKSDK/README.md), **not the engine**.
-Rebuild and deploy the library and clients together: the old banked ABI is
-not supported. `DXC4` configurations and `DXI4` indexes replace the old formats;
-regenerate old databases with DOCGEN. There is no legacy reader or migration.
+Build and deploy the library and clients together. Databases use `DXC4`
+configurations and `DXI4` indexes; create them with DOCGEN.
 
 Run `pwsh ./build-app.ps1` to build and install all three artifacts on D:
 ([disks/blank.dsk](../../../disks/blank.dsk)). `-BuildOnly` collects the files
@@ -43,9 +42,9 @@ partial database files and rerun DOCGEN after resolving an `rc=-3` write failure
 (for example, a full disk).
 Use `-BuildOnly` when preparing the updated programs without deploying them.
 
-Use the bank-capable **Z80ROMlessSBC** emulator, not ntvcm or the old single-bank
-launcher. Typed libraries require BIOS ABI 2.6, allocator revision 6 and the
-version-4 library loader. Source names must be CP/M 8.3 compatible.
+Use the bank-capable **Z80ROMlessSBC** emulator, not ntvcm or a single-bank
+launcher. The library uses `.LIB` format 1 and requires BIOS ABI 1.0, call
+revision 1, with matching firmware and CP/M system image. Source names must be CP/M 8.3 compatible.
 
 ## Native client API
 

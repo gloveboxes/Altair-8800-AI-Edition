@@ -1,4 +1,4 @@
-# Shared ABI 2.5 banked-memory support.
+# Shared banked-memory support.
 dcc-input=DEMO.C, ../BANKSDK/BANKMEM.C, ../BANKSDK/BIOSBANK.C
 dcc-output=SPREADS
 dcc-floatio=false

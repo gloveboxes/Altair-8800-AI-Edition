@@ -9,13 +9,13 @@ exports, runtime enumeration, and bank-owned objects accessed through handles.
 This DCC application allocates one bank-1 code block, two 512-byte stacks and
 two independent context blocks. The code block contains two entry points:
 offset 0 counts primes through an 8-bit limit; a second offset finds the next
-prime after an 8-bit input. The bank-0 application passes the offset to the
-new BIOS HEAP operation 6. Both functions use the same primality helper and
+prime after an 8-bit input. The bank-0 application passes the offset to
+BIOS service operation 5 (CALL). Both functions use the same primality helper and
 keep their mutable state in their own context block.
 
 `bmcall(code, stack, entry_offset, context)` sets HL to the live code handle,
 BC to a distinct live stack handle, IX to a 16-bit byte offset, and IY to the
-bank-1 context pointer. Operation 6 checks that the offset is strictly within
+bank-1 context pointer. CALL checks that the offset is strictly within
 the rounded code allocation, then enters `code + entry_offset`. It puts the
 context pointer on the selected bank-1 stack as the function's first 16-bit
 argument. A normal DCC C function sees it at `IX+4` after its usual `PUSH IX;
@@ -44,13 +44,13 @@ sequential and require enough allocated stack for the function.
 Build with the DCC toolchain:
 
 ```sh
-cd examples/BANKCODE
+cd examples/PRIMEBK1
 DCC_DIR=/path/to/dcc /path/to/dcc/dccmake
 ```
 
-Copy `BANKCODE.COM` to a CP/M drive. This example requires BIOS ABI 2.6 and
-bank-1 allocator revision 6, checked through the public capability query, so update both the
-CP/M boot package and Phase 10 firmware before running it.
+Copy `PRIMEBK1.COM` to a CP/M drive. This example requires BIOS ABI 1.0 and
+call revision 1, checked through the public capability query, so deploy the
+matching CP/M boot package and Phase 10 firmware before running it.
 
 The Z80 emulator regression runs the compiled COM with CP/M and the resident
 banking code:

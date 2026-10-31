@@ -1,4 +1,4 @@
-/* Benchmark the BIOS ABI 2.6 bank-1 shared-pool extent allocator. */
+/* Benchmark the BIOS ABI 1.0 bank-1 shared-pool extent allocator. */
 #include <stdio.h>
 #include <string.h>
 #include "BANKMEM.H"
@@ -91,7 +91,7 @@ int main(void)
     puts("Warm-up, size/free-space checks and printing are outside timing.");
     if (!bank_memory_initialize())
     {
-        puts("FAIL: matching BIOS ABI 2.6 and allocator firmware required.");
+        puts("FAIL: matching BIOS ABI 1.0 and allocator firmware required.");
         return 1;
     }
     free_before = bank_memory_available();

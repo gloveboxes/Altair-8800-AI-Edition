@@ -4,10 +4,10 @@ The build uses shared bank-memory and BIOS support from
 [BANKSDK](../BANKSDK/README.md), not private copies in this example.
 
 Copy `ALLOCPRF.COM` to a CP/M disk and run `ALLOCPRF`. It requires the matching
-BIOS ABI 2.6, bank-1 allocator firmware, and millisecond stopwatch on port
+BIOS ABI 1.0 firmware and CP/M system image, and millisecond stopwatch on port
 `17h`. Stopwatch 0 is reserved while the benchmark runs.
 
-The program benchmarks only the BIOS ABI 2.6 extent allocator. Each
+The program benchmarks only the bank-1 extent allocator. Each
 measurement runs **512 allocate/free pairs**, reporting total milliseconds
 and average microseconds per pair. Allocation, free, loop and success-check
 overhead are included. This is not an isolated malloc latency. No payload

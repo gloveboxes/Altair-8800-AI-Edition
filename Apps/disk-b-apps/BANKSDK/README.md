@@ -1,8 +1,8 @@
 # BANKSDK: shared banked-memory and library support
 
-This folder contains reusable DCC C support for the CP/M banked BIOS ABI 2.6
-and allocator revision 6. Rebuild applications and libraries and update firmware,
-boot package and drive A system records together. It is not a runnable example or part of DCC's
+This folder contains reusable DCC C support for the CP/M banked BIOS ABI 1.0,
+call revision 1. Build applications and libraries against it and deploy matching
+firmware, boot package and drive A system records together. It is not a runnable example or part of DCC's
 platform-independent standard runtime.
 
 | Component | Responsibility |
@@ -49,7 +49,6 @@ identifiers, but M80/L80 retain only six significant external-symbol characters
 | `bank_memory_read` | `bread` |
 | `bank_memory_write` | `bwrite` |
 | `bank_memory_reset` | `breset` |
-| `bank_memory_execute` | `bmexec` |
 | `bank_memory_call` | `bmcall` |
 
 `bank_library_check()` returns nonzero while the library is open and its pool
@@ -76,8 +75,8 @@ allocation-backed buffers. Raw BIOS calls require a successful
 - Export-name buffers need at least nine bytes. Signature buffers have an
   explicit capacity, at most 256 bytes. Raw call bodies are at most 256 bytes;
   prefer the generated typed wrappers over constructing frames manually.
-- Memory initialization validates INFO version 2.6 and a versioned capability
-  query. Applications no longer inspect private resident signatures or tables.
+- Memory initialization validates INFO version 1.0 and a versioned capability
+  query. Applications do not inspect private resident signatures or tables.
   `bank_bios_query()` discovers pool geometry, byte-copy entries and the
   structured library service. `bank_bios_library_control()` submits its
   versioned 32-byte request without exposing loader-private mailboxes.
@@ -132,7 +131,6 @@ epoch. Resident dispatch checks both again. Invalidation/reload makes old bindin
 stale; pool RESET makes old frame ownership stale. The runtime never writes or
 frees an old frame after its epoch changes, because another owner may now hold
 the same address. `BL_STALE` reports this explicitly; close and reopen to recover.
-Checksum errors have their own `BL_CHECKSUM` result rather than `BL_IO`.
 
 Host and library DMA/search continuations are separate. Search Next reloads the
 shared directory sector before resuming, so interleaved searches across drives

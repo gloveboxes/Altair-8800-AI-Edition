@@ -200,7 +200,7 @@ cleanup. The program exits nonzero on failure.
 
 | Step | What is verified |
 | --- | --- |
-| 1. Load | Checksummed library load, lifecycle hook and memory report. |
+| 1. Load | Library load, lifecycle hook and memory report. |
 | 2. Values | Addition, unchanged caller values and unsigned wraparound. |
 | 3. Text | In/out copying, untouched bytes beyond the count, the 128-byte limit, oversized and null-buffer rejection. |
 | 4. File | A 128-byte bank-1 file read, byte sum, reopen-at-start behavior and output-buffer guards. The emulator checks the sum against the actual boot-file fixture. |
@@ -291,9 +291,7 @@ Bank 1's heap starts after the linked image/BSS and ends below the configured
 stack. A 512-byte stack ends it at `C600h`; code/data changes automatically
 change its capacity. The separate transfer pool is 5632 bytes at `C800h`.
 
-Typed libraries require the version-4 loader and host runtime (BIOS ABI 2.6,
-allocator revision 6). The updated loader also accepts legacy version 3;
-the typed host deliberately requires version 4. Older firmware needs a loader
-update, not just new COM/LIB files. Follow the
+Libraries use `.LIB` format 1 with BIOS ABI 1.0 and call revision 1. Deploy
+matching firmware and CP/M system image with new COM/LIB files. Follow the
 [firmware build and flashing workflow](../../docs/docs/en/system/firmware-build.md).
 Building this example does not install disks or flash hardware.

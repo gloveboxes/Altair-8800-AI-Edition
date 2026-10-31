@@ -159,7 +159,7 @@ static int spreads_load(void)
     spread_module.marmite_offset = (unsigned int)(bmarm - bcode);
     if (!code_bytes || spread_module.marmite_offset >= code_bytes || !bank_memory_initialize())
     {
-        puts("FAIL: BIOS ABI 2.6 and matching bank-1 services required.");
+        puts("FAIL: BIOS ABI 1.0 and matching bank-1 services required.");
         return 0;
     }
 

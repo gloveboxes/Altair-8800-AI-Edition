@@ -4,7 +4,7 @@ This small DCC application copies two Z80 routines into one bank-1 allocation.
 The call sites look like ordinary C functions: `vegemite(&params)` and
 `marmite(&params)`. Their small bank-0 wrappers write the C parameter block
 into a bank-1 allocation with `bwrite`, call the selected entry point through
-BIOS HEAP operation 6, and copy the result back with `bread`. The bank-1
+BIOS service operation 5 (CALL), and copy the result back with `bread`. The bank-1
 routines read `requested` through that pointer, write `written` and `text`,
 and return `written` in HL. The base-bank pointer `&params` is never
 dereferenced while bank 1 is selected.
@@ -20,7 +20,7 @@ entry point, affects the result.
 
 The two routines have no absolute references, so this example needs no code
 relocation. It allocates separate code, stack and context blocks, then frees
-all three. It needs BIOS ABI 2.6 and firmware allocator revision 6.
+all three. It needs BIOS ABI 1.0, call revision 1.
 
 Build from this directory with the local DCC toolchain:
 

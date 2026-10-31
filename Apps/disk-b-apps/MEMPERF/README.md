@@ -9,7 +9,7 @@ Build from this folder with the sibling DCC toolchain:
 DCC_DIR=/path/to/dcc /path/to/dcc/dccmake
 ```
 
-Copy `build/MEMPERF.COM` to a CP/M disk. BIOS ABI 2.6 and its matching
+Copy `build/MEMPERF.COM` to a CP/M disk. BIOS ABI 1.0 and its matching
 bank-1 firmware/CP/M image are required. The program uses stopwatch 0 on
 port `17h` and frees its own banked allocation before exit.
 
@@ -48,39 +48,39 @@ PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
   src/common/tests/banked_sdk_benchmark.py --services
 ```
 
-For 4 KiB total, with maskable interrupts disabled in both builds:
+For 4 KiB total, with maskable interrupts disabled:
 
-| Checked workload | Original baseline (T-states) | Optimized (T-states) | CPU work reduction |
-| --- | ---: | ---: | ---: |
-| One 4 KiB read | 113,477 | 94,890 | 16.4% |
-| One 4 KiB write | 111,412 | 94,870 | 14.8% |
-| Sixteen 256-byte reads | 179,792 | 129,360 | 28.1% |
-| Sixteen 256-byte writes | 177,472 | 129,040 | 27.3% |
+| Checked workload | T-states | Bank selects |
+| --- | ---: | ---: |
+| One 4 KiB read | 94,890 | 514 |
+| One 4 KiB write | 94,870 | 514 |
+| Sixteen 256-byte reads | 129,360 | 544 |
+| Sixteen 256-byte writes | 129,040 | 544 |
+| 256 16-byte reads | 695,296 | 1,024 |
+| 256 16-byte writes | 690,176 | 1,024 |
+| 4,096 one-byte reads | 14,819,328 | 16,384 |
+| 4,096 one-byte writes | 18,857,984 | 24,576 |
 
-The further hot-path pass reduces CPU work relative to the preceding optimized
-build by 2.4% for bulk copies, 5.2% for 256-byte chunks, and 10.7%-10.8% for 16-byte
-chunks. The default checked benchmark also measures one-byte chunks: reads save
-8.2% and writes save 6.7%. Those tiny writes still require a read/modify/write
-burst to preserve neighbours; batching adjacent operations is substantially
-cheaper when the application can do so.
+One-byte writes require a read/modify/write burst to preserve neighbours;
+batching adjacent operations is substantially cheaper when the application
+can do so.
 
-The `--services` benchmark measures the actual resident gateway independently
-of C wrappers. These figures compare the preceding optimized build with the
-further pass, using the same operation sequence and disabled interrupts:
+The `--services` benchmark measures the resident gateway independently of C
+wrappers, with disabled interrupts:
 
-| Resident operation | Previous (T-states) | Current (T-states) | CPU work reduction |
-| --- | ---: | ---: | ---: |
-| Allocate 256 bytes | 1,876 | 1,559 | 16.9% |
-| Query live pool allocation size | 871 | 554 | 36.4% |
-| Query available bytes | 452 | 369 | 18.4% |
-| Trivial banked function call (E=6) | 4,322 | 2,923 | 32.4% |
-| Free that allocation | 2,284 | 1,776 | 22.2% |
+| Resident operation | T-states |
+| --- | ---: |
+| Allocate 256 bytes | 1,559 |
+| Query live pool allocation size | 554 |
+| Query available bytes | 369 |
+| Trivial banked function call (E=5) | 2,855 |
+| Free that allocation | 1,776 |
 
 These are microbenchmarks, not predictions for arbitrary allocation patterns
-or library functions doing substantial work. The free list remains
-address-ordered first fit; allocation sizes, pinned regions and pool capacity
-are unchanged. Tests check every page-aligned handle, interior/stale handles,
-coalescing, packed context restoration and interleaved cross-drive searches.
+or library functions doing substantial work. The free list is
+address-ordered first fit. Tests check every page-aligned handle,
+interior/stale handles, coalescing, packed context restoration and
+interleaved cross-drive searches.
 
 These are CPU-cycle results, **not measured Pico throughput**: PIO bank-select
 waits, other hardware waits and timer-port service time are not modeled.
