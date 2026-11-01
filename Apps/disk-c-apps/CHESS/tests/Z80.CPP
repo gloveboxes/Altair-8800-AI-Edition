@@ -67,7 +67,7 @@ static uint16_t call(const std::string &name, const std::vector<uint16_t> &args 
     reg.pc = functions.at(name);
     unsigned steps = 0, lowest_sp = reg.sp;
     for (; reg.pc != 0xfff0; ++steps) {
-        assert(steps < 200000000);
+        assert(steps < 1000000000);
         if (reg.sp < lowest_sp) lowest_sp = reg.sp;
         if (reg.pc == 0xf10c) {
             output += char(reg.c);
@@ -139,14 +139,14 @@ static void search_tests()
     for (uint16_t level = 1; level <= 3; ++level) {
         call("new_position");
         call("position_key", {0xc000});
-        assert(call("choose_move", {0xc100, level}, true) == 1);
+        assert(call("choose_move", {0xc100, uint16_t(level + 2)}, true) == 1);
         call("position_key", {0xc040});
         assert(std::memcmp(memory + 0xc000, memory + 0xc040, 35) == 0);
         assert(call("generate_moves", {0}) == 20);
         printf("Z80 level %u legal choice: %u-%u\n",
                level, memory[0xc100], memory[0xc101]);
     }
-    puts("Z80 levels 1/2/3, bounded stack and search restoration PASS");
+    puts("Z80 levels 1/2/3 (depths 3/4/5), bounded stack and search restoration PASS");
 }
 
 static void gameplay_tests()

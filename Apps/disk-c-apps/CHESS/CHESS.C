@@ -22,12 +22,18 @@
 #define CASTLING 2
 #define DOUBLE_PUSH 4
 #define MAX_MOVES 256
-#define MAX_LEVEL 3
+#define MAX_DEPTH 5
 #define QUIESCE_PLIES 4
-#define MAX_PLY (MAX_LEVEL + QUIESCE_PLIES + 1)
+#define MAX_PLY (MAX_DEPTH + QUIESCE_PLIES + 1)
 #define MATE_SCORE 28000
 #define INFINITY_SCORE 30000
-#define NODE_LIMIT 12000
+#define NULL_REDUCTION 2
+#define HANG_LOSS 200
+#define TIP_MARGIN 150
+#define OPENING_MOVES 10
+#define KING_PENALTY 120
+#define DEVELOP_BONUS 30
+#define NODE_LIMIT 40000UL
 #define POSITION_BYTES 35
 #define HISTORY_SIZE 101
 
@@ -49,7 +55,10 @@ static int move_count[MAX_PLY], order_score[MAX_PLY][MAX_MOVES];
 static int first_legal_only, captures_only, gen_king, gen_in_check;
 static unsigned char history[HISTORY_SIZE][POSITION_BYTES];
 static int history_count;
-static unsigned node_count;
+static unsigned long node_count;
+static int killers[MAX_PLY][2], just_nulled;
+static int exclude_from = -1, exclude_to = -1, exclude_promotion;
+static int full_moves, tip_bias_on, root_in_check;
 static int search_stopped, engine_failed, completed_depth, search_score;
 static const int piece_value[7] = {0, 100, 320, 330, 500, 900, 0};
 static const int knight_steps[8] = {33, 31, 18, 14, -14, -18, -31, -33};
@@ -297,7 +306,8 @@ static int generate_known(int ply, int mode, int in_check)
         if (p == PAWN) {
             step = forward(side);
             to = from + step;
-            if (on_board(to) && board[to] == 0) {
+            if (on_board(to) && board[to] == 0
+                && (!captures_only || (to >> 4) == 0 || (to >> 4) == 7)) {
                 pawn_move(ply, from, to, 0);
                 if ((from >> 4) == (side == WHITE ? 1 : 6)
                     && board[to + step] == 0)
@@ -316,7 +326,8 @@ static int generate_known(int ply, int mode, int in_check)
                 to = from + knight_steps[i];
                 if (!on_board(to)) continue;
                 t = side > 0 ? board[to] : -board[to];
-                if (t <= 0 && t != -KING) add_move(ply, from, to, 0, 0);
+                if (t == 0 ? !captures_only : (t < 0 && t != -KING))
+                    add_move(ply, from, to, 0, 0);
             }
         } else {
             start = p == BISHOP ? 4 : 0;
@@ -327,7 +338,7 @@ static int generate_known(int ply, int mode, int in_check)
                 while (on_board(to)) {
                     t = side > 0 ? board[to] : -board[to];
                     if (t > 0 || t == -KING) break;
-                    add_move(ply, from, to, 0, 0);
+                    if (t != 0 || !captures_only) add_move(ply, from, to, 0, 0);
                     if (t != 0 || p == KING) break;
                     to += step;
                 }
@@ -335,7 +346,7 @@ static int generate_known(int ply, int mode, int in_check)
             if (p != KING) continue;
             home = side == WHITE ? 4 : 116;
             rights = side == WHITE ? castle_rights : castle_rights >> 2;
-            if (from != home || gen_in_check) continue;
+            if (from != home || gen_in_check || captures_only) continue;
             if ((rights & 1) && board[home + 3] == rook
                 && board[home + 1] == 0 && board[home + 2] == 0
                 && !attacked(home + 1, -side))
@@ -409,9 +420,9 @@ static void record_position(void)
     position_key(history[history_count++]);
 }
 
-/* History holds the game and the root. Only main-search nodes (at most
-   MAX_LEVEL plies deep) test repetition, so two of them are never four plies
-   apart and cannot repeat each other. */
+/* History holds the game and the root. Positions repeated only inside the
+   search tree (at best the root's child and its great-grandchild) are not
+   scored as draws; that is a deliberate saving on the Z80. */
 static int repetitions(const unsigned char *key)
 {
     int i, count = 0;
@@ -471,6 +482,11 @@ static void order_moves(int ply)
             - piece_value[iabs(board[m.from])] : 0;
         if (m.promotion) value += 8000 + piece_value[m.promotion];
         if (m.flags & CASTLING) value += 100;
+        if (value < 100) {
+            j = m.from | (m.to << 8);
+            if (j == killers[ply][0]) value = 5000;
+            else if (j == killers[ply][1]) value = 4000;
+        }
         j = i;
         while (j > 0 && order_score[ply][j - 1] < value) {
             memcpy(&moves[ply][j], &moves[ply][j - 1], sizeof(Move));
@@ -526,16 +542,35 @@ static int quiesce(int ply, int alpha, int beta, int qleft, int in_check)
     return best;
 }
 
+static int has_pieces(void)
+{
+    int s, p;
+
+    for (s = 0; s < 128; ++s) {
+        if (s & 0x88) {
+            s += 7;
+            continue;
+        }
+        p = board[s];
+        if (side < 0) p = -p;
+        if (p >= KNIGHT && p < KING) return 1;
+    }
+    return 0;
+}
+
 static int minimax(int depth, int ply, int alpha, int beta)
 {
-    int i, score, best = -INFINITY_SCORE;
+    int i, score, best = -INFINITY_SCORE, in_check, no_null, saved_ep;
     unsigned char key[POSITION_BYTES];
     Undo u;
 
+    no_null = just_nulled;
+    just_nulled = 0;
     if (search_tick()) return 0;
     /* At a leaf, one legal move is enough to rule out mate/stalemate. */
     if (generate(ply, depth == 0 ? GEN_ONE : GEN_ALL) == 0)
         return gen_in_check ? -MATE_SCORE + ply : 0;
+    in_check = gen_in_check;
     if (halfclock >= 100) return 0;
     /* Material only changes on a capture or pawn move, and a search node
        can only repeat a position once four reversible plies have passed. */
@@ -544,7 +579,23 @@ static int minimax(int depth, int ply, int alpha, int beta)
         position_key(key);
         if (repetitions(key) >= 2) return 0;
     }
-    if (depth == 0) return quiesce(ply, alpha, beta, QUIESCE_PLIES, gen_in_check);
+    if (depth == 0) return quiesce(ply, alpha, beta, QUIESCE_PLIES, in_check);
+    /* Pass the move: if even then the position beats beta, it will cut off.
+       Skipped in check, after a pass, near mate scores and without pieces
+       (zugzwang). Only reachable when depth >= 3, so depth <= 3 is exact. */
+    if (depth > NULL_REDUCTION && !in_check && !no_null
+        && beta < MATE_SCORE - MAX_PLY && has_pieces()) {
+        saved_ep = ep_square;
+        ep_square = -1;
+        side = -side;
+        just_nulled = 1;
+        score = -minimax(depth - 1 - NULL_REDUCTION, ply + 1, -beta, -beta + 1);
+        just_nulled = 0;
+        side = -side;
+        ep_square = saved_ep;
+        if (search_stopped) return 0;
+        if (score >= beta) return score >= MATE_SCORE - MAX_PLY ? beta : score;
+    }
     order_moves(ply);
     for (i = 0; i < move_count[ply]; ++i) {
         make_move(&moves[ply][i], &u);
@@ -553,14 +604,43 @@ static int minimax(int depth, int ply, int alpha, int beta)
         if (search_stopped) return 0;
         if (score > best) best = score;
         if (score > alpha) alpha = score;
-        if (alpha >= beta) break;
+        if (alpha >= beta) {
+            if (board[moves[ply][i].to] == 0 && moves[ply][i].promotion == 0
+                && !(moves[ply][i].flags & EP_CAPTURE)) {
+                killers[ply][1] = killers[ply][0];
+                killers[ply][0] = moves[ply][i].from | (moves[ply][i].to << 8);
+            }
+            break;
+        }
     }
     return best;
 }
 
-static int choose_move(Move *choice, int level)
+/* Tip-only root adjustment in the opening: early king walks are penalised
+   (unless castling or escaping check); minor-piece development and central
+   pawn pushes get a small bonus. */
+static int opening_bias(const Move *m)
 {
-    int depth, i, score, best;
+    int piece, home, from_rank;
+
+    piece = iabs(board[m->from]);
+    home = side == WHITE ? 0 : 7;
+    from_rank = m->from >> 4;
+    if (piece == KING) {
+        if ((m->flags & CASTLING) || root_in_check) return 0;
+        return -KING_PENALTY;
+    }
+    if ((piece == KNIGHT || piece == BISHOP) && from_rank == home
+        && (m->to >> 4) != home) return DEVELOP_BONUS;
+    if (piece == PAWN && board[m->to] == 0 && !(m->flags & EP_CAPTURE)
+        && from_rank == (side == WHITE ? 1 : 6)
+        && ((m->from & 7) == 3 || (m->from & 7) == 4)) return DEVELOP_BONUS;
+    return 0;
+}
+
+static int choose_move(Move *choice, int max_depth)
+{
+    int depth, i, score, best, best_raw, bias;
     Move candidate;
     Undo u;
 
@@ -568,29 +648,37 @@ static int choose_move(Move *choice, int level)
     search_stopped = 0;
     completed_depth = 0;
     search_score = 0;
-    if (level < 1 || level > MAX_LEVEL) {
+    just_nulled = 0;
+    memset(killers, 0, sizeof(killers));
+    if (max_depth < 1 || max_depth > MAX_DEPTH) {
         engine_failed = 1;
         return 0;
     }
     if (generate_moves(0) == 0) return 0;
+    root_in_check = gen_in_check;
     eval_white = evaluate_white();
     order_moves(0);
-    for (depth = 1; depth <= level; ++depth) {
+    for (depth = 1; depth <= max_depth; ++depth) {
         best = -INFINITY_SCORE;
+        best_raw = best;
         memcpy(&candidate, &moves[0][0], sizeof(Move));
         for (i = 0; i < move_count[0]; ++i) {
+            if (moves[0][i].from == exclude_from && moves[0][i].to == exclude_to
+                && moves[0][i].promotion == exclude_promotion) continue;
+            bias = tip_bias_on ? opening_bias(&moves[0][i]) : 0;
             make_move(&moves[0][i], &u);
-            score = -minimax(depth - 1, 1, -INFINITY_SCORE, -best);
+            score = -minimax(depth - 1, 1, -INFINITY_SCORE, bias - best);
             unmake_move(&moves[0][i], &u);
             if (search_stopped || engine_failed) break;
-            if (score > best) {
-                best = score;
+            if (score + bias > best) {
+                best = score + bias;
+                best_raw = score;
                 memcpy(&candidate, &moves[0][i], sizeof(Move));
             }
         }
         if (search_stopped || engine_failed) break;
         memcpy(choice, &candidate, sizeof(Move));
-        search_score = best;
+        search_score = best_raw;
         completed_depth = depth;
         /* Search the previous iteration's best move first. */
         for (i = 0; i < move_count[0]; ++i)
@@ -601,9 +689,92 @@ static int choose_move(Move *choice, int level)
                 }
                 break;
             }
-        if (best >= MATE_SCORE - MAX_PLY) break;
+        if (best_raw >= MATE_SCORE - MAX_PLY) break;
     }
     return completed_depth > 0 && !engine_failed;
+}
+
+/* Search depth for the three UI levels: 1 = 3 plies, 2 = 4, 3 = 5. */
+static inline int level_depth(int level)
+{
+    return level + 2;
+}
+
+/* Best net material the side to move can win by capturing on one square,
+   when both sides may stop recapturing at any time. */
+static int exchange_gain(int ply, int to, int limit)
+{
+    int i, value, best = 0;
+    Undo u;
+
+    if (limit == 0) return 0;
+    generate_moves(ply);
+    for (i = 0; i < move_count[ply]; ++i) {
+        if (moves[ply][i].to != to || board[to] == 0) continue;
+        value = piece_value[iabs(board[to])];
+        make_move(&moves[ply][i], &u);
+        value -= exchange_gain(ply + 1, to, limit - 1);
+        unmake_move(&moves[ply][i], &u);
+        if (value > best) best = value;
+    }
+    return best;
+}
+
+/* True when a knight, bishop, rook or queen moves onto a square where the
+   opponent wins at least HANG_LOSS more material than the move captured. */
+static int hangs_piece(const Move *m)
+{
+    int piece, captured, loss;
+    Undo u;
+
+    piece = iabs(board[m->from]);
+    if (piece < KNIGHT || piece == KING) return 0;
+    captured = piece_value[iabs(board[m->to])];
+    make_move(m, &u);
+    loss = exchange_gain(1, m->to, 4);
+    unmake_move(m, &u);
+    return loss - captured >= HANG_LOSS;
+}
+
+/* The tip is the search's best root move at the player's level. Unless that
+   move mates, a piece-hanging choice is replaced by the best alternative
+   when the alternative is within TIP_MARGIN of it and does not hang a piece. */
+static int tip_search(Move *tip, int max_depth)
+{
+    Move first, alt;
+    int first_score, first_depth, found;
+
+    if (!choose_move(tip, max_depth)) return 0;
+    if (search_score >= MATE_SCORE - MAX_PLY || !hangs_piece(tip)) return 1;
+    memcpy(&first, tip, sizeof(Move));
+    first_score = search_score;
+    first_depth = completed_depth;
+    exclude_from = first.from;
+    exclude_to = first.to;
+    exclude_promotion = first.promotion;
+    found = choose_move(&alt, max_depth);
+    exclude_from = exclude_to = -1;
+    exclude_promotion = 0;
+    if (found && first_score - search_score <= TIP_MARGIN && !hangs_piece(&alt)) {
+        memcpy(tip, &alt, sizeof(Move));
+        return 1;
+    }
+    memcpy(tip, &first, sizeof(Move));
+    search_score = first_score;
+    completed_depth = first_depth;
+    return !engine_failed;
+}
+
+/* In the first OPENING_MOVES full moves the search also ranks root moves with
+   opening_bias(); full_moves is 0 for positions set up outside a game. */
+static int choose_tip(Move *tip, int max_depth)
+{
+    int ok;
+
+    tip_bias_on = full_moves >= 1 && full_moves <= OPENING_MOVES;
+    ok = tip_search(tip, max_depth);
+    tip_bias_on = 0;
+    return ok;
 }
 
 static void new_position(void)
@@ -625,6 +796,7 @@ static void new_position(void)
     castle_rights = 15;
     ep_square = -1;
     halfclock = 0;
+    full_moves = 1;
     history_count = 0;
     engine_failed = 0;
     record_position();
@@ -643,7 +815,7 @@ static unsigned char console_buffer[CONSOLE_BUFFER_SIZE];
 static unsigned console_used;
 static int cursor_square, selected_square, hint_from, hint_to;
 static unsigned char legal_targets[128];
-static int level = 2, quit_requested, game_over, promotion_pending;
+static int level = 1, quit_requested, game_over, promotion_pending;
 static int escape_state, wins, losses, draws;
 static char last_move[8], tip_move[8];
 static const char *message;
@@ -685,6 +857,22 @@ static void write_number(int n)
         digits[count++] = '0' + magnitude % 10;
         magnitude /= 10;
     } while (magnitude);
+    while (count) {
+        byte = digits[--count];
+        write_byte(byte);
+    }
+}
+
+static void write_long(unsigned long n)
+{
+    char digits[10];
+    unsigned count = 0;
+    unsigned char byte;
+
+    do {
+        digits[count++] = '0' + (unsigned)(n % 10);
+        n /= 10;
+    } while (n);
     while (count) {
         byte = digits[--count];
         write_byte(byte);
@@ -772,7 +960,9 @@ static void draw_panel(void)
     panel_line(9, "\033[91mBLACK: p n b r q k");
     panel_line(11, "LEVEL: ");
     write_number(level);
-    write_text(level == 1 ? "  Easy" : level == 2 ? "  Medium" : "  Hard");
+    if (level == 1) write_text("  Fast");
+    else if (level == 2) write_text("  Standard");
+    else write_text("  Hard");
     panel_line(12, "Minimax / alpha-beta");
     panel_line(14, side == WHITE ? "\033[36mYour turn (White)"
                                : "\033[33mCPU thinking...");
@@ -784,7 +974,7 @@ static void draw_panel(void)
     panel_line(19, "Search depth: ");
     write_number(completed_depth);
     panel_line(20, "Nodes: ");
-    write_number(node_count);
+    write_long(node_count);
     panel_line(22, "W / L / D: ");
     write_number(wins);
     write_text(" / ");
@@ -943,6 +1133,7 @@ static void play_move(const Move *m)
     Undo u;
 
     move_text(m, last_move);
+    if (side == BLACK) ++full_moves;
     make_move(m, &u);
     record_position();
     clear_selection();
@@ -958,7 +1149,7 @@ static void show_tip(void)
 
     message = "Thinking about a tip... Q or ESC quits during search.";
     draw_panel();
-    if (!choose_move(&m, level)) {
+    if (!choose_tip(&m, level_depth(level))) {
         if (!quit_requested) {
             message = engine_failed ? "ERROR: tip search failed." : "No legal tip.";
             draw_panel();
@@ -1117,7 +1308,7 @@ int main(void)
         if (side == BLACK && !game_over) {
             if (poll_abort()) break;
             draw_panel();
-            if (choose_move(&m, level) && !quit_requested) {
+            if (choose_move(&m, level_depth(level)) && !quit_requested) {
                 play_move(&m);
             } else if (!quit_requested) {
                 game_over = 1;

@@ -28,6 +28,7 @@ static void load_fen(const char *fen)
     castle_rights = 0;
     ep_square = -1;
     halfclock = 0;
+    full_moves = 0;
     history_count = 0;
     engine_failed = 0;
     while (*fen && *fen != ' ') {
@@ -484,8 +485,100 @@ static void search_tests(void)
     check(search_stopped && node_count == NODE_LIMIT
           && memcmp(before, after, POSITION_BYTES) == 0,
           "exact node cap stops search without changing position");
-    check(!choose_move(&m, 4) && engine_failed, "reject unsafe search depth");
+    check(!choose_move(&m, MAX_DEPTH + 1) && engine_failed, "reject unsafe search depth");
     puts("CHESS minimax, tips and restoration PASS");
+}
+
+static void opening_tip_tests(void)
+{
+    static const char *fens[] = {
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1",
+        "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 1"
+    };
+    Move m, tip, plain;
+    unsigned i;
+    int piece;
+
+    load_fen("r3k2r/pppppppp/8/8/8/8/PPPP1PPP/R3K2R w KQkq - 0 1");
+    generate_moves(0);
+    root_in_check = 0;
+    check(find_move("e1e2", 0, &m) && opening_bias(&m) == -KING_PENALTY,
+          "opening king step is penalised");
+    check(find_move("e1c1", 0, &m) && (m.flags & CASTLING) && opening_bias(&m) == 0,
+          "opening castling is not penalised");
+    root_in_check = 1;
+    check(find_move("e1e2", 0, &m) && opening_bias(&m) == 0,
+          "king step out of check is not penalised");
+    root_in_check = 0;
+    load_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    check(find_move("g1f3", 0, &m) && opening_bias(&m) == DEVELOP_BONUS, "knight development bonus");
+    check(find_move("e2e4", 0, &m) && opening_bias(&m) == DEVELOP_BONUS, "central pawn push bonus");
+    check(find_move("a2a3", 0, &m) && opening_bias(&m) == 0, "wing pawn push has no bonus");
+    for (i = 0; i < sizeof(fens) / sizeof(fens[0]); ++i) {
+        load_fen(fens[i]);
+        check(choose_move(&plain, 3), "plain search in the opening");
+        full_moves = 3;
+        check(choose_tip(&tip, 3) && tip_bias_on == 0, "opening tip completes and clears the bias");
+        piece = iabs(board[tip.from]);
+        check(piece != KING, "opening tip is not a king move");
+        check(!hangs_piece(&tip), "opening tip does not hang a piece");
+        full_moves = 0;
+        check(choose_tip(&m, 3) && memcmp(&m, &plain, sizeof(Move)) == 0,
+              "tip outside a game matches the plain search");
+    }
+    puts("CHESS opening tips PASS");
+}
+
+static void tip_tests(void)
+{
+    static const char *fens[] = {
+        "r2k1b1r/1p1bpp2/2p4p/p3P2p/P4P1P/2N5/1PP1PnP1/2KR1B1R w - - 0 1",
+#ifndef _DCC_
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 1",
+#endif
+        "3k4/3p4/8/8/8/8/8/3QK3 w - - 0 1",
+        "4k3/8/8/3pP3/8/8/8/4K2R w K d6 0 1"
+    };
+    Move m, first, tip;
+    unsigned i;
+    int j;
+
+    check(level_depth(1) == 3 && level_depth(2) == 4 && level_depth(3) == 5,
+          "levels 1-3 search 3, 4 and 5 plies");
+    load_fen("3k4/3p4/8/8/8/8/8/3QK3 w - - 0 1");
+    check(find_move("d1d7", 0, &m) && hangs_piece(&m), "queen taking a guarded pawn hangs");
+    check(find_move("d1d2", 0, &m) && !hangs_piece(&m), "queen retreat does not hang");
+    check(find_move("e1e2", 0, &m) && !hangs_piece(&m), "king moves never count as hanging");
+    load_fen("r2k1b1r/1p1bpp2/2p4p/p3P2p/P4P1P/2N5/1PP1PnP1/2KR1B1R w - - 0 1");
+    check(find_move("d1d7", 0, &m) && !hangs_piece(&m),
+          "rook for bishop is not flagged as a hanging piece");
+    load_fen("3k4/3p4/8/8/8/8/8/3QK3 w - - 0 1");
+    check(choose_move(&first, 2), "root search before exclusion");
+    exclude_from = first.from;
+    exclude_to = first.to;
+    exclude_promotion = first.promotion;
+    check(choose_move(&m, 2) && (m.from != first.from || m.to != first.to),
+          "excluded root move is never chosen");
+    exclude_from = exclude_to = -1;
+    exclude_promotion = 0;
+    for (i = 0; i < sizeof(fens) / sizeof(fens[0]); ++i) {
+        load_fen(fens[i]);
+        check(choose_tip(&tip, 3) && completed_depth == 3 && exclude_from == -1,
+              "tip search completes at the level depth");
+        generate_moves(0);
+        for (j = 0; j < move_count[0]; ++j)
+            if (moves[0][j].from == tip.from && moves[0][j].to == tip.to
+                && moves[0][j].promotion == tip.promotion) break;
+        check(j < move_count[0], "tip is a legal move");
+        check(search_score >= MATE_SCORE - MAX_PLY || !hangs_piece(&tip),
+              "tip does not hang a piece without compensation");
+    }
+    load_fen("3k4/3p4/8/8/8/8/8/3QK3 w - - 0 1");
+    check(choose_tip(&tip, 3) && !hangs_piece(&tip), "tip avoids the poisoned pawn");
+    opening_tip_tests();
+    puts("CHESS levels and tips PASS");
 }
 
 int main(void)
@@ -494,6 +587,7 @@ int main(void)
     rule_tests();
     eval_tests();
     search_tests();
+    tip_tests();
     printf("CHESS tests: %d failures\n", failures);
     return failures ? 1 : 0;
 }

@@ -135,7 +135,7 @@ static void gameplay_tests(void)
     handle_action(KEY_UP);
     handle_action(13);
     assert(board[52] == PAWN && board[20] == 0 && side == BLACK);
-    assert(choose_move(&m, level));
+    assert(choose_move(&m, level_depth(level)));
     play_move(&m);
     assert(side == WHITE && !game_over && !engine_failed);
     reset_output();
