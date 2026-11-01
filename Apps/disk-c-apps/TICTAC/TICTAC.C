@@ -3,12 +3,15 @@
  * dcc C on CP/M 2.2, using the shared service client.
  *
  * 5x5 board, get 4 in a row to win
- * Player (X) vs Computer (O) with heuristic AI
+ * Draw early when every winning line is blocked
+ * Player (X) vs Computer (O) with two-ply alpha-beta minimax
+ * Random CPU opening in the central 3x3
  * Tetris-style colorful VT100 cabinet display
  *
  * Controls:
  *   Arrow keys: Move cursor
  *   SPACE:      Place piece
+ *   T:          Tip (highlight a recommended move)
  *   Q/ESC:      Quit
  */
 
@@ -40,7 +43,13 @@
 #define K_RT 4
 #define K_PLC 5
 #define K_QUI 6
+#define K_TIP 7
 #define CONSOLE_BUFFER_SIZE 2048
+#define AI_DEPTH 2
+#define AI_WIN 30000
+#define AI_DRAW 31000
+#define AI_INF 32000
+#define WIN_LINES 28
 
 int brd[BSIZ][BSIZ];
 int crow, ccol;
@@ -51,6 +60,27 @@ int result;
 int escst, escct;
 static unsigned char console_buffer[CONSOLE_BUFFER_SIZE];
 static unsigned console_buffer_used;
+static const unsigned char wincells[WIN_LINES][WLEN] = {
+    {0, 1, 2, 3}, {1, 2, 3, 4},
+    {5, 6, 7, 8}, {6, 7, 8, 9},
+    {10, 11, 12, 13}, {11, 12, 13, 14},
+    {15, 16, 17, 18}, {16, 17, 18, 19},
+    {20, 21, 22, 23}, {21, 22, 23, 24},
+    {0, 5, 10, 15}, {5, 10, 15, 20},
+    {1, 6, 11, 16}, {6, 11, 16, 21},
+    {2, 7, 12, 17}, {7, 12, 17, 22},
+    {3, 8, 13, 18}, {8, 13, 18, 23},
+    {4, 9, 14, 19}, {9, 14, 19, 24},
+    {0, 6, 12, 18}, {1, 7, 13, 19},
+    {5, 11, 17, 23}, {6, 12, 18, 24},
+    {3, 7, 11, 15}, {4, 8, 12, 16},
+    {8, 12, 16, 20}, {9, 13, 17, 21}
+};
+static const unsigned char central[9] = {6, 7, 8, 11, 12, 13, 16, 17, 18};
+static unsigned char aiboard[BSIZ * BSIZ];
+static unsigned char aiorder[BSIZ * BSIZ];
+static int aicount;
+static int tipactive;
 
 static void console_flush(void)
 {
@@ -134,16 +164,14 @@ static void delay_ms(int timer, unsigned milliseconds)
 }
 
 /* pstr(s) - Print a NUL-terminated string. */
-int pstr(s)
-char *s;
+int pstr(const char *s)
 {
     write_text(s);
     return 0;
 }
 
 /* pbg(p) - Block background color for a piece. */
-int pbg(p)
-int p;
+int pbg(int p)
 {
     if (p == HUM) return 41;
     if (p == COMP) return 44;
@@ -151,9 +179,7 @@ int p;
 }
 
 /* cbg(r,c) - Checker color for cabinet border. */
-int cbg(r, c)
-int r;
-int c;
+int cbg(int r, int c)
 {
     if (((r / 2) + (c / 2)) & 1)
         return 100;
@@ -161,10 +187,7 @@ int c;
 }
 
 /* drwcel(r,c,hi) - Draw one board cell. hi=highlight. */
-int drwcel(r, c, hi)
-int r;
-int c;
-int hi;
+int drwcel(int r, int c, int hi)
 {
     int sr, sc, p, bg, row;
 
@@ -237,7 +260,7 @@ int hi;
 }
 
 /* drwgrd() - Draw grid separator lines. */
-int drwgrd()
+int drwgrd(void)
 {
     int r, c, gr, gc;
 
@@ -287,7 +310,7 @@ int drwgrd()
 }
 
 /* drwbrd() - Draw the entire board. */
-int drwbrd()
+int drwbrd(void)
 {
     int r, c;
 
@@ -299,7 +322,7 @@ int drwbrd()
 }
 
 /* border() - Draw the checker cabinet border. */
-int border()
+int border(void)
 {
     int r, c, bw, bh;
 
@@ -338,7 +361,7 @@ int border()
 }
 
 /* title() - Draw heading and controls. */
-int title()
+int title(void)
 {
     cursor(1, 1);
     color(36);
@@ -352,7 +375,7 @@ int title()
 
     cursor(2, 1);
     color(37);
-    pstr("Arrows Move  SPACE Place  Q/ESC Quit");
+    pstr("Arrows Move  SPACE Place  T Tip  Q/ESC Quit");
     reset_color();
 
     cursor(3, 1);
@@ -363,7 +386,7 @@ int title()
 }
 
 /* stats() - Draw score area. */
-int stats()
+int stats(void)
 {
     cursor(6, 1);
     color(35);
@@ -397,7 +420,7 @@ int stats()
 }
 
 /* turndr() - Draw whose turn it is. */
-int turndr()
+int turndr(void)
 {
     cursor(NROW, NCOL);
     color(36);
@@ -436,200 +459,196 @@ int turndr()
     return 0;
 }
 
-/* evline(r,c,dr,dc) - Evaluate line of WLEN for AI. */
-int evline(r, c, dr, dc)
-int r;
-int c;
-int dr;
-int dc;
+static int aieval(void)
 {
-    int i, pr, pc, h, m;
+    static const int weights[WLEN] = {0, 1, 10, 100};
+    int line, i, piece, h, m, live = 0, score = 0;
 
-    h = 0;
-    m = 0;
-    for (i = 0; i < WLEN; i++)
+    for (line = 0; line < WIN_LINES; line++)
     {
-        pr = r + i * dr;
-        pc = c + i * dc;
-        if (pr < 0 || pr >= BSIZ)
-            return 0;
-        if (pc < 0 || pc >= BSIZ)
-            return 0;
-        if (brd[pr][pc] == HUM) h++;
-        if (brd[pr][pc] == COMP) m++;
+        h = m = 0;
+        for (i = 0; i < WLEN; i++)
+        {
+            piece = aiboard[wincells[line][i]];
+            if (piece == HUM) h++;
+            if (piece == COMP) m++;
+        }
+        if (h == WLEN) return -AI_WIN;
+        if (m == WLEN) return AI_WIN;
+        if (h && m) continue;
+        live = 1;
+        score += weights[m] - weights[h];
     }
-    if (h > 0 && m > 0)
-        return 0;
-    if (m == 3) return 10000;
-    if (h == 3) return 5000;
-    if (m == 2) return 100;
-    if (h == 2) return 50;
-    if (m == 1) return 10;
-    if (h == 1) return 5;
-    return 1;
+    if (!live) return AI_DRAW;
+    for (i = 0; i < 9; i++)
+    {
+        piece = aiboard[central[i]];
+        h = i == 4 ? 20 : 5;
+        if (piece == EMP) continue;
+        score += piece == COMP ? h : -h;
+    }
+    return score;
 }
 
-/* aiscor(r,c) - Score an empty cell for AI. */
-long aiscor(r, c)
-int r;
-int c;
+static void aiprep(int who)
 {
-    long sc;
-    int off, s;
+    int i, j, cell, score, scores[BSIZ * BSIZ];
 
-    sc = 0;
-
-    /* Horizontal lines through (r,c) */
-    for (off = 0; off < WLEN; off++)
+    for (i = 0; i < BSIZ * BSIZ; i++)
+        aiboard[i] = brd[i / BSIZ][i % BSIZ];
+    aicount = 0;
+    for (cell = 0; cell < BSIZ * BSIZ; cell++)
     {
-        s = evline(r, c - off, 0, 1);
-        sc = sc + s;
+        if (aiboard[cell] != EMP) continue;
+        aiboard[cell] = who;
+        score = aieval();
+        aiboard[cell] = EMP;
+        if (score == AI_DRAW) score = 0;
+        j = aicount;
+        while (j > 0 && (who == COMP ? scores[j - 1] < score :
+                                       scores[j - 1] > score))
+        {
+            scores[j] = scores[j - 1];
+            aiorder[j] = aiorder[j - 1];
+            j--;
+        }
+        scores[j] = score;
+        aiorder[j] = cell;
+        aicount++;
+    }
+}
+
+static int minimax(int depth, int who, int alpha, int beta)
+{
+    int i, cell, score, best;
+
+    score = aieval();
+    if (score == AI_WIN) return AI_WIN + depth;
+    if (score == -AI_WIN) return -AI_WIN - depth;
+    if (score == AI_DRAW) return 0;
+    if (depth == 0) return score;
+
+    best = who == COMP ? -AI_INF : AI_INF;
+    for (i = 0; i < aicount; i++)
+    {
+        cell = aiorder[i];
+        if (aiboard[cell] != EMP) continue;
+        aiboard[cell] = who;
+        score = minimax(depth - 1, HUM + COMP - who, alpha, beta);
+        aiboard[cell] = EMP;
+        if (who == COMP)
+        {
+            if (score > best) best = score;
+            if (best > alpha) alpha = best;
+        }
+        else
+        {
+            if (score < best) best = score;
+            if (best < beta) beta = best;
+        }
+        if (alpha >= beta) break;
+    }
+    return best;
+}
+
+static int aiopen(void)
+{
+    int r, c, i, cell, humans = 0, count = 0;
+    int cells[9];
+
+    /* Only the first reply: exactly one X and no O on the board. */
+    for (r = 0; r < BSIZ; r++)
+        for (c = 0; c < BSIZ; c++)
+        {
+            if (brd[r][c] == COMP)
+                return -1;
+            if (brd[r][c] == HUM)
+                humans++;
+        }
+    if (humans != 1)
+        return -1;
+
+    for (i = 0; i < 9; i++)
+    {
+        cell = central[i];
+        if (brd[cell / BSIZ][cell % BSIZ] == EMP)
+            cells[count++] = cell;
     }
 
-    /* Vertical lines */
-    for (off = 0; off < WLEN; off++)
+    return cells[svc_random_u16() % count];
+}
+
+static int aichoose(int who)
+{
+    int i, cell, score, best, ties = 0;
+    int choices[BSIZ * BSIZ];
+
+    aiprep(who);
+    if (aicount == 0) return -1;
+    best = who == COMP ? -AI_INF : AI_INF;
+    for (i = 0; i < aicount; i++)
     {
-        s = evline(r - off, c, 1, 0);
-        sc = sc + s;
+        cell = aiorder[i];
+        aiboard[cell] = who;
+        if (who == COMP)
+            score = minimax(AI_DEPTH - 1, HUM, best, AI_INF);
+        else
+            score = minimax(AI_DEPTH - 1, COMP, -AI_INF, best);
+        /* A cutoff equal to best is only a bound, not an exact tie. */
+        if (score == best)
+            score = minimax(AI_DEPTH - 1, HUM + COMP - who, -AI_INF, AI_INF);
+        aiboard[cell] = EMP;
+        if (who == COMP ? score > best : score < best)
+        {
+            best = score;
+            ties = 0;
+        }
+        if (score == best)
+            choices[ties++] = cell;
     }
-
-    /* Diagonal \ lines */
-    for (off = 0; off < WLEN; off++)
-    {
-        s = evline(r - off, c - off, 1, 1);
-        sc = sc + s;
-    }
-
-    /* Diagonal / lines */
-    for (off = 0; off < WLEN; off++)
-    {
-        s = evline(r - off, c + off, 1, -1);
-        sc = sc + s;
-    }
-
-    /* Center and inner ring bonus */
-    if (r == 2 && c == 2) sc = sc + 15;
-    if (r >= 1 && r <= 3 && c >= 1 && c <= 3)
-        sc = sc + 5;
-
-    return sc;
+    return choices[ties > 1 ? svc_random_u16() % ties : 0];
 }
 
 /* aimove() - Computer selects and places a move. */
-int aimove()
+int aimove(void)
 {
-    int r, c, br, bc;
-    long sc, best;
-    int ties, rn;
+    int cell;
 
-    best = -1;
-    br = 0;
-    bc = 0;
-    ties = 0;
-
-    for (r = 0; r < BSIZ; r++)
+    cell = aiopen();
+    if (cell < 0) cell = aichoose(COMP);
+    if (cell < 0)
     {
-        for (c = 0; c < BSIZ; c++)
-        {
-            if (brd[r][c] != EMP)
-                continue;
-            sc = aiscor(r, c);
-            if (sc > best)
-            {
-                best = sc;
-                br = r;
-                bc = c;
-                ties = 1;
-            }
-            else if (sc == best)
-            {
-                ties++;
-                rn = svc_random_u16() % ties;
-                if (rn == 0)
-                {
-                    br = r;
-                    bc = c;
-                }
-            }
-        }
+        result = 3;
+        gstat = DONE;
+        return 0;
     }
 
-    brd[br][bc] = COMP;
-    drwcel(br, bc, 0);
+    brd[cell / BSIZ][cell % BSIZ] = COMP;
+    drwcel(cell / BSIZ, cell % BSIZ, 0);
     return 0;
 }
 
 /* chkwin(who) - Check if who has 4 in a row. */
-int chkwin(who)
-int who;
+int chkwin(int who)
 {
-    int r, c, i, ok;
+    int line, i, cell, ok;
 
-    /* Horizontal */
-    for (r = 0; r < BSIZ; r++)
+    for (line = 0; line < WIN_LINES; line++)
     {
-        for (c = 0; c <= BSIZ - WLEN; c++)
+        ok = 1;
+        for (i = 0; i < WLEN; i++)
         {
-            ok = 1;
-            for (i = 0; i < WLEN; i++)
-            {
-                if (brd[r][c + i] != who)
-                    ok = 0;
-            }
-            if (ok) return 1;
+            cell = wincells[line][i];
+            if (brd[cell / BSIZ][cell % BSIZ] != who)
+                ok = 0;
         }
+        if (ok) return 1;
     }
-
-    /* Vertical */
-    for (c = 0; c < BSIZ; c++)
-    {
-        for (r = 0; r <= BSIZ - WLEN; r++)
-        {
-            ok = 1;
-            for (i = 0; i < WLEN; i++)
-            {
-                if (brd[r + i][c] != who)
-                    ok = 0;
-            }
-            if (ok) return 1;
-        }
-    }
-
-    /* Diagonal \ */
-    for (r = 0; r <= BSIZ - WLEN; r++)
-    {
-        for (c = 0; c <= BSIZ - WLEN; c++)
-        {
-            ok = 1;
-            for (i = 0; i < WLEN; i++)
-            {
-                if (brd[r + i][c + i] != who)
-                    ok = 0;
-            }
-            if (ok) return 1;
-        }
-    }
-
-    /* Diagonal / */
-    for (r = 0; r <= BSIZ - WLEN; r++)
-    {
-        for (c = WLEN - 1; c < BSIZ; c++)
-        {
-            ok = 1;
-            for (i = 0; i < WLEN; i++)
-            {
-                if (brd[r + i][c - i] != who)
-                    ok = 0;
-            }
-            if (ok) return 1;
-        }
-    }
-
     return 0;
 }
 
 /* chkful() - Check if board is full (draw). */
-int chkful()
+int chkful(void)
 {
     int r, c;
 
@@ -640,9 +659,62 @@ int chkful()
     return 1;
 }
 
+static int winleft(void)
+{
+    int line, i, cell, pieces;
+
+    for (line = 0; line < WIN_LINES; line++)
+    {
+        pieces = 0;
+        for (i = 0; i < WLEN; i++)
+        {
+            cell = wincells[line][i];
+            pieces |= brd[cell / BSIZ][cell % BSIZ];
+        }
+        if (pieces != (HUM | COMP)) return 1;
+    }
+    return 0;
+}
+
+static void tiptext(const char *text)
+{
+    cursor(26, BCOL);
+    write_text("\033[K");
+    color(36);
+    pstr(text);
+    reset_color();
+}
+
+static void give_tip(void)
+{
+    int cell;
+
+    if (gstat != PLAY || turn != HUM)
+    {
+        tiptext("Tips are only available on your turn.");
+        console_flush();
+        return;
+    }
+    tiptext("Finding tip...");
+    console_flush();
+    cell = aichoose(HUM);
+    if (cell < 0)
+    {
+        tiptext("No legal moves available.");
+        console_flush();
+        return;
+    }
+    drwcel(crow, ccol, 0);
+    crow = cell / BSIZ;
+    ccol = cell % BSIZ;
+    drwcel(crow, ccol, 1);
+    tipactive = 1;
+    tiptext("Tip: highlighted square. SPACE to play.");
+    console_flush();
+}
+
 /* keymap(ch) - Decode key with ANSI sequence support. */
-int keymap(ch)
-int ch;
+int keymap(int ch)
 {
     if (escst == 2)
     {
@@ -673,6 +745,7 @@ int ch;
     }
 
     if (ch == 'q' || ch == 'Q') return K_QUI;
+    if (ch == 't' || ch == 'T') return K_TIP;
     if (ch == 5) return K_UP;
     if (ch == 24) return K_DN;
     if (ch == 19) return K_LT;
@@ -682,7 +755,7 @@ int ch;
 }
 
 /* esctik() - Lone ESC becomes quit after grace period. */
-int esctik()
+int esctik(void)
 {
     if (escst == 1)
     {
@@ -697,13 +770,22 @@ int esctik()
 }
 
 /* dokey(k) - Handle one decoded key action. */
-int dokey(k)
-int k;
+int dokey(int k)
 {
     if (k == K_QUI)
     {
         gstat = QUIT;
         return 0;
+    }
+    if (k == K_TIP)
+    {
+        give_tip();
+        return 0;
+    }
+    if (tipactive && k >= K_UP && k <= K_PLC)
+    {
+        tiptext("");
+        tipactive = 0;
     }
 
     if (k == K_UP && crow > 0)
@@ -744,6 +826,11 @@ int k;
             result = 3;
             gstat = DONE;
         }
+        else if (!winleft())
+        {
+            result = 4;
+            gstat = DONE;
+        }
         else
         {
             turn = COMP;
@@ -754,7 +841,7 @@ int k;
 }
 
 /* hmturn() - Run one tick of the human turn. */
-int hmturn()
+int hmturn(void)
 {
     int ch, k;
 
@@ -773,7 +860,7 @@ int hmturn()
 }
 
 /* cpturn() - Run the CPU turn. */
-int cpturn()
+int cpturn(void)
 {
     delay_ms(1, 400);
     aimove();
@@ -788,6 +875,11 @@ int cpturn()
         result = 3;
         gstat = DONE;
     }
+    else if (!winleft())
+    {
+        result = 4;
+        gstat = DONE;
+    }
     else
     {
         turn = HUM;
@@ -798,7 +890,7 @@ int cpturn()
 }
 
 /* overdr() - Draw game result message. */
-int overdr()
+int overdr(void)
 {
     cursor(16, 1);
     if (result == 1)
@@ -818,6 +910,12 @@ int overdr()
         color(33);
         pstr("DRAW!       ");
         drws++;
+        if (result == 4)
+        {
+            cursor(26, BCOL);
+            color(5);
+            pstr("No winning moves left.");
+        }
     }
     reset_color();
 
@@ -831,7 +929,7 @@ int overdr()
 }
 
 /* replay() - Ask play again, return 1 to continue. */
-int replay()
+int replay(void)
 {
     int ch;
 
@@ -850,7 +948,7 @@ int replay()
 }
 
 /* ginit() - Reset board and state for new game. */
-int ginit()
+int ginit(void)
 {
     int r, c;
 
@@ -865,11 +963,12 @@ int ginit()
     result = 0;
     escst = 0;
     escct = 0;
+    tipactive = 0;
     return 0;
 }
 
 /* main() - Program entry point. */
-int main()
+int main(void)
 {
     int run;
 

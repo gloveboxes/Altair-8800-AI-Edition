@@ -1,6 +1,6 @@
 ---
 name: dcc-cpm-z80
-description: 'Write, build, test, and debug C89/C99/C11-targeted code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, dccmake, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, DXSVC, ROMLESS-SVC, or VT100/ANSI CP/M terminal apps. Treat dcc as standard C89 plus a first-class _Bool scalar type and target-appropriate C99/C11 front-end compatibility EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
+description: 'Write, build, test, and debug C89/C99/C11-targeted code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, dccmake, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, DXSVC, ROMLESS-SVC, or VT100/ANSI CP/M terminal apps; also covers `static inline` helper support. Treat dcc as standard C89 plus a first-class _Bool scalar type and target-appropriate C99/C11 front-end compatibility EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
 argument-hint: 'Describe the C89/C99/C11 CP/M-Z80 task (write code, build, run under ntvcm, debug a failure)'
 ---
 
@@ -141,7 +141,12 @@ comments, and block-scoped declarations (inner blocks shadow outer names).
 constant-folds initializers only — not read-only memory).
 K&R function definitions are still accepted; prefer prototypes for new code.
 
-`static inline` is the supported inline form for small helper functions. dcc can
+`static inline` is the supported inline form for small helper functions, e.g.
+`static inline int iabs(int v) { return v < 0 ? -v : v; }` (see
+`Apps/disk-c-apps/CHESS/CHESS.C`). dcc's conformance table lists it as
+"supported for a useful subset"; the `inline` keyword alone is accepted but
+emitted as an ordinary function, and C99 external-`inline` linkage is not
+implemented. dcc can
 inline simple return-expression helpers, early-return `if` chains lowered to
 conditional expressions, simple struct/pointer member accessors,
 statement-context `void` helpers made of one or more expression statements such

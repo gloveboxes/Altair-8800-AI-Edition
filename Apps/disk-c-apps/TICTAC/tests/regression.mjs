@@ -27,13 +27,15 @@ function run(command, args, cwd = repo) {
     assert.equal(result.status, 0, output);
     return output;
 }
-run(process.env.CC ?? 'cc', ['-std=c99', '-Wall', '-Wextra', '-Werror',
-    '-Wno-deprecated-non-prototype', '-fsanitize=address,undefined',
+run(process.env.CC ?? 'cc', ['-std=c11', '-Wall', '-Wextra', '-Werror',
+    '-Wstrict-prototypes', '-fsanitize=address,undefined',
     path.join(here, 'game_test.c'), '-o', path.join(work, 'game-test')]);
 const hostOutput = run(path.join(work, 'game-test'), []);
 assert.match(hostOutput, /TICTAC game logic PASS/);
 assert.match(hostOutput, /TICTAC raw console PASS/);
-console.log('Game logic, AI, raw console buffering/input and timer calls PASS');
+assert.match(hostOutput, /TICTAC two-ply minimax, independent oracle, tactics and restoration PASS/);
+assert.match(hostOutput, /TICTAC T\/t tips, human minimax oracle, no moves\/scores changed and SPACE\/clear\/reset PASS/);
+console.log('T/t tips, human/CPU minimax oracles, openings, raw console and timers PASS');
 const build = path.join(work, 'build');
 run(path.join(dcc, 'dccmake'), [`dcc-build-dir=${build}`], path.resolve(here, '..'));
 const core = path.join(repo, 'altair8800');
@@ -127,13 +129,18 @@ try {
             41, 43, 44, 90, 97, 100, 107]);
         for (const [, code] of startup.matchAll(/\x1b\[(\d+)m/g))
             assert(colors.has(+code), `Invalid terminal color: ${code}`);
+        assert(startup.includes('T Tip'), 'Missing tip control');
+        const tip = await until('Tip: highlighted square. SPACE to play.',
+                                await call(game === 0 ? 't' : 'T'));
+        assert(tip.includes('Finding tip...'), 'Missing tip search feedback');
+        assert(!tip.includes('CPU thinking'), 'Tip played the human move');
         const first = await call(' ');
         const output = await until('Your turn', first);
         assert(output.includes('CPU thinking'), 'Human placement did not reach CPU turn');
         assert(output.includes('  OO  '), 'CPU did not place its piece');
         await until('Thanks for playing!', await call('q'));
     }
-    console.log('Real Z80/CP-M: exact VT100 setup, cursor/colors/scores, human/CPU turns, Q and relaunch PASS');
+    console.log('Real Z80/CP-M: VT100 setup, T/t tips, SPACE, human/CPU turns, Q and relaunch PASS');
 } finally {
     if (pending) clearTimeout(pending.timer);
     child.stdin.end();

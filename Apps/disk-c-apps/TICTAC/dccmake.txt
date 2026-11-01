@@ -4,6 +4,7 @@ dcc-output=TICTAC
 dcc-floatio=false
 dcc-flongio=false
 dcc-peep=true
+dcc-stack-bytes=1024
 dcc-build-dir=build
 dcc-runtime=${DCC_DIR}/DCCRTL.MAC
 dcc-include-directory=${DCC_DIR}, ../../COMMON

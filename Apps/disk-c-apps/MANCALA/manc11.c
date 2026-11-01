@@ -27,7 +27,7 @@
  *   1-6                Select pit
  *   Space or Return    Sow selected pit
  *   U                  Undo last player move
- *   ? or T             Hint
+ *   T                  Tip
  *   Q, ESC, Ctrl-C     Quit
  */
 
@@ -35,6 +35,12 @@
 #define TOTAL_PITS 14
 #define HUMAN_STORE 6
 #define COMPUTER_STORE 13
+
+/* All 48 beans score at most 24000, leaving room for root tactical bonuses
+ * inside the search bounds and the Z80's signed 16-bit int range. */
+#define SCORE_SCALE 2
+#define ENDGAME_BEAN_SCORE (1000 / SCORE_SCALE)
+#define SEARCH_INFINITY 30000
 
 #define SCREEN_WIDTH 80
 #define SCREEN_HEIGHT 30
@@ -215,7 +221,7 @@ static uint16_t random_word(void)
 
 /* --- forward declarations -------------------------------------------- */
 
-static void show_hint(void);
+static void show_tip(void);
 static void redraw(int i);
 static void draw_pit(int i, bool highlighted);
 static void update_pit(int i);
@@ -503,7 +509,7 @@ static void draw_help(void)
     clear_note_row(28);
     set_color(37);
     cursor_move(28, 5);
-    write_text("KEYS: 1-6 SELECT  SPACE SOW  U UNDO  E/M/H LEVEL  ? HINT  Q QUIT");
+    write_text("KEYS: 1-6 SELECT  SPACE SOW  U UNDO  E/M/H LEVEL  T TIP  Q QUIT");
     reset_color();
 }
 
@@ -810,7 +816,7 @@ static int move_order_score(const uint8_t b[], int i, enum player p)
     int val;
 
     if (!owns_pit(i, p) || b[i] == 0)
-        return -30000;
+        return -SEARCH_INFINITY;
     board_copy(tb, b);
     st = store_index(p);
     old = tb[st];
@@ -848,11 +854,12 @@ static int board_score(const uint8_t b[])
             cm++;
     }
     if (hs == 0 || cs == 0)
-        return ((b[COMPUTER_STORE] + cs) - (b[HUMAN_STORE] + hs)) * 1000;
+        return ((b[COMPUTER_STORE] + cs) - (b[HUMAN_STORE] + hs)) *
+               ENDGAME_BEAN_SCORE;
     cdif = b[COMPUTER_STORE] - b[HUMAN_STORE];
     pdif = cs - hs;
     mdif = cm - hm;
-    return (cdif * 100) + (pdif * 4) + (mdif * 3);
+    return ((cdif * 100) + (pdif * 4) + (mdif * 3)) / SCORE_SCALE;
 }
 
 /* Build a tactical move order. */
@@ -924,7 +931,7 @@ static int alpha_beta(const uint8_t b[], enum player p, int depth, int alpha,
         }
     }
 
-    best = (p == PLAYER_COMPUTER) ? -30000 : 30000;
+    best = (p == PLAYER_COMPUTER) ? -SEARCH_INFINITY : SEARCH_INFINITY;
 
     if (p == PLAYER_HUMAN) {
         for (int i = 0; i < n; i++) {
@@ -1082,8 +1089,8 @@ static void play_human_turn(void)
             set_difficulty(LEVEL_HARD);
             continue;
         }
-        if (c == '?' || c == 'T' || c == 't') {
-            show_hint();
+        if (c == 'T' || c == 't') {
+            show_tip();
             continue;
         }
         if (c == 'U' || c == 'u') {
@@ -1122,8 +1129,8 @@ static int computer_pick(void)
 {
     int n;
     int best = 7;
-    int bval = -30000;
-    int alpha = -30000;
+    int bval = -SEARCH_INFINITY;
+    int alpha = -SEARCH_INFINITY;
     int depth;
     bool order;
     int mv[6];
@@ -1152,14 +1159,16 @@ static int computer_pick(void)
         int i = mv[j];
         enum sow_result result;
         int val;
+        int bonus = move_order_score(board, i, PLAYER_COMPUTER) / (10 * SCORE_SCALE);
 
         board_copy(nb, board);
         result = board_sow(nb, i, PLAYER_COMPUTER);
+        /* Search bounds exclude the tactical bonus added at the root. */
         val = alpha_beta(nb,
                          result == SOW_EXTRA_TURN ? PLAYER_COMPUTER : PLAYER_HUMAN,
-                         depth - 1, alpha, 30000, order);
-        val += move_order_score(board, i, PLAYER_COMPUTER) / 10;
-        if (val > bval) {
+                         depth - 1, alpha - bonus, SEARCH_INFINITY, order);
+        val += bonus;
+        if (j == 0 || val > bval) {
             bval = val;
             best = i;
         }
@@ -1169,26 +1178,29 @@ static int computer_pick(void)
     return best;
 }
 
-/* Pick a hard hint for the human. */
-static int hint_pick(void)
+/* Pick a hard tip for the human. */
+static int tip_pick(void)
 {
     int best = -1;
-    int bval = 30000;
+    int bval = SEARCH_INFINITY;
     uint8_t nb[TOTAL_PITS];
 
     for (int i = 0; i < HUMAN_STORE; i++) {
         enum sow_result result;
         int val;
+        int bonus;
 
         if (board[i] == 0)
             continue;
+        bonus = move_order_score(board, i, PLAYER_HUMAN) / (10 * SCORE_SCALE);
         board_copy(nb, board);
         result = board_sow(nb, i, PLAYER_HUMAN);
+        /* Undo the root bonus before passing the incumbent score as beta. */
         val = alpha_beta(nb,
                          result == SOW_EXTRA_TURN ? PLAYER_HUMAN : PLAYER_COMPUTER,
-                         4, -30000, bval, true);
-        val -= move_order_score(board, i, PLAYER_HUMAN) / 10;
-        if (val < bval) {
+                         4, -SEARCH_INFINITY, bval + bonus, true);
+        val -= bonus;
+        if (best < 0 || val < bval) {
             bval = val;
             best = i;
         }
@@ -1196,18 +1208,18 @@ static int hint_pick(void)
     return best;
 }
 
-/* Show a human hint. */
-static void show_hint(void)
+/* Show a human tip. */
+static void show_tip(void)
 {
     int i;
 
-    show_message("THINKING ABOUT A HINT...");
-    i = hint_pick();
+    show_message("THINKING ABOUT A TIP...");
+    i = tip_pick();
     if (i < 0) {
-        show_message("NO HINT: YOU HAVE NO LEGAL MOVE");
+        show_message("NO TIP: YOU HAVE NO LEGAL MOVE");
     } else {
         select_pit(i);
-        show_message("HINT: TRY THE HIGHLIGHTED PIT");
+        show_message("TIP: TRY THE HIGHLIGHTED PIT");
     }
 }
 
