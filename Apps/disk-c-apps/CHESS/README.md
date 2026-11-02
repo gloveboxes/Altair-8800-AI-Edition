@@ -9,7 +9,7 @@ pieces are Black. No Unicode chess font is required.
 
 | Key | Action |
 | --- | --- |
-| Arrows, or Ctrl-E/X/S/D | Move the cyan cursor up/down/left/right |
+| Arrows, or Ctrl-E/X/S/D | Move the magenta cursor up/down/left/right |
 | Space or Enter | Select a White piece, then move to a dotted legal destination |
 | T | Calculate a tip; move from the cursor to the green destination |
 | 1 / 2 / 3 | Fast / Standard / Hard (3 / 4 / 5 plies); Fast is the default |

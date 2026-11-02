@@ -924,22 +924,33 @@ static void draw_cell(int square)
 
     row = 6 + (7 - square / 16) * 2;
     col = 8 + square % 16 * 5;
-    bg = ((square / 16 + square % 16) & 1) ? 100 : 44;
+    bg = ((square / 16 + square % 16) & 1) ? 46 : 44;
     if (square == hint_from || square == hint_to) bg = 42;
     if (square == selected_square) bg = 43;
-    if (square == cursor_square) bg = 46;
+    if (square == cursor_square) bg = 45;
     cursor(row, col);
     color(bg);
     write_text("     ");
     cursor(row + 1, col);
     color(bg);
-    p = board[square];
-    color(p < 0 ? 91 : bg == 42 || bg == 43 || bg == 46 ? 30 : 97);
     write_byte(' ');
+    /* Each piece sits on its own white or black chip, so it is readable on
+       any square colour. */
+    p = board[square];
+    if (p > 0) {
+        color(107);
+        color(30);
+    } else if (p < 0) {
+        color(40);
+        color(97);
+    } else {
+        color(bg == 44 || bg == 45 ? 97 : 30);
+    }
     write_byte(square == cursor_square ? '[' : ' ');
     if (p) write_byte(p > 0 ? letters[p] : black_letters[-p]);
     else write_byte(legal_targets[square] ? '.' : ' ');
     write_byte(square == cursor_square ? ']' : ' ');
+    color(bg);
     write_byte(' ');
     write_text("\033[0m");
 }
@@ -956,8 +967,8 @@ static void draw_board(void)
 static void draw_panel(void)
 {
     panel_line(6, "\033[36mHUMAN vs CPU");
-    panel_line(8, "\033[97mWHITE: P N B R Q K");
-    panel_line(9, "\033[91mBLACK: p n b r q k");
+    panel_line(8, "\033[97mWHITE: \033[107;30m P N B R Q K ");
+    panel_line(9, "\033[97mBLACK: \033[40;97m p n b r q k ");
     panel_line(11, "LEVEL: ");
     write_number(level);
     if (level == 1) write_text("  Fast");
