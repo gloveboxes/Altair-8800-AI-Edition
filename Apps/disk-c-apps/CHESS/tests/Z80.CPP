@@ -183,7 +183,7 @@ static void gameplay_tests()
     call("show_tip");
     call("position_key", {0xc040});
     assert(std::memcmp(memory + 0xc000, memory + 0xc040, 35) == 0);
-    assert(output.find("TIP: try the green squares") != std::string::npos);
+    assert(output.find("TIP: move to the * square") != std::string::npos);
     call("handle_action", {' '});
     keys = {27, '[', 'A'};
     assert(call("read_action") == 0 && call("read_action") == 0);

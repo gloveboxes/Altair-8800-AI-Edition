@@ -3,7 +3,9 @@
 Human (White) versus CPU (Black) chess, with a colourful 80-column by 30-row
 VT100/ANSI display inspired by [TICTAC](../TICTAC/TICTAC.C) and
 [Mancala](../MANCALA/manc11.c). ASCII uppercase pieces are White; lowercase
-pieces are Black. No Unicode chess font is required.
+pieces are Black. No Unicode chess font is required. Pieces are drawn as white
+or black chips on a green and blue board, and the tip destination carries a
+`*`, so the game never relies on telling colours apart.
 
 ## Controls
 
@@ -11,7 +13,7 @@ pieces are Black. No Unicode chess font is required.
 | --- | --- |
 | Arrows, or Ctrl-E/X/S/D | Move the magenta cursor up/down/left/right |
 | Space or Enter | Select a White piece, then move to a dotted legal destination |
-| T | Calculate a tip; move from the cursor to the green destination |
+| T | Calculate a tip; move from the cursor to the cyan destination marked `*` |
 | 1 / 2 / 3 | Fast / Standard / Hard (3 / 4 / 5 plies); Fast is the default |
 | N | Start a new game, retaining difficulty and win/loss/draw totals |
 | Escape | Cancel a selection; otherwise quit |

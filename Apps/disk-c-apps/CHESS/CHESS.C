@@ -924,10 +924,10 @@ static void draw_cell(int square)
 
     row = 6 + (7 - square / 16) * 2;
     col = 8 + square % 16 * 5;
-    bg = ((square / 16 + square % 16) & 1) ? 46 : 44;
-    if (square == hint_from || square == hint_to) bg = 42;
-    if (square == selected_square) bg = 43;
-    if (square == cursor_square) bg = 45;
+    bg = ((square / 16 + square % 16) & 1) ? 42 : 44;
+    if (square == hint_from || square == hint_to) bg = 106;
+    if (square == selected_square) bg = 103;
+    if (square == cursor_square) bg = 105;
     cursor(row, col);
     color(bg);
     write_text("     ");
@@ -944,10 +944,11 @@ static void draw_cell(int square)
         color(40);
         color(97);
     } else {
-        color(bg == 44 || bg == 45 ? 97 : 30);
+        color(bg == 44 || bg == 42 ? 97 : 30);
     }
     write_byte(square == cursor_square ? '[' : ' ');
     if (p) write_byte(p > 0 ? letters[p] : black_letters[-p]);
+    else if (square == hint_to) write_byte('*');
     else write_byte(legal_targets[square] ? '.' : ' ');
     write_byte(square == cursor_square ? ']' : ' ');
     color(bg);
@@ -1173,7 +1174,7 @@ static void show_tip(void)
     hint_to = m.to;
     cursor_square = m.from;
     move_text(&m, tip_move);
-    message = "TIP: try the green squares. SPACE selects the source.";
+    message = "TIP: move to the * square. SPACE selects the source.";
     generate_moves(0);
     draw_board();
     draw_panel();
