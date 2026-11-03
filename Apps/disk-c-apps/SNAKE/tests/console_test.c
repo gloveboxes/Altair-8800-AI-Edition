@@ -71,6 +71,7 @@ unsigned svc_random_u16(void)
 static void reset_test(void)
 {
     console_buffer_used = 0;
+    console_foreground = console_background = 0;
     output_used = 0;
     key_count = key_position = input_calls = 0;
     arriving_count = arrival_offset = timer_starts = 0;
@@ -144,6 +145,265 @@ static void test_render_bytes(void)
     console_flush();
     expect_output("\033[0m\033[2J\033[H\033[?25l"
                   "\033[5;17H\033[41m  \033[0m$\r\n65535  0\033[?25h");
+}
+
+static void test_cursor_coordinates(void)
+{
+    unsigned row, column;
+    char expected[16];
+
+    reset_test();
+    for (row = 1; row < 100; ++row) {
+        for (column = 1; column < 100; ++column) {
+            output_used = 0;
+            move_cursor((uint8_t)row, (uint8_t)column);
+            console_flush();
+            snprintf(expected, sizeof expected, "\033[%u;%uH", row, column);
+            expect_output(expected);
+        }
+    }
+}
+
+static void test_rendition_cache(void)
+{
+    reset_test();
+    set_graphic_rendition(36);
+    set_graphic_rendition(36);
+    set_graphic_rendition(41);
+    set_graphic_rendition(36);
+    draw_tile(41);
+    console_flush();
+    expect_output("\033[36m\033[41m  ");
+
+    output_used = 0;
+    reset_graphics();
+    reset_graphics();
+    set_graphic_rendition(36);
+    set_graphic_rendition(41);
+    clear_screen();
+    set_graphic_rendition(36);
+    set_graphic_rendition(41);
+    console_flush();
+    expect_output("\033[0m\033[36m\033[41m"
+                  "\033[0m\033[2J\033[H\033[?25l\033[36m\033[41m");
+}
+
+struct terminal_cell {
+    unsigned char character, foreground, background;
+};
+
+struct terminal {
+    struct terminal_cell cells[27][81];
+    unsigned row, column, foreground, background;
+};
+
+static void apply_terminal_output(struct terminal *terminal)
+{
+    unsigned index = 0;
+
+    while (index < output_used) {
+        unsigned char byte = output[index++];
+        if (byte == ESCAPE_KEY) {
+            unsigned first = 0, second = 0;
+            bool second_parameter = false;
+
+            assert(index < output_used && output[index++] == '[');
+            if (index < output_used && output[index] == '?')
+                ++index;
+            while (index < output_used) {
+                byte = output[index++];
+                if (byte >= '0' && byte <= '9') {
+                    if (second_parameter)
+                        second = second * 10 + byte - '0';
+                    else
+                        first = first * 10 + byte - '0';
+                } else if (byte == ';') {
+                    assert(!second_parameter);
+                    second_parameter = true;
+                } else {
+                    break;
+                }
+            }
+            if (byte == 'H') {
+                terminal->row = first == 0 ? 1 : first;
+                terminal->column = second == 0 ? 1 : second;
+            } else if (byte == 'm') {
+                if (first == 0)
+                    terminal->foreground = terminal->background = 0;
+                else if (first >= 30 && first <= 37)
+                    terminal->foreground = first;
+                else {
+                    assert(first >= 40 && first <= 47);
+                    terminal->background = first;
+                }
+            } else if (byte == 'J') {
+                unsigned row, column;
+
+                assert(first == 2);
+                for (row = 1; row <= 26; ++row) {
+                    for (column = 1; column <= 80; ++column) {
+                        terminal->cells[row][column].character = ' ';
+                        terminal->cells[row][column].foreground =
+                            (unsigned char)terminal->foreground;
+                        terminal->cells[row][column].background =
+                            (unsigned char)terminal->background;
+                    }
+                }
+            } else {
+                assert((byte == 'h' || byte == 'l') && first == 25);
+            }
+        } else if (byte == '\r') {
+            terminal->column = 1;
+        } else if (byte == '\n') {
+            ++terminal->row;
+        } else {
+            struct terminal_cell *cell;
+
+            assert(terminal->row >= 1 && terminal->row <= 26);
+            assert(terminal->column >= 1 && terminal->column <= 80);
+            cell = &terminal->cells[terminal->row][terminal->column++];
+            cell->character = byte;
+            cell->foreground = (unsigned char)terminal->foreground;
+            cell->background = (unsigned char)terminal->background;
+        }
+    }
+}
+
+static void expect_terminal_board(const struct terminal *terminal)
+{
+    unsigned row, column, offset;
+
+    for (row = 0; row < BOARD_HEIGHT; ++row) {
+        for (column = 0; column < BOARD_WIDTH; ++column) {
+            unsigned background = 40;
+
+            if (occupied[row][column])
+                background = row == snake_rows[snake_head] &&
+                             column == snake_columns[snake_head] ? 46 : 42;
+            else if (food_present && row == food_row && column == food_column)
+                background = 41;
+            for (offset = 0; offset < 2; ++offset) {
+                const struct terminal_cell *cell =
+                    &terminal->cells[BOARD_SCREEN_ROW + row]
+                                    [BOARD_SCREEN_COLUMN + 2 * column + offset];
+                assert(cell->character == ' ' && cell->background == background);
+            }
+        }
+    }
+}
+
+static void draw_test_screen(struct terminal *terminal)
+{
+    memset(terminal, 0, sizeof *terminal);
+    clear_screen();
+    draw_header();
+    draw_board();
+    draw_initial_snake();
+    food_present = true;
+    food_row = food_column = 0;
+    draw_food();
+    draw_status();
+    reset_graphics();
+    console_flush();
+    apply_terminal_output(terminal);
+    expect_terminal_board(terminal);
+    output_used = 0;
+}
+
+static void test_direction_rendering(void)
+{
+    static const int row_steps[] = {-1, 1, 0, 0};
+    static const int column_steps[] = {0, 0, -1, 1};
+    struct terminal terminal, before;
+    unsigned direction, index, step, row, column;
+
+    for (direction = DIRECTION_UP; direction <= DIRECTION_RIGHT; ++direction) {
+        reset_test();
+        memset(occupied, 0, sizeof occupied);
+        snake_direction = next_direction = (enum direction)direction;
+        for (index = 0; index < snake_length; ++index) {
+            snake_rows[index] = (uint8_t)(10 - row_steps[direction] * (int)index);
+            snake_columns[index] =
+                (uint8_t)(15 - column_steps[direction] * (int)index);
+            occupied[snake_rows[index]][snake_columns[index]] = 1;
+        }
+        draw_test_screen(&terminal);
+        before = terminal;
+        for (step = 0; step < 3; ++step) {
+            assert(advance_snake());
+            console_flush();
+            assert(output_used == (row_steps[direction] == 0 ? 37u : 45u));
+            apply_terminal_output(&terminal);
+            expect_terminal_board(&terminal);
+            for (row = 1; row <= 26; ++row) {
+                for (column = 1; column <= 80; ++column) {
+                    if (row >= BOARD_SCREEN_ROW &&
+                        row < BOARD_SCREEN_ROW + BOARD_HEIGHT &&
+                        column >= BOARD_SCREEN_COLUMN &&
+                        column < BOARD_SCREEN_COLUMN + 2 * BOARD_WIDTH)
+                        continue;
+                    assert(memcmp(&terminal.cells[row][column],
+                                  &before.cells[row][column],
+                                  sizeof(struct terminal_cell)) == 0);
+                }
+            }
+            output_used = 0;
+        }
+    }
+}
+
+static void test_growth_and_tail_rendering(void)
+{
+    struct terminal terminal;
+    unsigned index;
+    static const char *status[] = {"Score: 50", "Length: 8", "Speed: 2"};
+
+    reset_test();
+    draw_test_screen(&terminal);
+    for (index = 0; index < 5; ++index) {
+        food_row = snake_rows[snake_head];
+        food_column = (uint8_t)(snake_columns[snake_head] + 1);
+        draw_food();
+        console_flush();
+        apply_terminal_output(&terminal);
+        output_used = 0;
+        assert(advance_snake());
+        console_flush();
+        apply_terminal_output(&terminal);
+        expect_terminal_board(&terminal);
+        assert(score == (index + 1) * 10);
+        assert(snake_length == INITIAL_SNAKE_LENGTH + index + 1);
+        output_used = 0;
+    }
+    assert(speed_level == 2);
+    for (index = 0; index < 3; ++index) {
+        unsigned column;
+
+        for (column = 1; column < BORDER_SCREEN_COLUMN; ++column) {
+            const struct terminal_cell *cell = &terminal.cells[6 + index][column];
+            assert(cell->background == 0);
+            if (column <= strlen(status[index]))
+                assert(cell->character == status[index][column - 1]);
+        }
+    }
+
+    reset_test();
+    snake_length = 4;
+    snake_rows[3] = 11;
+    snake_columns[3] = 15;
+    snake_rows[2] = 11;
+    snake_columns[2] = 14;
+    memset(occupied, 0, sizeof occupied);
+    for (index = 0; index < snake_length; ++index)
+        occupied[snake_rows[index]][snake_columns[index]] = 1;
+    snake_direction = next_direction = DIRECTION_DOWN;
+    draw_test_screen(&terminal);
+    assert(advance_snake());
+    console_flush();
+    assert(output_used == 30);
+    apply_terminal_output(&terminal);
+    expect_terminal_board(&terminal);
+    assert(game_state == GAME_PLAYING && snake_length == 4);
 }
 
 static void test_keys_during_drawing(void)
@@ -223,7 +483,7 @@ static void test_movement_update(void)
     console_flush();
     expect_output("\033[15;43H\033[40m  "
                   "\033[15;47H\033[42m  "
-                  "\033[15;49H\033[46m  \033[0m");
+                  "\033[46m  ");
     assert(snake_length == INITIAL_SNAKE_LENGTH && score == 0);
     assert(snake_columns[snake_head] == BOARD_WIDTH / 2 + 1);
     speed_level = 6;
@@ -235,7 +495,7 @@ static void test_movement_update(void)
 static void test_main_flushes(void)
 {
     static const char ending[] =
-        "\033[0m\033[26;1H\033[?25hThanks for playing Snake!\r\n";
+        "\033[26;1H\033[?25hThanks for playing Snake!\r\n";
 
     reset_test();
     arriving_keys[0] = 'q';
@@ -268,6 +528,10 @@ int main(void)
 {
     test_buffer_boundaries();
     test_render_bytes();
+    test_cursor_coordinates();
+    test_rendition_cache();
+    test_direction_rendering();
+    test_growth_and_tail_rendering();
     test_keys_during_drawing();
     test_ansi_and_escape();
     test_movement_update();

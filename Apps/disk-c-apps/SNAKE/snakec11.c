@@ -63,6 +63,8 @@ enum escape_state {
 
 static uint8_t console_buffer[CONSOLE_BUFFER_SIZE];
 static unsigned console_buffer_used;
+static uint8_t console_foreground;
+static uint8_t console_background;
 static uint8_t snake_rows[MAX_SNAKE_LENGTH];
 static uint8_t snake_columns[MAX_SNAKE_LENGTH];
 static uint8_t occupied[BOARD_HEIGHT][BOARD_WIDTH];
@@ -136,17 +138,44 @@ static void write_spaces(uint8_t count)
         console_put_byte(' ');
 }
 
+static void write_coordinate(uint8_t value)
+{
+    static const char digits[] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+    const char *pair = digits + (unsigned)value * 2;
+    uint8_t byte = (uint8_t)pair[0];
+
+    /* All screen coordinates are below 100; avoid Z80 division helpers. */
+    if (byte != '0')
+        console_put_byte(byte);
+    byte = (uint8_t)pair[1];
+    console_put_byte(byte);
+}
+
 static void move_cursor(uint8_t row, uint8_t column)
 {
     cputs("\033[");
-    write_unsigned(row);
+    write_coordinate(row);
     console_put_byte(';');
-    write_unsigned(column);
+    write_coordinate(column);
     console_put_byte('H');
 }
 
 static void set_graphic_rendition(uint8_t code)
 {
+    if (code >= 40) {
+        if (console_background == code)
+            return;
+        console_background = code;
+    } else {
+        if (console_foreground == code)
+            return;
+        console_foreground = code;
+    }
     cputs("\033[");
     if (code >= 40) {
         console_put_byte('4');
@@ -161,12 +190,18 @@ static void set_graphic_rendition(uint8_t code)
 
 static void reset_graphics(void)
 {
+    if (console_foreground == 0 && console_background == 0)
+        return;
     cputs("\033[0m");
+    console_foreground = 0;
+    console_background = 0;
 }
 
 static void clear_screen(void)
 {
     cputs("\033[0m\033[2J\033[H\033[?25l");
+    console_foreground = 0;
+    console_background = 0;
 }
 
 static void show_cursor(void)
@@ -174,7 +209,7 @@ static void show_cursor(void)
     cputs("\033[?25h");
 }
 
-static void draw_tile(uint8_t background)
+static inline void draw_tile(uint8_t background)
 {
     set_graphic_rendition(background);
     cputs("  ");
@@ -232,6 +267,7 @@ static void draw_header(void)
 
 static void draw_status(void)
 {
+    reset_graphics();
     move_cursor(6, 1);
     set_graphic_rendition(36);
     cputs("Score: ");
@@ -257,39 +293,39 @@ static void draw_status(void)
     cputs("     ");
 }
 
-static void draw_cell(uint8_t row, uint8_t column, uint8_t background)
+static inline void draw_cell(uint8_t row, uint8_t column, uint8_t background)
 {
     move_cursor((uint8_t)(BOARD_SCREEN_ROW + row),
                 (uint8_t)(BOARD_SCREEN_COLUMN + column * 2));
     draw_tile(background);
 }
 
-static void draw_snake_segment(uint8_t row, uint8_t column, bool is_head)
+static inline void draw_snake_segment(uint8_t row, uint8_t column, bool is_head)
 {
     draw_cell(row, column, is_head ? 46 : 42);
 }
 
-static void erase_cell(uint8_t row, uint8_t column)
+static inline void erase_cell(uint8_t row, uint8_t column)
 {
     draw_cell(row, column, 40);
 }
 
-static void draw_food(void)
+static inline void draw_food(void)
 {
     draw_cell(food_row, food_column, 41);
 }
 
-static void start_frame_timer(void)
+static inline void start_frame_timer(void)
 {
     svc_start_timer(2, FRAME_MILLISECONDS);
 }
 
-static bool frame_timer_active(void)
+static inline bool frame_timer_active(void)
 {
     return svc_timer_active(2) != 0;
 }
 
-static uint16_t random_word(void)
+static inline uint16_t random_word(void)
 {
     return svc_random_u16();
 }
@@ -342,8 +378,8 @@ static uint8_t tail_index(void)
     return (uint8_t)index;
 }
 
-static bool directions_are_opposite(enum direction first,
-                                    enum direction second)
+static inline bool directions_are_opposite(enum direction first,
+                                           enum direction second)
 {
     return (first == DIRECTION_UP && second == DIRECTION_DOWN) ||
            (first == DIRECTION_DOWN && second == DIRECTION_UP) ||
@@ -435,7 +471,7 @@ static void update_escape_timeout(void)
     escape_state = ESCAPE_STATE_NONE;
 }
 
-static uint8_t movement_delay(void)
+static inline uint8_t movement_delay(void)
 {
     if (speed_level >= 6)
         return 4;
@@ -502,17 +538,25 @@ static bool advance_snake(void)
     snake_columns[snake_head] = (uint8_t)next_column;
     occupied[next_row][next_column] = 1;
 
-    if (!grow)
+    if (!grow && (next_row != old_tail_row || next_column != old_tail_column))
         erase_cell(old_tail_row, old_tail_column);
-    draw_snake_segment(old_head_row, old_head_column, false);
-    draw_snake_segment((uint8_t)next_row, (uint8_t)next_column, true);
+    /* Draw horizontal neighbours left-to-right without a second cursor move. */
+    if (snake_direction == DIRECTION_LEFT) {
+        draw_snake_segment((uint8_t)next_row, (uint8_t)next_column, true);
+        draw_tile(42);
+    } else {
+        draw_snake_segment(old_head_row, old_head_column, false);
+        if (snake_direction == DIRECTION_RIGHT)
+            draw_tile(46);
+        else
+            draw_snake_segment((uint8_t)next_row, (uint8_t)next_column, true);
+    }
 
     if (ate) {
         if (!place_food())
             game_state = GAME_WON;
         draw_status();
     }
-    reset_graphics();
     return true;
 }
 
