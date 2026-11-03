@@ -73,11 +73,17 @@ static uint16_t call(const std::string &name, const std::vector<uint16_t> &args 
             output += char(reg.c);
             guest_return();
         } else if (reg.pc == 5) {
-            assert(reg.c == 6 && reg.e == 255);
             unsigned byte = 0;
-            if (!keys.empty()) {
-                byte = keys.front();
-                keys.pop_front();
+            if (reg.c != 6) {
+                /* No disk: CHESS.SAV open and delete report "not found". */
+                assert(reg.c == 15 || reg.c == 19);
+                byte = 255;
+            } else {
+                assert(reg.e == 255);
+                if (!keys.empty()) {
+                    byte = keys.front();
+                    keys.pop_front();
+                }
             }
             reg.a = byte;
             reg.h = 0;
@@ -198,7 +204,7 @@ static void gameplay_tests()
     call("handle_action", {'N'});
     assert(call("generate_moves", {0}) == 20);
     output.clear();
-    keys = {'q'};
+    keys = {'q', 'n'};
     assert(call("main") == 0);
     assert(output.find("\033[0m\033[?25hThanks for playing CHESS!\r\n") !=
            std::string::npos);

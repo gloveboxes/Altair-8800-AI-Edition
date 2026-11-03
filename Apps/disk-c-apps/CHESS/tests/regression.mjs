@@ -60,11 +60,21 @@ run(process.env.CXX ?? 'c++', ['-x', 'c++', '-std=c++17', '-O2',
 console.log(run(fixture, [path.join(build, 'CHESS')], work).trim());
 
 const keyFile = path.join(work, 'QUIT.KEY');
-fs.writeFileSync(keyFile, 'q');
+const saveFile = path.join(work, 'CHESS.SAV');
 const executable = path.join(build, 'CHESS.COM');
-const startup = run(path.join(ntvcm, 'ntvcm'),
-    ['-n', '-c', '-f:' + keyFile, executable], work);
+const play = keys => {
+    fs.writeFileSync(keyFile, keys);
+    return run(path.join(ntvcm, 'ntvcm'), ['-n', '-c', '-f:' + keyFile, executable], work);
+};
+fs.rmSync(saveFile, { force: true });
+const startup = play('2qy');
 assert(startup.includes('\x1b[2J\x1b[H\x1b[?25l'));
 assert(startup.includes('Your turn (White)'));
+assert(startup.includes('QUIT: Y Save & quit'));
 assert(startup.includes('\x1b[0m\x1b[?25hThanks for playing CHESS!\r\n'));
+assert(startup.includes('Game saved to CHESS.SAV') && fs.existsSync(saveFile));
+const restored = play('qn');
+assert(restored.includes('Saved game restored') && restored.includes('LEVEL: 2'));
+assert(!restored.includes('Game saved') && !fs.existsSync(saveFile));
+console.log('CP/M CHESS.SAV save, restore and discard PASS');
 console.log(`CHESS regression PASS: ${fs.statSync(executable).size} byte COM; disk images untouched`);

@@ -11,6 +11,7 @@
 #define ENTER_KEY 13
 #define RIGHT_KEY 4
 #define LEFT_KEY 19
+#define BELL_BYTE 7
 
 #include "../COMMON/DXSVC.H"
 #define INITIAL_BALL_DELAY_MS 80
@@ -60,6 +61,7 @@ static uint8_t bricks_left;
 static enum game_state state;
 static uint8_t ball_delay_ms;
 static bool quit_requested;
+static bool sound_enabled = true;
 
 static void console_flush(void)
 {
@@ -126,37 +128,43 @@ static void set_color(uint8_t color)
     console_put_byte('m');
 }
 
-static void reset_color(void)
+static inline void reset_color(void)
 {
     write_text("\033[0m");
 }
 
-static void clear_screen(void)
+static inline void clear_screen(void)
 {
     write_text("\033[0m\033[2J\033[H\033[?25l");
 }
 
-static void erase_to_end_of_line(void)
+static inline void erase_to_end_of_line(void)
 {
     write_text("\033[K");
 }
 
-static void timer_start(void)
+static inline void timer_start(void)
 {
     svc_start_timer(1, ball_delay_ms);
 }
 
-static bool timer_expired(void)
+static inline void ring_bell(void)
+{
+    if (sound_enabled)
+        console_put_byte(BELL_BYTE);
+}
+
+static inline bool timer_expired(void)
 {
     return svc_timer_active(1) == 0;
 }
 
-static unsigned random_word(void)
+static inline unsigned random_word(void)
 {
     return svc_random_u16();
 }
 
-static int read_key(void)
+static inline int read_key(void)
 {
     return bdos(6, 0xff) & 0xff;
 }
@@ -168,13 +176,15 @@ static void draw_status(void)
     write_text("SCORE:");
     write_unsigned(score);
     erase_to_end_of_line();
+    cursor_move(1, 26);
+    write_text(sound_enabled ? "S:SOUND ON " : "S:SOUND OFF");
     cursor_move(1, 50);
     write_text("LIFE:");
     write_unsigned(lives);
     reset_color();
 }
 
-static uint8_t checker_color(uint8_t row, uint8_t column)
+static inline uint8_t checker_color(uint8_t row, uint8_t column)
 {
     return (((row >> 1) + (column >> 1)) & 1) ? 100 : 107;
 }
@@ -203,10 +213,11 @@ static void draw_border(void)
     reset_color();
 }
 
-static uint8_t brick_color(uint8_t row)
+static const uint8_t brick_colors[BRICK_ROWS] = {105, 101, 43, 103, 102, 104, 45, 106};
+
+static inline uint8_t brick_color(uint8_t row)
 {
-    static const uint8_t colors[BRICK_ROWS] = {105, 101, 43, 103, 102, 104, 45, 106};
-    return colors[row];
+    return brick_colors[row];
 }
 
 static void draw_brick(uint8_t row, uint8_t column)
@@ -384,7 +395,7 @@ static bool hit_brick(uint8_t screen_row, uint8_t screen_column)
     return true;
 }
 
-static void resolve_brick_collision(uint8_t previous_row, uint8_t previous_column)
+static bool resolve_brick_collision(uint8_t previous_row, uint8_t previous_column)
 {
     bool vertical_hit;
     bool horizontal_hit;
@@ -394,16 +405,21 @@ static void resolve_brick_collision(uint8_t previous_row, uint8_t previous_colum
             ball_dx = -ball_dx;
         else
             ball_dy = -ball_dy;
-        return;
+        ring_bell();
+        return true;
     }
     if (previous_row == ball_row || previous_column == ball_column)
-        return;
+        return false;
     vertical_hit = hit_brick((uint8_t)ball_row, previous_column);
     horizontal_hit = hit_brick(previous_row, (uint8_t)ball_column);
     if (vertical_hit)
         ball_dy = -ball_dy;
     if (horizontal_hit)
         ball_dx = -ball_dx;
+    if (!vertical_hit && !horizontal_hit)
+        return false;
+    ring_bell();
+    return true;
 }
 
 static void lose_ball(void)
@@ -446,7 +462,13 @@ static void move_ball(void)
         lose_ball();
         return;
     }
-    resolve_brick_collision(previous_row, previous_column);
+    if (resolve_brick_collision(previous_row, previous_column)) {
+        /* Bounce from the cell touching the brick, not inside its erased slot. */
+        ball_row = previous_row;
+        ball_column = previous_column;
+        draw_ball();
+        return;
+    }
     restore_cell(previous_row, previous_column);
     draw_ball();
 }
@@ -485,7 +507,10 @@ static void process_input(void)
         move_paddle(-PADDLE_STEP);
     else if (key == RIGHT_KEY)
         move_paddle(PADDLE_STEP);
-    else if ((key == SPACE_KEY || key == ENTER_KEY) && state == WAITING_TO_LAUNCH) {
+    else if (key == 'S' || key == 's') {
+        sound_enabled = !sound_enabled;
+        draw_status();
+    } else if ((key == SPACE_KEY || key == ENTER_KEY) && state == WAITING_TO_LAUNCH) {
         clear_message();
         state = PLAYING;
         move_ball();

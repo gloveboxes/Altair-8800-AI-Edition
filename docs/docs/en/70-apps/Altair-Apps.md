@@ -91,6 +91,7 @@ A> BREAKOUT
 |--------------------|---------------|
 | Left/Right arrows  | Move paddle   |
 | Space              | Launch ball   |
+| S                  | Sound on/off (bell on brick hits; default on) |
 | ESC or Ctrl-C      | Quit          |
 
 ---

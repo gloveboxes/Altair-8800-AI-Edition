@@ -18,8 +18,11 @@ cannot pause drawing, and drawing does not consume Right Arrow/Ctrl-D.
 ANSI sequences, literal `$` and all byte values are preserved; BIOS output has
 none of BDOS function 6's reserved input selectors.
 
-Only the per-byte buffer append helper is `static inline`; flush, string and
-number-formatting routines remain out-of-line to limit code growth.
+The per-byte buffer append and the small one-expression helpers (escape-code
+wrappers, timer/key/random service calls, colour lookups and the bell) are
+`static inline`; dcc inlines every call, removing their call/return overhead
+for 23 bytes of code. Flush, string, number-formatting, cursor and colour
+routines with many call sites remain out-of-line to limit code growth.
 String and digit loops load each byte into a local before calling it so dcc
 can inline the append without deferring argument evaluation past a flush.
 
@@ -53,7 +56,11 @@ installs it into the default C: disk image.
 
 - Left/Right arrows: move paddle
 - Space or Enter: launch ball
+- S: toggle sound on/off (on by default; the status line shows the setting)
 - Escape or Ctrl-C: quit
+
+With sound on, the terminal bell (BEL) rings each time the ball bounces off a
+brick.
 
 The host must implement ROMLESS-SVC/1 on ports 2/3/4: timer group `0x10`
 (millisecond timer 1) and utility group `0x21` (random operation 0).
@@ -65,7 +72,7 @@ From this directory:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  tests/console_test.c -o /tmp/breakout-console-test
+  -I ../../COMMON tests/console_test.c -o /tmp/breakout-console-test
 /tmp/breakout-console-test
 rm /tmp/breakout-console-test
 ```
@@ -73,6 +80,7 @@ rm /tmp/breakout-console-test
 These tests include the real game source with mocked BIOS/BDOS and service
 functions. They inject Left/Ctrl-S and Right/Ctrl-D during drawing, check all
 256 output byte values and buffer boundaries, exact ANSI rendering, paddle
-movement, launch/quit controls, ball-delay thresholds, and startup/game-over/
+movement, launch/quit controls, the brick-bounce bell and S sound toggle,
+ball-delay thresholds, and startup/game-over/
 exit flushing. They verify functional behavior in a model, not hardware
 performance. Use direct `dccmake` for a build without installing a disk image.

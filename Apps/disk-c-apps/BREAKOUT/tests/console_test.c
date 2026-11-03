@@ -234,6 +234,121 @@ static void test_brick_updates(void)
     timer_start();
 }
 
+static unsigned count_bells(void)
+{
+    unsigned index, bells = 0;
+
+    for (index = 0; index < output_used; ++index)
+        bells += output[index] == BELL_BYTE;
+    return bells;
+}
+
+static void test_brick_bell_and_sound_toggle(void)
+{
+    unsigned test;
+    static const int toggle_keys[] = {'S', 's'};
+
+    reset_test();
+    sound_enabled = true;
+    state = PLAYING;
+    ball_row = BRICK_TOP;
+    ball_column = BRICK_LEFT;
+    resolve_brick_collision(BRICK_TOP + 1, BRICK_LEFT + 1);
+    console_flush();
+    assert(ball_dy == 1 && count_bells() == 1);
+
+    /* A corner hit beside the target cell takes the second collision path. */
+    reset_test();
+    state = PLAYING;
+    ball_row = BRICK_TOP;
+    ball_column = BRICK_LEFT + BRICK_WIDTH;
+    ball_dy = -1;
+    resolve_brick_collision(BRICK_TOP + 1, BRICK_LEFT + BRICK_WIDTH - 1);
+    console_flush();
+    assert(!bricks[0][0] && ball_dy == 1);
+    assert(bricks_left == BRICK_ROWS * BRICK_COLUMNS - 1 && count_bells() == 1);
+
+    reset_test();
+    ball_row = BRICK_TOP + BRICK_ROWS + 2;
+    ball_column = BRICK_LEFT;
+    resolve_brick_collision(BRICK_TOP + BRICK_ROWS + 3, BRICK_LEFT + 1);
+    move_paddle(PADDLE_STEP);
+    console_flush();
+    assert(count_bells() == 0);
+
+    for (test = 0; test < sizeof toggle_keys / sizeof toggle_keys[0]; ++test) {
+        reset_test();
+        sound_enabled = true;
+        keys[0] = toggle_keys[test];
+        key_count = 1;
+        process_input();
+        console_flush();
+        output[output_used] = '\0';
+        assert(!sound_enabled && !quit_requested && state == WAITING_TO_LAUNCH);
+        assert(strstr((const char *)output, "S:SOUND OFF") != NULL);
+        output_used = 0;
+        ball_row = BRICK_TOP;
+        ball_column = BRICK_LEFT;
+        resolve_brick_collision(BRICK_TOP + 1, BRICK_LEFT + 1);
+        console_flush();
+        assert(count_bells() == 0 && bricks_left == BRICK_ROWS * BRICK_COLUMNS - 1);
+
+        output_used = 0;
+        keys[1] = toggle_keys[test];
+        key_count = 2;
+        process_input();
+        console_flush();
+        output[output_used] = '\0';
+        assert(sound_enabled && strstr((const char *)output, "S:SOUND ON ") != NULL);
+    }
+}
+
+static void test_ball_bounces_from_contact_cell(void)
+{
+    const uint8_t bottom = BRICK_TOP + BRICK_ROWS - 1;
+
+    /* Straight hit: the row above is already cleared, as in a tunnel. */
+    reset_test();
+    state = PLAYING;
+    bricks[BRICK_ROWS - 2][0] = 0;
+    ball_row = bottom + 1;
+    ball_column = BRICK_LEFT + 2;
+    ball_dx = -1;
+    ball_dy = -1;
+    move_ball();
+    console_flush();
+    assert(!bricks[BRICK_ROWS - 1][0] && bricks_left == BRICK_ROWS * BRICK_COLUMNS - 1);
+    assert(ball_row == bottom + 1 && ball_column == BRICK_LEFT + 2);
+    assert(ball_dx == -1 && ball_dy == 1);
+    move_ball();
+    assert(ball_row == bottom + 2 && ball_column == BRICK_LEFT + 1);
+
+    /* Corner hit: the target is the gap between bricks; the ball stays beside it. */
+    reset_test();
+    state = PLAYING;
+    ball_row = bottom + 1;
+    ball_column = BRICK_LEFT + BRICK_WIDTH - 1;
+    ball_dx = 1;
+    ball_dy = -1;
+    move_ball();
+    console_flush();
+    assert(!bricks[BRICK_ROWS - 1][0] && bricks[BRICK_ROWS - 1][1]);
+    assert(ball_row == bottom + 1 && ball_column == BRICK_LEFT + BRICK_WIDTH - 1);
+    assert(ball_dy == 1 && ball_dx == 1);
+
+    /* No hit: the ball moves normally into an empty slot. */
+    reset_test();
+    state = PLAYING;
+    bricks[BRICK_ROWS - 1][0] = 0;
+    ball_row = bottom + 1;
+    ball_column = BRICK_LEFT + 2;
+    ball_dx = -1;
+    ball_dy = -1;
+    move_ball();
+    assert(ball_row == bottom && ball_column == BRICK_LEFT + 1 && ball_dy == -1);
+    assert(bricks_left == BRICK_ROWS * BRICK_COLUMNS);
+}
+
 static void test_main_flushes(void)
 {
     static const char ending[] = "\033[0m\033[30;1H\033[?25h\r\n";
@@ -269,6 +384,8 @@ int main(void)
     test_keys_during_drawing();
     test_launch_and_controls();
     test_brick_updates();
+    test_brick_bell_and_sound_toggle();
+    test_ball_bounces_from_contact_cell();
     test_main_flushes();
     puts("Breakout raw console tests PASS");
     return 0;

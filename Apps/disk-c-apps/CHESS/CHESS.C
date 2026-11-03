@@ -835,6 +835,12 @@ static inline void write_byte(unsigned char byte)
     console_buffer[console_used++] = byte;
 }
 
+/* VT220 BEL: queued and sent by the next flush to signal a finished search. */
+static inline void ring_bell(void)
+{
+    write_byte('\a');
+}
+
 static void write_text(const char *text)
 {
     unsigned char byte;
@@ -1010,7 +1016,7 @@ static void draw_frame(void)
     cursor(2, 3);
     write_text("Arrows Move  SPACE/ENTER Select & Move  T Tip  Q/Ctrl-C Quit");
     cursor(3, 3);
-    write_text("1/2/3 Level  N New Game  ESC Cancel selection / Quit");
+    write_text("1/2/3 Level  N New Game  ESC Cancel selection / Save & Quit");
     for (r = 5; r <= 22; ++r) {
         cursor(r, 6);
         color((r / 2 & 1) ? 47 : 100);
@@ -1163,12 +1169,19 @@ static void show_tip(void)
     draw_panel();
     if (!choose_tip(&m, level_depth(level))) {
         if (!quit_requested) {
+            ring_bell();
             message = engine_failed ? "ERROR: tip search failed." : "No legal tip.";
             draw_panel();
+        } else {
+            message = "Tip cancelled.";
         }
         return;
     }
-    if (quit_requested) return;
+    if (quit_requested) {
+        message = "Tip cancelled.";
+        return;
+    }
+    ring_bell();
     clear_selection();
     hint_from = m.from;
     hint_to = m.to;
@@ -1231,6 +1244,226 @@ static void start_game(void)
     completed_depth = node_count = 0;
     finish_turn();
     draw_frame();
+}
+
+/* CHESS.SAV: a fixed header (magic, board, rules state, level, score, last
+   move) in explicit little-endian bytes, followed by history_count position
+   keys so repetition draws still work after a restore. It is written with raw
+   BDOS sequential record calls; stdio would add ~6 KB of runtime. */
+#define SAVE_FILE "CHESS.SAV"
+#define SAVE_MAGIC "CHESSAV1"
+#define SAVE_BOARD 8
+#define SAVE_STATE (SAVE_BOARD + 128)
+#define SAVE_HEADER (SAVE_STATE + 25)
+#define F_OPEN 15
+#define F_CLOSE 16
+#define F_DELETE 19
+#define F_READ 20
+#define F_WRITE 21
+#define F_MAKE 22
+#define F_DMA 26
+
+#ifndef CHESS_FILE_BDOS
+static int file_bdos(int fn, void *arg)
+{
+    return bdos(fn, (int)arg) & 255;
+}
+#define CHESS_FILE_BDOS file_bdos
+#endif
+
+static unsigned char save_header[SAVE_HEADER];
+#define SAVED(n) save_header[SAVE_STATE + (n)]
+static unsigned char save_fcb[36], save_record[128];
+static unsigned save_used;
+static int save_failed;
+
+static void put16(unsigned char *p, int value)
+{
+    p[0] = (unsigned char)value;
+    p[1] = (unsigned char)((unsigned)value >> 8);
+}
+
+static unsigned get16(const unsigned char *p)
+{
+    return p[0] | (unsigned)p[1] << 8;
+}
+
+/* Current drive, CHESS.SAV, extent and record counters cleared. */
+static void save_reset(void)
+{
+    memset(save_fcb, 0, sizeof(save_fcb));
+    memcpy(save_fcb + 1, "CHESS   SAV", 11);
+    save_failed = 0;
+}
+
+static void discard_save(void)
+{
+    save_reset();
+    CHESS_FILE_BDOS(F_DELETE, save_fcb);
+}
+
+static void save_write(const unsigned char *data, unsigned length)
+{
+    unsigned chunk;
+
+    while (length && !save_failed) {
+        chunk = 128 - save_used;
+        if (chunk > length) chunk = length;
+        memcpy(save_record + save_used, data, chunk);
+        save_used += chunk;
+        data += chunk;
+        length -= chunk;
+        if (save_used == 128) {
+            if (CHESS_FILE_BDOS(F_WRITE, save_fcb) != 0) save_failed = 1;
+            save_used = 0;
+        }
+    }
+}
+
+static int save_read(unsigned char *data, unsigned length)
+{
+    unsigned chunk;
+
+    while (length) {
+        if (save_used == 128) {
+            if (CHESS_FILE_BDOS(F_READ, save_fcb) != 0) return 0;
+            save_used = 0;
+        }
+        chunk = 128 - save_used;
+        if (chunk > length) chunk = length;
+        memcpy(data, save_record + save_used, chunk);
+        save_used += chunk;
+        data += chunk;
+        length -= chunk;
+    }
+    return 1;
+}
+
+static int save_game(void)
+{
+    int failed;
+
+    memcpy(save_header, SAVE_MAGIC, SAVE_BOARD);
+    memcpy(save_header + SAVE_BOARD, board, 128);
+    SAVED(0) = side == WHITE;
+    SAVED(1) = castle_rights;
+    SAVED(2) = kings[0];
+    SAVED(3) = kings[1];
+    SAVED(4) = (unsigned char)(ep_square + 1);
+    SAVED(5) = (unsigned char)level;
+    SAVED(6) = (unsigned char)game_over;
+    SAVED(7) = (unsigned char)history_count;
+    put16(&SAVED(8), halfclock);
+    put16(&SAVED(10), full_moves);
+    put16(&SAVED(12), wins);
+    put16(&SAVED(14), losses);
+    put16(&SAVED(16), draws);
+    memcpy(&SAVED(18), last_move, 7);
+    discard_save();
+    save_reset();
+    if (CHESS_FILE_BDOS(F_MAKE, save_fcb) == 255) return 0;
+    CHESS_FILE_BDOS(F_DMA, save_record);
+    save_used = 0;
+    save_write(save_header, SAVE_HEADER);
+    save_write(history[0], (unsigned)history_count * POSITION_BYTES);
+    if (save_used && !save_failed) {
+        memset(save_record + save_used, 26, 128 - save_used);
+        if (CHESS_FILE_BDOS(F_WRITE, save_fcb) != 0) save_failed = 1;
+    }
+    if (CHESS_FILE_BDOS(F_CLOSE, save_fcb) == 255) save_failed = 1;
+    failed = save_failed;
+    if (failed) discard_save();
+    return !failed;
+}
+
+static int load_game(void)
+{
+    unsigned char key[POSITION_BYTES];
+    int i, p, count, ep;
+
+    save_reset();
+    if (CHESS_FILE_BDOS(F_OPEN, save_fcb) == 255) return 0;
+    CHESS_FILE_BDOS(F_DMA, save_record);
+    save_used = 128;
+    count = 0;
+    if (save_read(save_header, SAVE_HEADER)
+        && memcmp(save_header, SAVE_MAGIC, SAVE_BOARD) == 0) {
+        count = SAVED(7);
+        if (count > HISTORY_SIZE
+            || !save_read(history[0], (unsigned)count * POSITION_BYTES)) count = 0;
+    }
+    CHESS_FILE_BDOS(F_CLOSE, save_fcb);
+    /* The 16-bit clock, move and score fields must stay non-negative ints. */
+    for (i = 9; i <= 17; i += 2)
+        if (SAVED(i) & 0x80) count = 0;
+    ep = SAVED(4) - 1;
+    if (!count || SAVED(0) > 1 || SAVED(1) > 15 || ep > 127
+        || SAVED(5) < 1 || SAVED(5) > 3 || SAVED(6) > 1 || SAVED(24)
+        || get16(&SAVED(8)) > 200 || get16(&SAVED(10)) == 0) return 0;
+    for (i = 0; i < 128; ++i) {
+        p = (signed char)save_header[SAVE_BOARD + i];
+        if (p < -KING || p > KING || (p && !on_board(i))) return 0;
+    }
+    if (!on_board(SAVED(2)) || !on_board(SAVED(3)) || (ep >= 0 && !on_board(ep))
+        || (signed char)save_header[SAVE_BOARD + SAVED(2)] != KING
+        || (signed char)save_header[SAVE_BOARD + SAVED(3)] != -KING) return 0;
+    memcpy(board, save_header + SAVE_BOARD, 128);
+    side = SAVED(0) ? WHITE : BLACK;
+    castle_rights = SAVED(1);
+    kings[0] = SAVED(2);
+    kings[1] = SAVED(3);
+    ep_square = ep;
+    halfclock = (int)get16(&SAVED(8));
+    full_moves = (int)get16(&SAVED(10));
+    history_count = count;
+    engine_failed = 0;
+    position_key(key);
+    if (memcmp(key, history[count - 1], POSITION_BYTES) != 0) return 0;
+    level = SAVED(5);
+    game_over = SAVED(6);
+    wins = (int)get16(&SAVED(12));
+    losses = (int)get16(&SAVED(14));
+    draws = (int)get16(&SAVED(16));
+    memcpy(last_move, &SAVED(18), 7);
+    tip_move[0] = 0;
+    cursor_square = 20;
+    clear_selection();
+    completed_depth = node_count = 0;
+    if (game_over) message = "Saved game restored: GAME OVER - N for a new game.";
+    else {
+        finish_turn();
+        if (side == WHITE && !game_over)
+            message = "Saved game restored. Your move (White).";
+    }
+    return 1;
+}
+
+/* Returns 2 after saving, 1 to exit without saving, or 0 to resume play with
+   quit_requested cleared. */
+static int confirm_quit(void)
+{
+    const char *resume_message = message;
+    int action;
+
+    message = "QUIT: Y Save & quit   N Quit without saving   ESC Resume";
+    draw_panel();
+    for (;;) {
+        action = read_action();
+        if (action == 'Y') {
+            if (save_game()) return 2;
+            message = "ERROR: could not write " SAVE_FILE ". N quits, ESC resumes.";
+            draw_panel();
+        } else if (action == 'N' || action == KEY_QUIT) {
+            /* An older save would otherwise reload a game the player dropped. */
+            discard_save();
+            return 1;
+        } else if (action == KEY_ESCAPE) {
+            quit_requested = 0;
+            message = resume_message;
+            draw_panel();
+            return 0;
+        }
+    }
 }
 
 static void handle_action(int action)
@@ -1312,17 +1545,25 @@ static void handle_action(int action)
 
 int main(void)
 {
-    int action;
+    int action, saved = 0;
     Move m;
 
-    start_game();
-    while (!quit_requested) {
+    if (load_game()) draw_frame();
+    else start_game();
+    for (;;) {
+        if (quit_requested) {
+            saved = confirm_quit();
+            if (saved) break;
+            continue;
+        }
         if (side == BLACK && !game_over) {
-            if (poll_abort()) break;
+            if (poll_abort()) continue;
             draw_panel();
             if (choose_move(&m, level_depth(level)) && !quit_requested) {
+                ring_bell();
                 play_move(&m);
             } else if (!quit_requested) {
+                ring_bell();
                 game_over = 1;
                 message = "ERROR: CPU search failed. N to restart or Q to quit.";
                 draw_panel();
@@ -1334,6 +1575,7 @@ int main(void)
     }
     cursor(26, 1);
     write_text("\033[0m\033[?25hThanks for playing CHESS!\r\n");
+    if (saved == 2) write_text("Game saved to " SAVE_FILE "; run CHESS again to continue.\r\n");
     console_flush();
     return 0;
 }

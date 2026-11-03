@@ -4,7 +4,9 @@
 
 int bios(int fn, int byte);
 int bdos(int fn, int value);
+static int fake_file_bdos(int fn, void *arg);
 
+#define CHESS_FILE_BDOS fake_file_bdos
 #define main chess_main
 #include "../CHESS.C"
 #undef main
@@ -12,6 +14,46 @@ int bdos(int fn, int value);
 static unsigned char output[65536], input[256];
 static unsigned output_count, input_count, input_position;
 static int timer_active;
+
+/* One-file in-memory CP/M disk for CHESS.SAV, with write-fault injection. */
+static unsigned char disk_data[64][128], *disk_dma;
+static unsigned disk_records;
+static int disk_exists, disk_fail_writes;
+
+static int fake_file_bdos(int fn, void *arg)
+{
+    unsigned char *fcb = arg;
+
+    if (fn == F_DMA) {
+        disk_dma = arg;
+        return 0;
+    }
+    assert(memcmp(fcb + 1, "CHESS   SAV", 11) == 0 && fcb[0] == 0);
+    if (fn == F_OPEN || fn == F_DELETE) {
+        if (!disk_exists) return 255;
+        if (fn == F_DELETE) disk_exists = 0;
+        fcb[32] = 0;
+        return 0;
+    }
+    if (fn == F_MAKE) {
+        assert(!disk_exists);
+        disk_exists = 1;
+        disk_records = fcb[32] = 0;
+        return 0;
+    }
+    if (fn == F_CLOSE) return disk_exists ? 0 : 255;
+    assert(disk_exists && disk_dma == save_record);
+    if (fn == F_READ) {
+        if (fcb[32] >= disk_records) return 1;
+        memcpy(disk_dma, disk_data[fcb[32]++], 128);
+        return 0;
+    }
+    assert(fn == F_WRITE);
+    if (disk_fail_writes || fcb[32] >= 64) return 2;
+    memcpy(disk_data[fcb[32]++], disk_dma, 128);
+    if (fcb[32] > disk_records) disk_records = fcb[32];
+    return 0;
+}
 
 int bios(int fn, int byte)
 {
@@ -30,14 +72,16 @@ int bdos(int fn, int value)
 int svc_start_timer(int id, unsigned duration)
 {
     assert(id == 0 && duration == 120);
-    timer_active = 1;
+    timer_active = 3;
     return 0;
 }
 
+/* Expires after a few polls so loops waiting on a lone ESC can finish. */
 int svc_timer_active(int id)
 {
     assert(id == 0);
-    return timer_active;
+    if (timer_active) --timer_active;
+    return timer_active != 0;
 }
 
 static void reset_output(void)
@@ -183,10 +227,90 @@ static void gameplay_tests(void)
     assert(quit_requested && memcmp(before, board, sizeof(board)) == 0);
     reset_output();
     quit_requested = 0;
-    queue("q");
+    queue("qn");
     assert(chess_main() == 0);
     assert(strstr((char *)output, "\033[0m\033[?25hThanks for playing CHESS!\r\n"));
     puts("CHESS human/CPU, tip, promotion, replay and quit PASS");
+}
+
+static void save_tests(void)
+{
+    static signed char saved_board[128];
+    static unsigned char saved_history[HISTORY_SIZE][POSITION_BYTES];
+    char saved_last[8];
+    int saved_count, saved_moves;
+    Move m;
+
+    assert(!disk_exists && !load_game());
+    start_game();
+    handle_action(' ');
+    handle_action(KEY_UP);
+    handle_action(KEY_UP);
+    handle_action(13);
+    assert(side == BLACK && choose_move(&m, level_depth(level)));
+    play_move(&m);
+    handle_action('2');
+    wins = 3;
+    losses = 2;
+    draws = 1;
+    memcpy(saved_board, board, sizeof(board));
+    memcpy(saved_history, history, sizeof(history));
+    memcpy(saved_last, last_move, sizeof(last_move));
+    saved_count = history_count;
+    saved_moves = full_moves;
+
+    quit_requested = 1;
+    queue("\033");
+    assert(confirm_quit() == 0 && !quit_requested && !disk_exists);
+    quit_requested = 1;
+    queue("y");
+    assert(confirm_quit() == 2 && disk_exists);
+    assert(disk_records == (unsigned)(SAVE_HEADER + saved_count * POSITION_BYTES + 127) / 128);
+
+    handle_action('1');
+    start_game();
+    wins = losses = draws = 0;
+    assert(load_game());
+    assert(memcmp(board, saved_board, sizeof(board)) == 0);
+    assert(history_count == saved_count && full_moves == saved_moves);
+    assert(memcmp(history, saved_history, (size_t)saved_count * POSITION_BYTES) == 0);
+    assert(strcmp(last_move, saved_last) == 0);
+    assert(side == WHITE && level == 2 && !game_over);
+    assert(wins == 3 && losses == 2 && draws == 1);
+    assert(strstr(message, "Saved game restored"));
+    assert(generate_moves(0) > 0);
+
+    disk_data[0][SAVE_BOARD + 4] = 0;
+    assert(!load_game());
+    disk_data[0][SAVE_BOARD + 4] = KING;
+    disk_data[0][0] = 'X';
+    assert(!load_game());
+    disk_data[0][0] = 'C';
+    --disk_records;
+    assert(!load_game());
+    ++disk_records;
+    assert(load_game());
+
+    disk_fail_writes = 1;
+    quit_requested = 1;
+    queue("y\033");
+    assert(confirm_quit() == 0 && !disk_exists);
+    assert(strstr((char *)output, "ERROR: could not write CHESS.SAV"));
+    disk_fail_writes = 0;
+    quit_requested = 1;
+    queue("y");
+    assert(confirm_quit() == 2 && disk_exists);
+    quit_requested = 1;
+    queue("n");
+    assert(confirm_quit() == 1 && !disk_exists);
+    queue("qy");
+    quit_requested = 0;
+    reset_output();
+    assert(chess_main() == 0 && disk_exists);
+    assert(strstr((char *)output, "Game saved to CHESS.SAV"));
+    disk_exists = 0;
+    reset_output();
+    puts("CHESS save prompt, save/restore round trip and corrupt-file rejection PASS");
 }
 
 int main(void)
@@ -194,5 +318,6 @@ int main(void)
     raw_console_tests();
     keyboard_tests();
     gameplay_tests();
+    save_tests();
     return 0;
 }

@@ -18,6 +18,8 @@ $sectorsPerTrack = 32
 $tracks = 77
 $payloadBytes = 128
 $minimumImageBytes = $tracks * $sectorsPerTrack * $sectorBytes
+# The packed image has one blank leading track; see the altair88 diskdef.
+$paddingBytes = $sectorsPerTrack * $payloadBytes
 
 function Invoke-CpmTool {
 	param(
@@ -65,7 +67,7 @@ try {
 		throw "$imagePath is shorter than a 77-track Altair image"
 	}
 
-	[byte[]] $packedBytes = [byte[]]::new($tracks * $sectorsPerTrack * $payloadBytes)
+	[byte[]] $packedBytes = [byte[]]::new($paddingBytes + $tracks * $sectorsPerTrack * $payloadBytes)
 	for ($track = 0; $track -lt $tracks; $track++) {
 		for ($packedSector = 0; $packedSector -lt $sectorsPerTrack; $packedSector++) {
 			$physicalSector = if ($track -lt 6) {
@@ -76,7 +78,7 @@ try {
 			}
 			$payloadOffset = if ($track -lt 6) { 3 } else { 7 }
 			$sourceOffset = ($track * $sectorsPerTrack + $physicalSector) * $sectorBytes + $payloadOffset
-			$destinationOffset = ($track * $sectorsPerTrack + $packedSector) * $payloadBytes
+			$destinationOffset = $paddingBytes + ($track * $sectorsPerTrack + $packedSector) * $payloadBytes
 			[Array]::Copy($imageBytes, $sourceOffset, $packedBytes, $destinationOffset, $payloadBytes)
 		}
 	}
@@ -119,7 +121,7 @@ try {
 				($packedSector * 17) % $sectorsPerTrack
 			}
 			$frameOffset = ($track * $sectorsPerTrack + $physicalSector) * $sectorBytes
-			$sourceOffset = ($track * $sectorsPerTrack + $packedSector) * $payloadBytes
+			$sourceOffset = $paddingBytes + ($track * $sectorsPerTrack + $packedSector) * $payloadBytes
 			$payloadOffset = if ($track -lt 6) { 3 } else { 7 }
 			# Also initialize unused sectors whose payload already equals the new
 			# data (for example zero-filled portions of a newly allocated file).

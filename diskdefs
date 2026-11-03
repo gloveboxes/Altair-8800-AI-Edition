@@ -1,13 +1,18 @@
 # MITS Altair 88-DCDD CP/M payload, packed as 32 128-byte sectors per track.
 # The project's install helper converts its 137-byte physical sectors to and
 # from this representation before invoking cpmtools.
+# The packed image starts with one blank padding track, so the disk's 77
+# tracks (2 boot) are packed tracks 1-77 and the filesystem is unchanged
+# (150 2 KB blocks). libdsk-based cpmtools builds treat an odd track count
+# above 43 as double-sided and drop the last track (77 -> 38 x 2), which made
+# block 148 unreadable and silently unwritable.
 diskdef altair88
   seclen 128
-  tracks 77
+  tracks 78
   sectrk 32
   blocksize 2048
   maxdir 64
-  boottrk 2
+  boottrk 3
   skewtab 0,8,16,24,2,10,18,26,4,12,20,28,6,14,22,30,1,9,17,25,3,11,19,27,5,13,21,29,7,15,23,31
   logicalextents 1
   os 2.2

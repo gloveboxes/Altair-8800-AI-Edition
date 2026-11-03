@@ -121,12 +121,13 @@ log(run(path.join(work, 'asm-transport-fixture'), ['--m80'], m80Work).trim());
 const pristine = path.join(repo, 'altair_mcp_server/pristine');
 const image = fs.readFileSync(path.join(pristine, 'cpm63k.dsk'));
 assert(image.length >= 77 * 32 * 137, 'Expected a 137-byte-sector Altair image');
-const packed = Buffer.alloc(77 * 32 * 128);
+// The altair88 diskdef expects one blank leading padding track.
+const packed = Buffer.alloc(78 * 32 * 128);
 for (let track = 0; track < 77; ++track) {
     for (let sector = 0; sector < 32; ++sector) {
         const physical = track < 6 ? sector : sector * 17 % 32;
         const offset = (track * 32 + physical) * 137 + (track < 6 ? 3 : 7);
-        image.copy(packed, (track * 32 + sector) * 128, offset, offset + 128);
+        image.copy(packed, ((track + 1) * 32 + sector) * 128, offset, offset + 128);
     }
 }
 const packedPath = path.join(work, 'mbasic-readonly-packed.dsk');

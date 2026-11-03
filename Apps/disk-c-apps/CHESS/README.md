@@ -16,12 +16,28 @@ or black chips on a green and blue board, and the tip destination carries a
 | T | Calculate a tip; move from the cursor to the cyan destination marked `*` |
 | 1 / 2 / 3 | Fast / Standard / Hard (3 / 4 / 5 plies); Fast is the default |
 | N | Start a new game, retaining difficulty and win/loss/draw totals |
-| Escape | Cancel a selection; otherwise quit |
-| Q or Ctrl-C | Quit |
+| Escape | Cancel a selection; otherwise ask to save and quit |
+| Q or Ctrl-C | Ask to save and quit |
 
 During promotion, **1 Queen / 2 Rook / 3 Bishop / 4 Knight** replaces the
 difficulty controls. Escape cancels promotion without changing the board.
 Q and Ctrl-C still quit.
+
+### Saving and resuming
+
+Quitting asks **Y** save & quit, **N** quit without saving, or **Escape**
+resume play. **Y** writes `CHESS.SAV` on the current drive: the board, side to
+move, castling and en-passant state, move clocks, repetition history,
+difficulty, win/loss/draw totals and last move. The next time `CHESS` starts
+from that drive it restores the game automatically. **N** deletes any earlier
+`CHESS.SAV`, so the next run starts a new game. A save file that fails
+validation (wrong signature, impossible position, or history that does not
+match the board) is ignored and a new game starts. The file is written with
+CP/M BDOS sequential-record calls rather than stdio, which would add about
+6 KB of runtime to the program.
+
+The terminal bell (BEL) rings when the CPU has chosen its move and when a tip
+has been calculated.
 
 The CPU and tips use the same iterative-deepening alpha-beta **minimax**
 engine, with capture/promotion move ordering, material values and positional
@@ -46,10 +62,11 @@ knight or bishop from the back rank, or pushing a d/e pawn from its start
 square, gains 0.3 pawns. This only reorders near-equal moves; a king move still
 wins when the alternatives are clearly worse. The CPU's own moves are unbiased.
 
-Q, Ctrl-C and a lone Escape quit during either search, with the simulated
-position restored. Other input during thinking is ignored. ANSI CSI and SS3
-arrows are supported; a 120 ms shared-service timer distinguishes lone Escape.
-Fast is recommended on slow emulators or hardware.
+Q, Ctrl-C and a lone Escape stop either search, with the simulated position
+restored, and then show the save-and-quit prompt; choosing Escape there resumes
+(the CPU restarts its search). Other input during thinking is ignored. ANSI
+CSI and SS3 arrows are supported; a 120 ms shared-service timer distinguishes
+lone Escape. Fast is recommended on slow emulators or hardware.
 
 ## Rules
 
@@ -129,4 +146,8 @@ It runs:
   exact ANSI/numeric output, all byte values, buffer boundaries, drawing-time
   input, human/CPU turns, non-mutating tips, all four keyboard promotions,
   Escape, replay and quit.
-- A complete `ntvcm` startup/quit and CP/M memory-budget check.
+- Save prompt (save, discard, resume), a save/restore round trip after real
+  moves, write-failure handling and corrupt-file rejection against an
+  in-memory CP/M file.
+- A complete `ntvcm` startup, save, restore and discard of `CHESS.SAV`, and a
+  CP/M memory-budget check.

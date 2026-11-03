@@ -329,6 +329,9 @@
         maxReconnectAttempts: 5,
         reconnectDelay: 2000,
         pasteHandler: null,
+        bellHandler: null,
+        audioContext: null,
+        lastBellTime: 0,
         keyHandler: null,
         cleanupInterval: null,
         reconnectTimer: null,
@@ -620,6 +623,9 @@
 
           state.term.open(elements.terminal);
 
+          document.addEventListener('keydown', unlockAudio, true);
+          document.addEventListener('pointerdown', unlockAudio, true);
+
           // Enforce fixed dimensions after opening
           state.term.resize(CONFIG.XTERM_COLS, CONFIG.XTERM_ROWS);
 
@@ -662,6 +668,9 @@
         state.pasteHandler = state.term.onData((data) => {
           queueInput(data);
         });
+
+        // xterm.js 5 only raises an event for BEL (0x07); it plays no sound itself
+        state.bellHandler = state.term.onBell(playBell);
 
         // Intercept special keys before xterm processes them
         state.term.attachCustomKeyEventHandler((ev) => {
@@ -707,6 +716,52 @@
           }
         }
         state.pasteHandler = null;
+
+        if (state.bellHandler) {
+          try {
+            state.bellHandler.dispose();
+          } catch (error) {
+            console.error("Error removing bell handler:", error);
+          }
+        }
+        state.bellHandler = null;
+      }
+
+      // Browsers only allow audio after a user gesture, so create/resume the
+      // AudioContext from a keypress or click before the first bell arrives.
+      function unlockAudio() {
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) return null;
+        try {
+          if (!state.audioContext) state.audioContext = new AudioCtor();
+          if (state.audioContext.state === 'suspended') state.audioContext.resume();
+        } catch (error) {
+          console.error("Audio unavailable:", error);
+          return null;
+        }
+        return state.audioContext;
+      }
+
+      function playBell() {
+        const now = Date.now();
+        if (now - state.lastBellTime < 150) return;
+        state.lastBellTime = now;
+
+        const ctx = unlockAudio();
+        if (!ctx || ctx.state !== 'running') return;
+
+        const start = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.22);
       }
 
       // No longer used, logic moved to attachCustomKeyEventHandler
