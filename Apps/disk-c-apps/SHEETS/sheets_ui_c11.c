@@ -620,9 +620,9 @@ int dc;
     while (*p && i < 150)
     {
         isref = 0;
-        if (*p == '$' && is_ascii_letter(p[1]))
+        if (*p == '$' && is_letter(p[1]))
             isref = 1;
-        else if (is_ascii_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+        else if (is_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
             isref = 1;
 
         if (!isref)
@@ -806,9 +806,9 @@ int dc;
     while (*p && i < 150)
     {
         isref = 0;
-        if (*p == '$' && is_ascii_letter(p[1]))
+        if (*p == '$' && is_letter(p[1]))
             isref = 1;
-        else if (is_ascii_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+        else if (is_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
             isref = 1;
 
         if (!isref)
@@ -1002,7 +1002,7 @@ int loadf()
         } else if (character == LF) {
             ln[position] = 0;
             position = 0;
-            if (ln[0] != 0 && is_ascii_letter(ln[0])) {
+            if (ln[0] != 0 && is_letter(ln[0])) {
                 col = uppercase_ascii(ln[0]) - 'A';
                 i = 1;
                 row = 0;
@@ -1131,9 +1131,9 @@ int dc;
     while (*p && i < 150)
     {
         isref = 0;
-        if (*p == '$' && is_ascii_letter(p[1]))
+        if (*p == '$' && is_letter(p[1]))
             isref = 1;
-        else if (is_ascii_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
+        else if (is_letter(*p) && (p[1] == '$' || (p[1] >= '0' && p[1] <= '9')))
             isref = 1;
 
         if (!isref)
@@ -1248,7 +1248,7 @@ int gotocl()
         msg("");
         return 0;
     }
-    if (!is_ascii_letter(buf[0]))
+    if (!is_letter(buf[0]))
     {
         msg("Bad cell");
         return 0;

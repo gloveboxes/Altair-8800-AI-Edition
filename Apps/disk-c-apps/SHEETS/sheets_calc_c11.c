@@ -42,7 +42,7 @@ bool is_ascii_digit(int character)
     return character >= '0' && character <= '9';
 }
 
-bool is_ascii_letter(int character)
+bool is_letter(int character)
 {
     return (character >= 'A' && character <= 'Z') ||
            (character >= 'a' && character <= 'z');
@@ -104,12 +104,12 @@ static size_t normalize_formula(char *destination, const char *source)
             ++source;
             continue;
         }
-        if (is_ascii_letter((unsigned char)*source)) {
+        if (is_letter((unsigned char)*source)) {
             char letter_run[16];
             uint8_t run_length = 0;
             uint8_t index;
 
-            while (is_ascii_letter((unsigned char)*source)) {
+            while (is_letter((unsigned char)*source)) {
                 if (run_length < sizeof(letter_run) - 1)
                     letter_run[run_length++] = *source;
                 ++source;
@@ -198,7 +198,7 @@ static bool parse_cell_reference(int *row, int *column)
     skip_spaces();
     if (*parse_position == '$')
         ++parse_position;
-    if (!is_ascii_letter((unsigned char)*parse_position))
+    if (!is_letter((unsigned char)*parse_position))
         return false;
     parsed_column = uppercase_ascii((unsigned char)*parse_position++) - 'A';
     if (*parse_position == '$')
@@ -415,7 +415,7 @@ static bool parse_factor(long *result)
     } else if ((function_result = parse_function(result)) >= 0) {
         if (function_result == 0)
             return false;
-    } else if (is_ascii_letter((unsigned char)*parse_position) ||
+    } else if (is_letter((unsigned char)*parse_position) ||
                *parse_position == '$') {
         if (!parse_cell_reference(&row, &column) ||
             !evaluate_cell(row, column, result)) {

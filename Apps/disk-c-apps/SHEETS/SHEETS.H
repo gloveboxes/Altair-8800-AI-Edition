@@ -75,7 +75,8 @@ extern int dirty;
 extern int rall;
 
 bool is_ascii_digit(int character);
-bool is_ascii_letter(int character);
+/* External names must differ within the six characters retained by M80. */
+bool is_letter(int character);
 int uppercase_ascii(int character);
 
 int set_cell(int row, int column, const char *text);
