@@ -18,6 +18,9 @@
 #define MAX_EVALUATION_DEPTH 25
 #define MAX_FORMULA_LENGTH 83
 #define NORMALIZED_FORMULA_SIZE 84
+#define FORMULA_CACHE_SIZE 64
+
+char *cells[MAX_ROWS][MAX_COLUMNS];
 
 enum range_operation {
     RANGE_SUM,
@@ -33,27 +36,19 @@ static uint8_t evaluation_depth;
 static uint8_t evaluation_rows[MAX_EVALUATION_DEPTH];
 static uint8_t evaluation_columns[MAX_EVALUATION_DEPTH];
 static bool circular_reference;
+/* A small direct-mapped cache avoids reparsing shared dependencies during a
+ * redraw. Key zero means empty; failed evaluations are context-dependent and
+ * are deliberately not cached. */
+static uint16_t formula_cache_keys[FORMULA_CACHE_SIZE];
+static long formula_cache_values[FORMULA_CACHE_SIZE];
+
+void invalidate_formula_cache(void)
+{
+    memset(formula_cache_keys, 0, sizeof(formula_cache_keys));
+}
 
 static bool parse_expression(long *result);
 static bool evaluate_cell(int row, int column, long *result);
-
-bool is_ascii_digit(int character)
-{
-    return character >= '0' && character <= '9';
-}
-
-bool is_letter(int character)
-{
-    return (character >= 'A' && character <= 'Z') ||
-           (character >= 'a' && character <= 'z');
-}
-
-int uppercase_ascii(int character)
-{
-    if (character >= 'a' && character <= 'z')
-        return character - ('a' - 'A');
-    return character;
-}
 
 static void skip_spaces(void)
 {
@@ -228,6 +223,8 @@ static bool evaluate_cell(int row, int column, long *result)
     const char *cell_text;
     const char *saved_position;
     bool result_valid;
+    uint16_t cache_key;
+    uint8_t cache_index;
 
     *result = 0;
     if (row < 0 || row >= MAX_ROWS || column < 0 || column >= MAX_COLUMNS)
@@ -248,6 +245,13 @@ static bool evaluate_cell(int row, int column, long *result)
     if (evaluation_depth >= MAX_EVALUATION_DEPTH)
         return false;
 
+    cache_key = (uint16_t)(row * MAX_COLUMNS + column + 1);
+    cache_index = (uint8_t)(cache_key & (FORMULA_CACHE_SIZE - 1));
+    if (formula_cache_keys[cache_index] == cache_key) {
+        *result = formula_cache_values[cache_index];
+        return true;
+    }
+
     evaluation_rows[evaluation_depth] = (uint8_t)row;
     evaluation_columns[evaluation_depth] = (uint8_t)column;
     ++evaluation_depth;
@@ -257,7 +261,12 @@ static bool evaluate_cell(int row, int column, long *result)
     result_valid = parse_expression(result);
     parse_position = saved_position;
     --evaluation_depth;
-    return result_valid && parse_valid;
+    if (result_valid && parse_valid) {
+        formula_cache_values[cache_index] = *result;
+        formula_cache_keys[cache_index] = cache_key;
+        return true;
+    }
+    return false;
 }
 
 static bool parse_random_function(long *result)
@@ -486,6 +495,7 @@ int set_cell(int row, int column, const char *text)
 
     if (row < 0 || row >= MAX_ROWS || column < 0 || column >= MAX_COLUMNS)
         return -1;
+    invalidate_formula_cache();
     free(CELL_AT(row, column));
     CELL_AT(row, column) = NULL;
     if (text == NULL)
@@ -537,6 +547,7 @@ void clear_cell(int row, int column)
     if (CELL_AT(row, column) != NULL) {
         free(CELL_AT(row, column));
         CELL_AT(row, column) = NULL;
+        invalidate_formula_cache();
         dirty = 1;
     }
 }

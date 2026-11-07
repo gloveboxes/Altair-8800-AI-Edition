@@ -19,6 +19,8 @@ service helper are linked by `dccmake.txt`.
 Console output uses a static 4 KiB fully buffered `stdout` stream. The buffer is
 flushed before blocking for keyboard input, reducing BDOS console calls during
 screen redraws.
+Grid rows keep one text colour across ordinary cells, and cursor movement
+repaints only the old and new cells.
 
 ## Grid
 
@@ -26,6 +28,7 @@ screen redraws.
 - 7 columns by 26 rows visible, scrolling with the cursor
 - Sparse heap-allocated cell text
 - Native signed 32-bit `long` formula arithmetic
+- A 64-entry formula result cache, cleared when cell contents or grid structure changes
 
 ## Formulas
 

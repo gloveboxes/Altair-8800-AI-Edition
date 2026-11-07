@@ -50,7 +50,7 @@
 #define CONSOLE_BUFFER_SIZE 4096
 
 static char console_buffer[CONSOLE_BUFFER_SIZE];
-static char *cells[MAX_ROWS][MAX_COLUMNS];
+static int cursor_visible = 1;
 
 int crow = 0;
 int ccol = 0;
@@ -65,11 +65,6 @@ int cliprow = 0;
 int clipcol = 0;
 int dirty = 0;
 int rall = 0;
-
-char **cell_slot(int row, int column)
-{
-    return &cells[row][column];
-}
 
 /* ---- VT100 helpers ---- */
 
@@ -93,31 +88,13 @@ char *s;
 int nump(n)
 int n;
 {
-    char b[6];
-    int i;
-
-    if (n == 0)
+    /* Screen coordinates and row numbers are all in the range 0..99. */
+    if (n >= 10)
     {
-        chout('0');
-        return 0;
+        chout('0' + n / 10);
+        n %= 10;
     }
-    if (n < 0)
-    {
-        chout('-');
-        n = -n;
-    }
-    i = 0;
-    while (n > 0 && i < 6)
-    {
-        b[i] = (n % 10) + '0';
-        i++;
-        n = n / 10;
-    }
-    while (i > 0)
-    {
-        i--;
-        chout(b[i]);
-    }
+    chout('0' + n);
     return 0;
 }
 
@@ -125,55 +102,55 @@ int curmv(r, c)
 int r;
 int c;
 {
-    chout(ESC);
-    cput("[");
+    cput("\033[");
     nump(r);
-    cput(";");
+    chout(';');
     nump(c);
-    cput("H");
+    chout('H');
     return 0;
 }
 
 int cls()
 {
-    chout(ESC);
-    cput("[2J");
-    curmv(1, 1);
+    cput("\033[2J\033[H");
     return 0;
 }
 
 int eol()
 {
-    chout(ESC);
-    cput("[K");
+    cput("\033[K");
     return 0;
 }
 
 int invon()
 {
-    chout(ESC);
-    cput("[7m");
+    cput("\033[7m");
     return 0;
 }
 
 int invof()
 {
-    chout(ESC);
-    cput("[0m");
+    cput("\033[0m");
     return 0;
 }
 
 int hidcr()
 {
-    chout(ESC);
-    cput("[?25l");
+    if (cursor_visible)
+    {
+        cput("\033[?25l");
+        cursor_visible = 0;
+    }
     return 0;
 }
 
 int shwcr()
 {
-    chout(ESC);
-    cput("[?25h");
+    if (!cursor_visible)
+    {
+        cput("\033[?25h");
+        cursor_visible = 1;
+    }
     return 0;
 }
 
@@ -228,14 +205,11 @@ int drwhdr()
 {
     int i;
     int col;
-    int pad;
-    int j;
 
     curmv(HDRR, 1);
     /* black on amber (bright yellow) */
     cput("\033[30;103m");
     cput("    ");
-    pad = (CWID - 1) / 2;
     for (i = 0; i < VCOLS; i++)
     {
         col = tcol + i;
@@ -244,11 +218,9 @@ int drwhdr()
             cput("          ");
             continue;
         }
-        for (j = 0; j < pad; j++)
-            chout(' ');
+        cput("    ");
         chout('A' + col);
-        for (j = pad + 1; j < CWID; j++)
-            chout(' ');
+        cput("     ");
     }
     eol();
     cput("\033[0m");
@@ -281,7 +253,7 @@ int vr;
     else if (r + 1 < 100)
         chout(' ');
     nump(r + 1);
-    cput(" \033[0m");
+    cput(" \033[0m\033[92m");
 
     for (i = 0; i < VCOLS; i++)
     {
@@ -296,13 +268,27 @@ int vr;
         if (is_cur)
             /* bright white on LED red */
             cput("\033[1;97;41m");
-        else
-            /* phosphor green */
-            cput("\033[92m");
         cput(buf);
-        cput("\033[0m");
+        if (is_cur)
+            cput("\033[0m\033[92m");
     }
-    eol();
+    cput("\033[0m");
+    return 0;
+}
+
+/* A cursor move changes only the highlight on the old and new cells. */
+int drwcell(row, column, selected)
+int row;
+int column;
+int selected;
+{
+    char buf[CWID + 1];
+
+    render_cell(row, column, buf);
+    curmv(DATR + row - trow, 5 + (column - tcol) * CWID);
+    cput(selected ? "\033[1;97;41m" : "\033[92m");
+    cput(buf);
+    cput("\033[0m");
     return 0;
 }
 
@@ -490,10 +476,10 @@ int init;
         msg("");
         if (crow < MAXROW - 1)
             crow++;
+        rall = 1;
     }
     else
         msg("Edit cancelled");
-    rall = 1;
     return 0;
 }
 
@@ -586,6 +572,7 @@ int clrall()
                 cells[r][c] = 0;
             }
         }
+    invalidate_formula_cache();
     return 0;
 }
 
@@ -714,6 +701,7 @@ int dc;
             cells[r][c] = nw;
         }
     }
+    invalidate_formula_cache();
     return 0;
 }
 
@@ -911,6 +899,7 @@ int dc;
             cells[r][c] = nw;
         }
     }
+    invalidate_formula_cache();
     return 0;
 }
 
@@ -1406,8 +1395,8 @@ int main()
         }
         else if (k == CTLO)
         {
-            savef();
-            rall = 1;
+            if (savef() == 0)
+                title();
         }
         else if (k == CTLG)
         {
@@ -1439,9 +1428,8 @@ int main()
         }
         else if (crow != orow || ccol != ocol)
         {
-            /* Redraw old + new rows so highlight moves. */
-            drwrow(orow - trow);
-            drwrow(crow - trow);
+            drwcell(orow, ocol, 0);
+            drwcell(crow, ccol, 1);
             statln();
         }
         else

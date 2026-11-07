@@ -57,9 +57,9 @@
 #define CTLU 21
 #define CTLY 25
 
-char **cell_slot(int row, int column);
+extern char *cells[MAX_ROWS][MAX_COLUMNS];
 
-#define CELL_AT(row, column) (*cell_slot((row), (column)))
+#define CELL_AT(row, column) (cells[(row)][(column)])
 extern int crow;
 extern int ccol;
 extern int trow;
@@ -74,13 +74,27 @@ extern int clipcol;
 extern int dirty;
 extern int rall;
 
-bool is_ascii_digit(int character);
-/* External names must differ within the six characters retained by M80. */
-bool is_letter(int character);
-int uppercase_ascii(int character);
+static inline bool is_ascii_digit(int character)
+{
+    return character >= '0' && character <= '9';
+}
+
+static inline bool is_letter(int character)
+{
+    return (character >= 'A' && character <= 'Z') ||
+           (character >= 'a' && character <= 'z');
+}
+
+static inline int uppercase_ascii(int character)
+{
+    if (character >= 'a' && character <= 'z')
+        return character - ('a' - 'A');
+    return character;
+}
 
 int set_cell(int row, int column, const char *text);
 void clear_cell(int row, int column);
+void invalidate_formula_cache(void);
 void render_cell(int row, int column, char *buffer);
 
 #endif
