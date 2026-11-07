@@ -57,6 +57,8 @@
 #define CTLU 21
 #define CTLY 25
 
+/* Create cell allocations through set_cell(): numeric text has a cached long
+ * after its NUL. Structural edits may move or free whole allocations. */
 extern char *cells[MAX_ROWS][MAX_COLUMNS];
 
 #define CELL_AT(row, column) (cells[(row)][(column)])

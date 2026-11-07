@@ -28,7 +28,53 @@ repaints only the old and new cells.
 - 7 columns by 26 rows visible, scrolling with the cursor
 - Sparse heap-allocated cell text
 - Native signed 32-bit `long` formula arithmetic
-- A 64-entry formula result cache, cleared when cell contents or grid structure changes
+- A 64-entry formula cache with two slots per bucket and cached display text
+- Edits invalidate cached formulas whose transitive dependency bounds include
+  the changed cell; structural edits clear the entire cache
+
+## Recalculation performance
+
+Numeric cells retain a parsed 32-bit value after their text, so range scans do
+not repeatedly convert decimal strings. Range functions traverse cell pointers
+and check the active formula stack once per rectangle. References bypass
+function-name matching, small parser and cache helpers use `static inline`, and
+decimal formatting uses subtraction instead of software 32-bit division.
+
+Dependency bounds conservatively enclose all referenced cells, including empty
+range cells and dependencies of nested formulas. Edits inside those bounds can
+cause extra recalculation; edits outside them retain both values and formatted
+display text. Errors and `COUNT` ranges containing formulas remain uncached to
+preserve the existing circular-reference rules. Cached dependency heights
+preserve the 25-formula recursion limit regardless of evaluation order.
+
+The dcc/ntvcm benchmark below compares this pass with the preceding 64-entry
+cache implementation. Values are emulated Z80 cycles per iteration, excluding
+setup and terminal output. An iteration renders 24 arithmetic formulas, 20
+range or fanout formulas, 182 warm display cells, or one collision test formula.
+
+| Workload | Before | After | Fewer cycles |
+| --- | ---: | ---: | ---: |
+| Arithmetic references | 2,543,340 | 1,572,624 | 38.2% |
+| SUM over 99 numeric cells | 38,312,457 | 7,657,249 | 80.0% |
+| Shared dependency chain | 1,692,859 | 1,607,730 | 5.0% |
+| Warm formula display | 11,738,964 | 459,332 | 96.1% |
+| Unrelated edit and redraw | 2,553,196 | 110,124 | 95.7% |
+| Repeated cache collisions | 15,441,798 | 860,926 | 94.4% |
+
+This trades memory for speed: approximately 1.1 KiB more static cache/parser
+state and four extra heap bytes per numeric cell. The application COM grew from
+37,376 to 42,240 bytes in this build.
+
+Run the CP/M calculator checks and cycle benchmarks with dcc/ntvcm on `PATH`
+(or set `DCC_DIR` and `NTVCM_DIR`):
+
+```sh
+python3 tests/run_calc.py --bench
+```
+
+The runner builds in a temporary directory. It subtracts the cycles for one
+iteration from eleven iterations and divides by ten to exclude setup costs.
+Use `--source /path/to/older/SHEETS --bench-only` to compare an older source tree.
 
 ## Formulas
 

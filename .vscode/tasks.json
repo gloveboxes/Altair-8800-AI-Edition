@@ -2,6 +2,27 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Altair: Serve apps over HTTP",
+      "type": "process",
+      "command": "python3",
+      "windows": {
+        "command": "python"
+      },
+      "args": [
+        "-m",
+        "http.server",
+        "8000"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/apps"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
       "label": "Altair: Start Local Altair CP/M 2.2 - Windows",
       "type": "process",
       "command": "cmd.exe",
