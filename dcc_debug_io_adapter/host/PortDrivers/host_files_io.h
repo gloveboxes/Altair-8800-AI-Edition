@@ -9,11 +9,7 @@ void host_files_close(void);
 void host_files_out(uint8_t port, uint8_t data);
 uint8_t host_files_in(uint8_t port);
 
-/*
- * The shared port_drivers/io_ports.c maps physical 0x15/0x16 to the private
- * driver selectors 60/61 below. The buffer/length arguments are unused;
- * counted FT responses use the dedicated data port, not shared framing.
- */
+/* Private selectors 60/61 used by shared-service group 0x70. */
 size_t files_output(int port, uint8_t data, char *buffer, size_t buffer_length);
 uint8_t files_input(uint8_t port);
 

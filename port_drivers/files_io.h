@@ -3,9 +3,7 @@
  * @brief Remote file transfer I/O port driver for Altair 8800 emulator on ESP32
  *
  * Implements the FT protocol over TCP to the Remote FT server.
- * Ports:
- *  - 60: Command/status
- *  - 61: Data (filename + chunk data)
+ * Shared-service group 0x70 adapts the private driver selectors 60/61.
  */
 
 #pragma once
@@ -15,18 +13,18 @@
 
 // Chunk size for file transfers
 #define FT_CHUNK_SIZE 256
+#define FT_MAX_FILENAME 128
 
-// Command port (port 60) - OUT commands
+// Private command selector 60
 typedef enum
 {
     FT_CMD_NOP = 0,           // No operation
-    FT_CMD_SET_FILENAME = 1,  // Begin filename transfer (compat)
-    FT_CMD_FILENAME_CHAR = 2, // Legacy per-char marker (ignored)
+    FT_CMD_SET_FILENAME = 1,  // Begin filename transfer
     FT_CMD_REQUEST_CHUNK = 3, // Request next 256-byte chunk
     FT_CMD_CLOSE = 4          // Close file transfer
 } ft_command_t;
 
-// Status values (port 60 IN)
+// Private status selector 60
 typedef enum
 {
     FT_STATUS_IDLE = 0,      // Idle, ready for new transfer
@@ -39,7 +37,7 @@ typedef enum
 // Initialize file transfer port driver
 void files_io_init(void);
 
-// Handle output to file transfer ports (called from emulator core)
+// Private driver selectors, called only from the CPU thread.
 size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length);
 
 // Handle input from file transfer ports (called from emulator core)

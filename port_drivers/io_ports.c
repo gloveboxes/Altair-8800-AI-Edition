@@ -207,6 +207,38 @@ static void fail(io_service_error_t error, bool reset_required)
 
 static void poll_service(void)
 {
+    if (transport.command == IO_SERVICE_HTTP &&
+        transport.status == IO_SERVICE_BUSY)
+    {
+        uint8_t status = files_input(60);
+        if (status == FT_STATUS_BUSY)
+            return;
+        if (status == FT_STATUS_ERROR)
+        {
+            fail(IO_SERVICE_HTTP_TRANSFER, false);
+            return;
+        }
+        size_t length = 0;
+        if (status == FT_STATUS_DATAREADY)
+        {
+            length = files_input(61);
+            if (!length)
+                length = FT_CHUNK_SIZE;
+            for (size_t i = 0; i < length; ++i)
+                transport.response[i + 1] = files_input(61);
+            status = files_input(60);
+        }
+        if (status != FT_STATUS_IDLE && status != FT_STATUS_EOF)
+        {
+            fail(IO_SERVICE_HTTP_TRANSFER, false);
+            return;
+        }
+        transport.response[0] = status;
+        transport.response_length = length + 1;
+        transport.response_position = 0;
+        transport.status = IO_SERVICE_RESPONSE_READY;
+        return;
+    }
     const io_service_result_t *result = io_service_poll();
     if (!result || result->generation != transport.generation ||
         transport.status != IO_SERVICE_BUSY)
@@ -239,6 +271,7 @@ bool io_ports_init(void)
 
 void io_ports_shutdown(void)
 {
+    files_output(60, FT_CMD_CLOSE, NULL, 0);
     io_service_shutdown();
     reset_transport();
 }
@@ -247,6 +280,9 @@ static void command_out(uint8_t command)
 {
     if (command == IO_SERVICE_RESET)
     {
+        if (transport.command == IO_SERVICE_HTTP &&
+            transport.status == IO_SERVICE_BUSY)
+            files_output(60, FT_CMD_CLOSE, NULL, 0);
         reset_transport();
         return;
     }
@@ -285,6 +321,7 @@ static void command_out(uint8_t command)
         case IO_SERVICE_WEATHER:
         case IO_SERVICE_CHAT:
         case IO_SERVICE_SENSE_HAT:
+        case IO_SERVICE_HTTP:
             transport.command = command;
             transport.length_bytes = 0;
             transport.request_length = 0;
@@ -318,6 +355,43 @@ static void request_out(uint8_t data)
     {
         /* RESET can leave an old worker job completing during collection. */
         poll_service();
+        if (transport.command == IO_SERVICE_HTTP)
+        {
+            uint8_t operation = transport.request[0];
+            size_t length = transport.request_length - 1;
+            if (operation != FT_CMD_SET_FILENAME &&
+                operation != FT_CMD_REQUEST_CHUNK && operation != FT_CMD_CLOSE)
+            {
+                fail(IO_SERVICE_UNKNOWN_OPERATION, false);
+                return;
+            }
+            if ((operation == FT_CMD_SET_FILENAME &&
+                 (!length || length >= FT_MAX_FILENAME)) ||
+                (operation != FT_CMD_SET_FILENAME && length))
+            {
+                fail(IO_SERVICE_INVALID_LENGTH, false);
+                return;
+            }
+            if (operation == FT_CMD_SET_FILENAME &&
+                memchr(transport.request + 1, 0, length))
+            {
+                fail(IO_SERVICE_INVALID_PARAMETER, false);
+                return;
+            }
+            files_output(60, operation, NULL, 0);
+            if (operation == FT_CMD_SET_FILENAME)
+            {
+                for (size_t i = 1; i < transport.request_length; ++i)
+                    files_output(61, transport.request[i], NULL, 0);
+                files_output(61, 0, NULL, 0);
+            }
+            if (files_input(60) == FT_STATUS_ERROR)
+                fail(IO_SERVICE_HTTP_TRANSFER, false);
+            else
+                transport.status = operation == FT_CMD_REQUEST_CHUNK
+                                       ? IO_SERVICE_BUSY : IO_SERVICE_COMPLETE;
+            return;
+        }
         if (transport.command == IO_SERVICE_TIMERS ||
             transport.command == IO_SERVICE_STOPWATCHES)
         {
@@ -354,11 +428,6 @@ void io_port_out(uint8_t port, uint8_t data)
             break;
         case IO_INTERRUPT_TIMER_PORT:
             interrupt_timer_output(data);
-            break;
-        case IO_FILE_COMMAND_PORT:
-        case IO_FILE_DATA_PORT:
-            /* Driver selectors are private, not externally decoded ports. */
-            files_output(port == IO_FILE_COMMAND_PORT ? 60 : 61, data, NULL, 0);
             break;
         default:
             break;
@@ -398,9 +467,6 @@ uint8_t io_port_in(uint8_t port)
         }
         case IO_INTERRUPT_TIMER_PORT:
             return interrupt_timer_input();
-        case IO_FILE_COMMAND_PORT:
-        case IO_FILE_DATA_PORT:
-            return files_input(port == IO_FILE_COMMAND_PORT ? 60 : 61);
         default:
             return 0;
     }

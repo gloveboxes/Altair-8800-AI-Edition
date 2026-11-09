@@ -32,7 +32,7 @@ flowchart TB
         cpu["Intel 8080 CPU"]
         term["Terminal I/O"]
         diskio["Altair disk I/O"]
-        ftio["FT host-file I/O<br/>ports 21/22"]
+        ftio["FT host-file I/O<br/>shared ports 2/3/4, group 0x70"]
     end
 
     subgraph cpm["CP/M 2.2 guest"]
@@ -140,9 +140,10 @@ The executable also accepts explicit disk paths:
 ```
 
 For `reset`, the executable restores from this folder's `pristine/` images.
-The tools image contains the FT client for ports 21/22; historical
-`disk_archive/` images are not suitable bootstrap replacements. Override
-the pristine paths after the four working disk paths:
+The tools image contains the shared-service FT client (ports 2/3/4, group
+`0x70`). The FT assembly build updates this reset image as well as the
+Local/ESP32 disk images. Override the pristine paths after the four working
+disk paths:
 
 ```sh
 ./build/altair-cpm-mcp \

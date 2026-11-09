@@ -14,6 +14,8 @@ WORKDIR /src
 COPY altair_local/ altair_local/
 COPY altair8800/ altair8800/
 COPY port_drivers/ port_drivers/
+COPY dcc_debug_io_adapter/host/PortDrivers/host_files_io.c dcc_debug_io_adapter/host/PortDrivers/host_files_io.c
+COPY dcc_debug_io_adapter/host/PortDrivers/host_files_io.h dcc_debug_io_adapter/host/PortDrivers/host_files_io.h
 # altair_local shares z80_disasm.c / cpu_state.c from main/ and
 # virtual_monitor.c from front_panel/ (see altair_local/CMakeLists.txt).
 COPY main/ main/

@@ -8,13 +8,22 @@ terminal the ESP32 firmware serves) and the file transfer / time / utility /
 chat ports use host-side port drivers. Boots from the disk images in the
 project `disks/` folder by default.
 
-The local runner and Docker now share the ESP32's
+The local runner and Docker share the ESP32's
 [ROMless service ABI](../docs/docs/en/60-programming/01-ROMless-IO-Mapping.md):
 command/status `0x02`, request `0x03`, response `0x04`, interrupt rate `0x07`,
-and file transfer `0x15/0x16`. Terminal/disk routing is unchanged. Legacy
-service-port aliases are removed; maintained apps and the
-[CP/M SDK](../Apps/COMMON/README.md) use the new interface and must be rebuilt
-before deployment. Sense HAT operations use shared group `0x60`.
+and file transfer group `0x70` on the shared ports. Ports `0x15/0x16` are
+available. Terminal/disk routing is unchanged. FT reads files beneath
+`--apps-root`; Sense HAT operations use shared group `0x60`.
+
+Run the shared-driver tests and the installed FT CP/M regression after building:
+
+```sh
+ctest --test-dir altair_local/build --output-on-failure
+python3 scripts/test_ft_transfer.py
+```
+
+The FT regression uses temporary disk copies and checks binary data, files
+larger than 64 KiB, text conversion, EOF and error recovery.
 
 ## Build
 

@@ -8,8 +8,6 @@
 #define SERVICE_REQUEST_PORT 3
 #define SERVICE_RESPONSE_PORT 4
 #define INTERRUPT_TIMER_PORT 7
-#define FILE_COMMAND_PORT 21
-#define FILE_DATA_PORT 22
 #define TIMER_IO_PORT 23
 
 /* Shared-service command groups, not physical port numbers. */
@@ -21,6 +19,7 @@
 #define SERVICE_GROUP_WEATHER 64
 #define SERVICE_GROUP_CHAT 80
 #define SERVICE_GROUP_SENSE_HAT 96
+#define SERVICE_GROUP_HTTP 112
 #define SERVICE_MAX_PAYLOAD 2048
 
 /*

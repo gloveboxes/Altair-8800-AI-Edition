@@ -125,18 +125,18 @@ static void test_services(dcc_debug_io_adapter_t *adapter, const char *directory
     for (unsigned i = 0; i < 256; ++i)
         assert(fputc((int)i, file) != EOF);
     assert(fclose(file) == 0);
-    adapter->output(adapter->context, IO_FILE_COMMAND_PORT, 1);
-    const char filename[] = "SERVICE.BIN";
-    for (size_t i = 0; i < sizeof(filename); ++i)
-        adapter->output(adapter->context, IO_FILE_DATA_PORT, (uint8_t)filename[i]);
-    adapter->output(adapter->context, IO_FILE_COMMAND_PORT, 3);
-    assert(adapter->input(adapter->context, IO_FILE_COMMAND_PORT) == 1);
-    assert(adapter->input(adapter->context, IO_FILE_DATA_PORT) == 0);
+    const uint8_t open[] = {1, 'S', 'E', 'R', 'V', 'I', 'C', 'E', '.', 'B', 'I', 'N'};
+    assert(service_send(adapter, IO_SERVICE_HTTP, open, sizeof(open)) == IO_SERVICE_COMPLETE);
+    service_ack(adapter);
+    const uint8_t read[] = {3}, close[] = {4};
+    assert(service_send(adapter, IO_SERVICE_HTTP, read, 1) == IO_SERVICE_RESPONSE_READY);
+    assert(service_read(adapter, bytes, sizeof(bytes)) == 257 && bytes[0] == 0);
     for (unsigned i = 0; i < 256; ++i)
-        assert(adapter->input(adapter->context, IO_FILE_DATA_PORT) == (uint8_t)i);
-    adapter->output(adapter->context, IO_FILE_COMMAND_PORT, 3);
-    assert(adapter->input(adapter->context, IO_FILE_COMMAND_PORT) == 2);
-    adapter->output(adapter->context, IO_FILE_COMMAND_PORT, 4);
+        assert(bytes[i + 1] == (uint8_t)i);
+    assert(service_send(adapter, IO_SERVICE_HTTP, read, 1) == IO_SERVICE_RESPONSE_READY);
+    assert(service_read(adapter, bytes, sizeof(bytes)) == 1 && bytes[0] == 2);
+    assert(service_send(adapter, IO_SERVICE_HTTP, close, 1) == IO_SERVICE_COMPLETE);
+    service_ack(adapter);
     assert(remove(file_path) == 0);
 }
 

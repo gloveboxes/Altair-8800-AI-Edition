@@ -36,6 +36,17 @@ your own disks/apps, see [Run (detached)](#run-detached) below.
 docker build -f docker/Dockerfile -t glovebox/altair8800v2:latest .
 ```
 
+The build runs the shared-service and file-backend regression tests.
+FT uses group `0x70` on ports `0x02/0x03/0x04`, reading beneath
+`ALTAIR_APPS_ROOT`. Ports `0x15/0x16` are available.
+
+To check the installed FT client inside an isolated container with temporary
+disk copies (requires Python 3 on a POSIX host):
+
+```sh
+python3 scripts/test_ft_transfer.py --docker-image glovebox/altair8800v2:latest
+```
+
 ## Build multi-architecture images
 
 To build and push a combined `linux/arm64` + `linux/arm/v7` + `linux/arm/v6` + `linux/amd64` image to Docker Hub,

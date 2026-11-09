@@ -8,11 +8,12 @@ A CP/M application that downloads files from a Remote FT Server.
 From the host, stop Altair Local and run:
 
 ```powershell
-pwsh ./scripts/build-asm-app.ps1 -Source ./Apps/FT/FT.ASM
+pwsh ./scripts/build-asm-app.ps1 -Source ./Apps/disk-c-apps/FT/FT.ASM
 ```
 
 This uses the dcc compiler's `M80.COM` and `L80.COM` under `ntvcm` and
-installs fresh `FT.COM` copies on both the B: tools and C: application images.
+installs fresh `FT.COM` copies on the B: tools and C: application images,
+including the MCP reset tools image.
 The [build-all workflow](../BUILDALL/README.md) includes this step automatically.
 It does not depend on an already working CP/M FT client.
 
@@ -62,23 +63,33 @@ Done (3072 bytes)
 
 ## Protocol
 
-The FT app uses dedicated I/O ports **21 (0x15)** and **22 (0x16)**:
+FT uses ROMLESS-SVC/1 group **0x70** on shared ports **2/3/4**.
+Write the group to port 2, then a 16-bit little-endian length and payload
+to port 3. Poll port 2: 1=COMPLETE (ACK with OUT 2,0), 2=RESPONSE_READY,
+4=BUSY, 255=ERROR. Responses and errors on port 4 have a 16-bit
+little-endian length prefix.
 
-- **Port 21 (OUT)**: Command port - sends commands to start transfer, request chunks, close
-- **Port 21 (IN)**: Status port - returns IDLE=0, DATAREADY=1, EOF=2, BUSY=3, ERROR=255
-- **Port 22 (OUT)**: Data port - sends filename characters, then NUL
-- **Port 22 (IN)**: Data port - reads count byte (zero means 256), then exactly that many bytes
+| Payload | Result |
+| --- | --- |
+| `[1, filename bytes...]` (no NUL) | Open/replace; COMPLETE |
+| `[3]` | `[state, up to 256 file bytes...]`, state 0=more, 2=EOF |
+| `[4]` | Cancel/close; COMPLETE |
 
-FT does **not** use shared-service length framing. Older FT binaries using
-ports 60/61 cannot fetch their own replacement from the migrated firmware:
-install the newly assembled `FT.COM` into the boot/tools images first using
-the host-side `scripts/cpm-install.ps1` helper. The MCP pristine tools image
-must contain the new client before any submit workflow can run.
+Reading the complete response returns the shared channel to READY.
+EOF can accompany the final data bytes. Error 0x20 reports a missing/empty
+`HTTP_BASE_URL`; error 0x21 reports a failed transfer. FT bounds status polling
+and resets the channel before closing on failure. ESP32, Local and Docker
+accept filenames of 1-127 bytes; a full read response has length 257.
+Other shared services may run between reads without closing the file.
+Ports `0x15/0x16` are available.
 
-## Requirements
+## Transfer backends
 
-- Altair Local reads directly from the local `Apps` directory (or `--apps-root`).
-  For example, `ft -g env/env.sub` copies `Apps/ENV/ENV.SUB` into CP/M.
-  The historical "Remote FT Server" banner does not imply an HTTP transfer
-  on Altair Local.
-- ESP32 uses WiFi and its configured Remote FT Server on port 8090.
+- ESP32 uses the configured remote FT server over TCP port 8090.
+- Altair Local and Docker read the local Apps tree selected by `--apps-root`
+  or `ALTAIR_APPS_ROOT`. The DCC adapter uses the session's native files root.
+- Z80ROMlessSBC Phase 10 and its curl-enabled native adapter use HTTP(S).
+  Relative paths use `HTTP_BASE_URL` in ENV; absolute HTTP(S) URLs do not
+  require it. HTTPS requires a trusted certificate chain and hostname.
+
+The CP/M port protocol is identical for these backends.

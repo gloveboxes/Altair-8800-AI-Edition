@@ -43,3 +43,28 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(io-timer-test PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME io-timer-port COMMAND io-timer-test)
+
+add_executable(files-service-test files_service_test.c ../io_ports.c
+    ../../altair_local/PortDrivers/host_files_io.c)
+target_include_directories(files-service-test PRIVATE .. ../../altair_local/PortDrivers)
+add_test(NAME files-shared-service COMMAND files-service-test ${CMAKE_CURRENT_BINARY_DIR})
+
+add_executable(files-adapter-service-test files_service_test.c ../io_ports.c
+    ../../dcc_debug_io_adapter/host/PortDrivers/host_files_io.c)
+target_include_directories(files-adapter-service-test PRIVATE .. ../../dcc_debug_io_adapter/host/PortDrivers)
+add_test(NAME files-adapter-shared-service COMMAND files-adapter-service-test ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(files-shared-service files-adapter-shared-service PROPERTIES RUN_SERIAL TRUE)
+
+if(UNIX)
+    add_executable(files-esp-test files_esp_test.c ../io_ports.c)
+    target_include_directories(files-esp-test PRIVATE files_fakes .. ../..)
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(files-esp-test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME files-esp-queues COMMAND files-esp-test)
+endif()
+foreach(target files-service-test files-adapter-service-test)
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+    endif()
+endforeach()

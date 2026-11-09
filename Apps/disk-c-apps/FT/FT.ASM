@@ -9,15 +9,14 @@
 ;
 ; The download path is the original path sent to the server (e.g.
 ; SUBDIR/FOO.C); the file is saved locally under its basename (FOO.C). The
-; transfer uses host I/O ports 21 (command/status) and 22 (data), exactly as
-; the C version:
+; transfer uses ROMLESS-SVC/1 group 70H on ports 2/3/4:
 ;
-;   OUT 21,1   start a filename transfer (SETFN)
-;   OUT 22,c   send each filename character, then OUT 22,0 (NUL terminator)
-;   IN  21     poll status: 0=IDLE 1=DATA 2=EOF 3=BUSY 255=ERR
-;   OUT 21,3   request the next data chunk (GETCH)
-;   IN  22     read the chunk length byte (0 means 256), then that many bytes
-;   OUT 21,4   close the transfer (CLOSE)
+;   OUT 2,70H  select HTTP(S) file transfer
+;   OUT 3,n    16-bit little-endian length, then operation and request bytes
+;   IN  2      poll shared status: 1=COMPLETE 2=RESPONSE 4=BUSY 255=ERROR
+;   IN  4      16-bit response length, then status byte and up to 256 bytes
+; Operations: 1=open (filename bytes, no NUL), 3=read, 4=close.
+; Read status: 0=more data, 2=EOF. Shared error 20H means missing base URL.
 ;
 ; Received bytes are written to a freshly created CP/M file via the BDOS
 ; sequential-write calls. fopen write mode is reproduced as delete-then-make.
@@ -52,18 +51,19 @@ FWSEQ   EQU     21              ; func 21: write sequential
 FMAKE   EQU     22              ; func 22: make (create) file
 FSDMA   EQU     26              ; func 26: set DMA address
 
-; -- host file-transfer ports (decimal) and protocol values -----------------
-CPRT    EQU     21              ; command (OUT) / status (IN) port
-DPRT    EQU     22              ; data (OUT filename / IN file bytes) port
+; -- shared service ports (decimal) and protocol values --------------------
+CPRT    EQU     2               ; command (OUT) / status (IN)
+QPRT    EQU     3               ; length-prefixed request (OUT)
+DPRT    EQU     4               ; length-prefixed response (IN)
 
 CSETFN  EQU     1               ; command: start filename transfer
 CGETCH  EQU     3               ; command: request next chunk
 CCLOSE  EQU     4               ; command: close transfer
 
-STDATA  EQU     1               ; status: data ready
+STDATA  EQU     2               ; shared status: response ready
 STEOF   EQU     2               ; status: end of file
-STBUSY  EQU     3               ; status: busy
-STNENV  EQU     4               ; status: HTTP_BASE_URL missing or empty
+STBUSY  EQU     4               ; shared status: busy
+STNENV  EQU     20H             ; shared error: HTTP_BASE_URL missing or empty
 STERR   EQU     255             ; status: error
 
 ; -- misc -------------------------------------------------------------------
@@ -358,74 +358,138 @@ EXIT0:  LXI     D,0080H          ; restore the default DMA buffer so the CCP
         RET
 
 ; ============================================================================
-; FTGET - run the port 60/61 protocol, writing bytes via FPUTC.
-;         Returns A = 0 on success, A = 1 on failure.
+; FTGET - run shared HTTP service transactions, writing bytes via FPUTC.
+;         Returns A = 0 success, 1 failure, 2 missing HTTP_BASE_URL.
 ; ============================================================================
-FTGET:  MVI     A,CSETFN        ; OUT 60,1  start filename transfer
+FTGET:  MVI     A,1             ; RESET the shared channel
         OUT     CPRT
-        LHLD    FNAMEP          ; send each filename character on port 61
+        LHLD    FNAMEP
+        LXI     D,1             ; request includes the operation byte
+FGSLEN: MOV     A,M
+        ORA     A
+        JZ      FGOPEN
+        INX     H
+        INX     D
+        JMP     FGSLEN
+FGOPEN: XCHG
+        MVI     A,CSETFN
+        CALL    SVCBEG
+        LHLD    FNAMEP
 FGSFLP: MOV     A,M
         ORA     A
         JZ      FGSFEN
-        OUT     DPRT
+        OUT     QPRT
         INX     H
         JMP     FGSFLP
-FGSFEN: XRA     A
-        OUT     DPRT            ; NUL terminator
+FGSFEN: CALL    SVCDON
+        ORA     A
+        JNZ     FGERRC
 
-FGWB1:  IN      CPRT            ; wait while the server is BUSY
-        CPI     STBUSY
-        JZ      FGWB1
-        CPI     STERR
-        JZ      FGERR           ; never started -> fail, no close
-
-FGCHKL: MVI     A,CGETCH        ; OUT 60,3  request the next chunk
-        OUT     CPRT
-FGWD1:  IN      CPRT            ; wait for DATA / EOF / ERR
+FGCHKL: LXI     H,1
+        MVI     A,CGETCH
+        CALL    SVCBEG
+        CALL    SVCWAI
         CPI     STDATA
         JZ      FGHVDT
-        CPI     STEOF
-        JZ      FGEOFL
+        CPI     STERR
+        JNZ     FGERRC
+        IN      DPRT            ; shared error length must be one
+        CPI     1
+        JNZ     FGERRC
+        IN      DPRT
+        ORA     A
+        JNZ     FGERRC
+        IN      DPRT
         CPI     STNENV
         JZ      FGENVC
-        CPI     STERR
-        JZ      FGERRC
-        JMP     FGWD1
-FGHVDT: IN      DPRT            ; chunk length (0 means 256)
+        JMP     FGERRC
+FGHVDT: IN      DPRT            ; response length includes transfer status
+        MOV     E,A
+        IN      DPRT
+        MOV     D,A
         ORA     A
-        JNZ     FGNZLN
-        LXI     D,256
-        JMP     FGGOTL
-FGNZLN: MOV     E,A
-        MVI     D,0
-FGGOTL: MOV     A,D             ; read DE bytes from the data port
+        JZ      FGLCHK
+        CPI     1
+        JNZ     FGERRC
+        MOV     A,E
+        CPI     2               ; maximum response is 257 bytes
+        JNC     FGERRC
+FGLCHK: MOV     A,D
+        ORA     E
+        JZ      FGERRC
+        IN      DPRT
+        STA     FGSTAT
+        CPI     STEOF
+        JZ      FGSTOK
+        ORA     A
+        JNZ     FGERRC
+FGSTOK: DCX     D
+        MOV     A,D
+        ORA     E
+        JNZ     FGGOTL
+        LDA     FGSTAT
+        CPI     STEOF
+        JNZ     FGERRC          ; an empty non-final read is invalid
+FGGOTL: MOV     A,D             ; read DE file bytes
         ORA     E
         JZ      FGRDEN
         IN      DPRT
         CALL    FPUTC
         DCX     D
         JMP     FGGOTL
-FGRDEN: IN      CPRT            ; status after the chunk
+FGRDEN: LDA     FGSTAT
         CPI     STEOF
         JZ      FGEOFL
-        CPI     STNENV
-        JZ      FGENVC
-        CPI     STERR
-        JZ      FGERRC
         JMP     FGCHKL
 
-FGEOFL: MVI     A,CCLOSE        ; normal end: close transfer, success
-        OUT     CPRT
-        XRA     A
+FGEOFL: CALL    SVCCLS
         RET
-FGERRC: MVI     A,CCLOSE        ; mid-transfer error: close, then fail
-        OUT     CPRT
-FGERR:  MVI     A,1
+FGERRC: CALL    SVCCLS
+        MVI     A,1
         RET
-FGENVC: MVI     A,CCLOSE        ; close transfer and distinguish missing ENV
-        OUT     CPRT
+FGENVC: CALL    SVCCLS
         MVI     A,2
         RET
+
+; Shared framing helpers. Polls are bounded to 2^24 status reads.
+SVCBEG: MOV     C,A             ; A=operation, HL=request length
+        MVI     A,70H
+        OUT     CPRT
+        MOV     A,L
+        OUT     QPRT
+        MOV     A,H
+        OUT     QPRT
+        MOV     A,C
+        OUT     QPRT
+        RET
+SVCWAI: LXI     H,0
+        MVI     B,0
+SVCWLP: IN      CPRT
+        CPI     STBUSY
+        RNZ
+        DCX     H
+        MOV     A,H
+        ORA     L
+        JNZ     SVCWLP
+        DCR     B
+        JNZ     SVCWLP
+        MVI     A,STERR
+        RET
+SVCDON: CALL    SVCWAI
+        CPI     1               ; COMPLETE needs ACK
+        JNZ     SVCDER
+        XRA     A
+        OUT     CPRT
+        RET
+SVCDER: MVI     A,1
+        RET
+SVCCLS: MVI     A,1             ; recover partial/error transactions
+        OUT     CPRT
+        LXI     H,1
+        MVI     A,CCLOSE
+        CALL    SVCBEG
+        JMP     SVCDON
+FGSTAT: DB      0
 
 ; ============================================================================
 ; FPUTC - consume one received byte in A. COUNT always counts received bytes.

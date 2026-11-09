@@ -17,8 +17,8 @@ addresses in this table in programs and documentation.
 | `0x03` | 3 | OUT | Shared-service request length and payload |
 | `0x04` | 4 | IN | Shared-service response length and payload |
 | `0x07` | 7 | IN / OUT | Interrupt timer rate |
-| `0x15` | 21 | IN / OUT | File-transfer command and status |
-| `0x16` | 22 | IN / OUT | File-transfer filename and data |
+| `0x15` | 21 | - | Available |
+| `0x16` | 22 | - | Available |
 | `0x17` | 23 | IN / OUT | Countdown timers and stopwatches |
 
 Terminal and disk ports are handled by the emulator's existing console and
@@ -46,6 +46,7 @@ to `OUT 0x02` to abandon a partial request or recover an unknown state.
 | `0x40` | Weather |
 | `0x50` | Chat |
 | `0x60` | Sense HAT on supported host builds |
+| `0x70` | File transfer |
 
 Status values from `IN 0x02` are `0x00` READY, `0x01` COMPLETE, `0x02`
 RESPONSE_READY, `0x03` COLLECTING, `0x04` BUSY and `0xFF` ERROR. A framed
@@ -123,24 +124,27 @@ changing running timers or stopwatch values.
 
 This port reports the rate, not a pending-interrupt flag.
 
-## File transfer on `0x15` and `0x16`
+## File transfer: shared group `0x70`
 
-The `FT` CP/M application uses these dedicated ports to download files.
+The `FT` CP/M application uses the shared framing on ports `0x02/0x03/0x04`.
+Filename requests contain 1-127 bytes without a terminating NUL.
 
-| Access | Value | Meaning |
-|--------|-------|---------|
-| `OUT 0x15` | `0` | No operation |
-| `OUT 0x15` | `1` | Start a filename transfer |
-| `OUT 0x15` | `2` | Filename marker |
-| `OUT 0x15` | `3` | Request the next data chunk |
-| `OUT 0x15` | `4` | Close the transfer |
-| `OUT 0x16` | Filename bytes, then NUL | Set the filename; maximum 127 characters |
-| `IN 0x15` | `0`, `1`, `2`, `3`, `0xFF` | Idle, data ready, EOF, busy, error |
-| `IN 0x16` | Count byte, then data | Read that many bytes; count `0` means 256 bytes |
+| Request payload | Result |
+|-----------------|--------|
+| `[1, filename bytes...]` | Open/replace session; COMPLETE, then ACK |
+| `[3]` | RESPONSE_READY: `[state, up to 256 file bytes...]` |
+| `[4]` | Cancel/close; COMPLETE, then ACK |
 
-Poll status on `IN 0x15` before reading a chunk. Read the count byte from
-`IN 0x16`, then consume exactly that many bytes. File data may contain zero
-bytes.
+State `0` means more data; `2` means EOF and may accompany final bytes.
+An empty EOF response is `[2]` with framed length 1; a full chunk has length
+257. File bytes, including zero, are ordinary payload. Fully consuming a
+response returns READY. Other shared services can run between reads without
+closing the FT session. RESET while a read is BUSY cancels that session.
+Transfer failure returns shared error `0x21`.
+
+ESP32 uses its remote FT TCP server on port 8090. Local and Docker read
+the configured Apps tree. See the [complete service reference](01-ROMless-IO-Mapping.md)
+for transport recovery and backend details.
 
 ## Reboot
 

@@ -23,8 +23,8 @@ Diagnostics use `putchar` and decimal digit subtraction, not `printf` or divisio
 so this client does not introduce a formatted-output runtime dependency.
 
 The header uses `#pragma once`. Constants explicitly distinguish physical ports
-(`SERVICE_COMMAND_PORT`, `TIMER_IO_PORT`, `FILE_COMMAND_PORT`) from shared
-command groups (`SERVICE_GROUP_CLOCK`, `SERVICE_GROUP_WEATHER`, and so on).
+(`SERVICE_COMMAND_PORT`, `TIMER_IO_PORT`) from shared command groups
+(`SERVICE_GROUP_CLOCK`, `SERVICE_GROUP_WEATHER`, `SERVICE_GROUP_HTTP`, and so on).
 Public functions share the `svc_` prefix, while implementation parameters,
 local variables and assembly labels also use descriptive names. The installed
 M80/L80 pipeline links globals by their first six characters, including the
@@ -114,7 +114,9 @@ returning a plausible successful value.
 Polling uses 16-bit countdowns bounded to 100 batches of 65,535 status reads. This is an
 uncalibrated budget, not a wall-clock deadline: CP/M cannot obtain an independent
 clock while the sole shared transaction is busy. RESET abandons transport state
-but does not cancel service side effects.
+but does not roll back completed service side effects. RESET during a BUSY
+file read cancels the FT session. File transfer uses `SERVICE_GROUP_HTTP`
+(`0x70`); see the [FT protocol](../disk-c-apps/FT/README.MD#protocol).
 
 ## Embedded dcc assembly core
 

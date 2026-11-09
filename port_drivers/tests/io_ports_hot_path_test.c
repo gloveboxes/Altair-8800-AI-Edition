@@ -94,10 +94,10 @@ static void test_poll_placement(void)
     assert(polls == before);
     io_port_out(IO_INTERRUPT_TIMER_PORT, 42);
     assert(io_port_in(IO_INTERRUPT_TIMER_PORT) == 42);
-    io_port_out(IO_FILE_COMMAND_PORT, 1);
-    io_port_out(IO_FILE_DATA_PORT, 2);
-    assert(io_port_in(IO_FILE_COMMAND_PORT) == 60);
-    assert(io_port_in(IO_FILE_DATA_PORT) == 61);
+    io_port_out(0x15, 1);
+    io_port_out(0x16, 2);
+    assert(io_port_in(0x15) == 0);
+    assert(io_port_in(0x16) == 0);
     io_port_out(200, 1);
     assert(io_port_in(200) == 0 && polls == before);
     io_port_out(IO_TIMER_PORT, IO_TIMER_START);
@@ -174,7 +174,7 @@ static void test_stale_completion(void)
     size_t before = polls;
     io_port_out(IO_INTERRUPT_TIMER_PORT, 25);
     assert(io_port_in(IO_INTERRUPT_TIMER_PORT) == 25);
-    io_port_out(IO_FILE_DATA_PORT, 'x');
+    io_port_out(0x16, 'x');
     assert(pending && polls == before);
     response(1);
     assert(!pending);

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "host_files_io.h"
+#include "../../port_drivers/files_io.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -10,19 +11,6 @@
 
 #define FT_COMMAND_PORT 60
 #define FT_DATA_PORT 61
-
-#define FT_CHUNK_SIZE 256
-#define FT_STATUS_IDLE 0
-#define FT_STATUS_DATAREADY 1
-#define FT_STATUS_EOF 2
-#define FT_STATUS_ERROR 0xff
-
-typedef enum {
-    FT_CMD_NOP = 0,
-    FT_CMD_SET_FILENAME = 1,
-    FT_CMD_REQUEST_CHUNK = 3,
-    FT_CMD_CLOSE = 4
-} ft_command_t;
 
 typedef struct {
     char apps_root[512];
@@ -122,7 +110,8 @@ static void request_chunk(void)
 {
     size_t n;
 
-    if (g_ft.chunk_pos < g_ft.chunk_len) {
+    if (g_ft.status == FT_STATUS_EOF || g_ft.status == FT_STATUS_ERROR ||
+        g_ft.chunk_pos < g_ft.chunk_len) {
         return;
     }
 
@@ -131,6 +120,11 @@ static void request_chunk(void)
     }
 
     n = fread(&g_ft.chunk[1], 1, FT_CHUNK_SIZE, g_ft.file);
+    if (ferror(g_ft.file)) {
+        close_file();
+        g_ft.status = FT_STATUS_ERROR;
+        return;
+    }
     if (n == 0) {
         g_ft.chunk_len = 0;
         g_ft.chunk_pos = 0;
@@ -163,6 +157,7 @@ static void host_files_output_command(uint8_t data)
 
     case FT_CMD_CLOSE:
         close_file();
+        g_ft.filename[0] = '\0';
         break;
 
     default:
@@ -204,7 +199,10 @@ static uint8_t host_files_input_status(void)
 static uint8_t host_files_input_data(void)
 {
     if (g_ft.chunk_pos < g_ft.chunk_len) {
-        return g_ft.chunk[g_ft.chunk_pos++];
+        uint8_t byte = g_ft.chunk[g_ft.chunk_pos++];
+        if (g_ft.chunk_pos == g_ft.chunk_len)
+            g_ft.status = g_ft.eof_after_chunk ? FT_STATUS_EOF : FT_STATUS_IDLE;
+        return byte;
     }
 
     return 0x00;
@@ -247,12 +245,7 @@ uint8_t host_files_in(uint8_t port)
     }
 }
 
-/*
- * ESP32-compatible interface used by the shared io_ports.c dispatch (mirror of
- * the firmware's port_drivers/io_ports.c). On the host, FT response bytes are
- * read back via port 60/61, so the buffer/length arguments are ignored and 0
- * is returned, matching the ESP32 files_output() contract.
- */
+/* Private selectors used by shared-service group 0x70. */
 size_t files_output(int port, uint8_t data, char *buffer, size_t buffer_length)
 {
     (void)buffer;

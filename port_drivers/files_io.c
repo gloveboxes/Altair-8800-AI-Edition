@@ -4,7 +4,7 @@
  *
  * Uses a Core 0 task to handle TCP communication with remote_ft_server.py.
  * Emulator I/O runs on Core 1 and communicates via FreeRTOS queues.
- * Data payloads stay in a shared buffer to avoid large queue copies.
+ * Queue replies own their bytes and session tag until the CPU consumes them.
  */
 
 #include "port_drivers/files_io.h"
@@ -53,9 +53,6 @@
 // Socket timeout (ms)
 #define FT_SOCKET_TIMEOUT_MS 5000
 
-// Filename buffer size
-#define FT_MAX_FILENAME 128
-
 static const char* TAG = "FT_IO";
 
 // Request types for inter-core queue
@@ -69,6 +66,7 @@ typedef enum
 typedef struct
 {
     ft_request_type_t type;
+    uint32_t generation;
     uint32_t offset; // file offset for GET_CHUNK (stateless protocol)
     char filename[FT_MAX_FILENAME];
 } ft_request_t;
@@ -80,6 +78,8 @@ typedef struct
     uint8_t count;
     size_t len; // actual bytes in chunk (0-256)
     bool has_count;
+    uint32_t generation;
+    uint8_t data[FT_CHUNK_SIZE];
 } ft_response_meta_t;
 
 // Queues for inter-core communication
@@ -88,9 +88,6 @@ static QueueHandle_t s_ft_response_queue = NULL; // Core 0 -> Core 1
 
 // Socket state (Core 0)
 static int s_ft_sock = -1;
-
-// Shared response data buffer (Core 0 writes, Core 1 reads)
-static uint8_t s_ft_shared_data[FT_CHUNK_SIZE];
 
 // Port state (Core 1)
 static struct
@@ -105,6 +102,9 @@ static struct
 
     // File position tracking for stateless protocol
     uint32_t file_offset;
+    uint32_t generation;
+    uint8_t data[FT_CHUNK_SIZE];
+    bool filename_overflow;
 
     ft_status_t status;
 } port_state;
@@ -117,6 +117,7 @@ static void files_output_data(uint8_t data);
 static uint8_t files_input_status(void);
 static uint8_t files_input_data(void);
 static void ft_client_task(void* arg);
+static void ft_process_request(const ft_request_t* request);
 static void ft_disconnect(void);
 static bool ft_ensure_connected(void);
 static bool ft_send_all(int sock, const uint8_t* data, size_t len);
@@ -124,7 +125,7 @@ static bool ft_recv_all(int sock, uint8_t* data, size_t len);
 static bool ft_send_get_chunk(const ft_request_t* request);
 static bool ft_receive_chunk(ft_response_meta_t* meta);
 static bool ft_send_close(const ft_request_t* request);
-static void ft_push_error_response(void);
+static void ft_push_error_response(uint32_t generation);
 static void ft_drain_response_queue(void);
 
 // =====================================================================
@@ -210,7 +211,6 @@ static size_t files_output_command(uint8_t data)
     switch ((ft_command_t)data)
     {
         case FT_CMD_NOP:
-        case FT_CMD_FILENAME_CHAR:
             // No action required
             break;
 
@@ -221,11 +221,18 @@ static size_t files_output_command(uint8_t data)
             port_state.chunk_len = 0;
             port_state.chunk_position = 0;
             port_state.file_offset = 0;
+            ++port_state.generation;
+            port_state.filename_overflow = false;
             port_state.status = FT_STATUS_IDLE;
             ft_drain_response_queue();
             break;
 
         case FT_CMD_REQUEST_CHUNK:
+            if (port_state.status == FT_STATUS_BUSY ||
+                port_state.status == FT_STATUS_ERROR ||
+                port_state.status == FT_STATUS_EOF) {
+                break;
+            }
             // If we still have data in buffer, don't request more
             if (port_state.chunk_len > 0 && port_state.chunk_position < port_state.chunk_len) {
                 break;
@@ -237,6 +244,7 @@ static size_t files_output_command(uint8_t data)
             }
 
             request.type = FT_REQ_GET_CHUNK;
+            request.generation = port_state.generation;
             request.offset = port_state.file_offset;
             strncpy(request.filename, port_state.filename, sizeof(request.filename) - 1);
             request.filename[sizeof(request.filename) - 1] = '\0';
@@ -252,14 +260,22 @@ static size_t files_output_command(uint8_t data)
             break;
 
         case FT_CMD_CLOSE:
+            ++port_state.generation;
             request.type = FT_REQ_CLOSE;
+            request.generation = port_state.generation;
             request.offset = 0;
             strncpy(request.filename, port_state.filename, sizeof(request.filename) - 1);
             request.filename[sizeof(request.filename) - 1] = '\0';
-            if (s_ft_request_queue) {
-                (void)xQueueSend(s_ft_request_queue, &request, 0);
+            port_state.chunk_len = port_state.chunk_position = 0;
+            port_state.filename[0] = '\0';
+            ft_drain_response_queue();
+            if (!s_ft_request_queue ||
+                xQueueSend(s_ft_request_queue, &request, 0) != pdTRUE) {
+                ESP_LOGE(TAG, "Cannot queue FT close");
+                port_state.status = FT_STATUS_ERROR;
+            } else {
+                port_state.status = FT_STATUS_IDLE;
             }
-            port_state.status = FT_STATUS_IDLE;
             break;
 
         default:
@@ -271,6 +287,9 @@ static size_t files_output_command(uint8_t data)
 
 static void files_output_data(uint8_t data)
 {
+    if (port_state.filename_overflow) {
+        return;
+    }
     if (data == 0) {
         // Null terminator - filename complete
         port_state.filename[port_state.filename_idx] = '\0';
@@ -279,7 +298,6 @@ static void files_output_data(uint8_t data)
         port_state.chunk_len = 0;
         port_state.chunk_position = 0;
         port_state.file_offset = 0;
-        port_state.filename_idx = 0;
         port_state.status = FT_STATUS_IDLE;
         ft_drain_response_queue();
         return;
@@ -293,6 +311,7 @@ static void files_output_data(uint8_t data)
     // Filename buffer overflow - reject and signal error
     ESP_LOGE(TAG, "Filename too long (max %zu chars)", sizeof(port_state.filename) - 1);
     port_state.status = FT_STATUS_ERROR;
+    port_state.filename_overflow = true;
     port_state.filename_idx = 0;
     memset(port_state.filename, 0, sizeof(port_state.filename));
 }
@@ -307,12 +326,16 @@ static bool files_process_response(void)
     if (xQueueReceive(s_ft_response_queue, &meta, 0) != pdTRUE) {
         return false;
     }
+    if (meta.generation != port_state.generation) {
+        return false;
+    }
 
     if (meta.has_count) {
         port_state.count_byte = meta.count;
         port_state.chunk_len = meta.len + 1; // count + data
         port_state.chunk_position = 0;
         port_state.file_offset += meta.len;
+        memcpy(port_state.data, meta.data, meta.len);
     } else {
         port_state.chunk_len = 0;
         port_state.chunk_position = 0;
@@ -346,7 +369,7 @@ static uint8_t files_input_data(void)
         } else {
             size_t data_index = port_state.chunk_position - 1;
             if (data_index < FT_CHUNK_SIZE) {
-                byte = s_ft_shared_data[data_index];
+                byte = port_state.data[data_index];
             }
         }
 
@@ -354,6 +377,8 @@ static uint8_t files_input_data(void)
         if (port_state.chunk_position >= port_state.chunk_len) {
             port_state.chunk_len = 0;
             port_state.chunk_position = 0;
+            if (port_state.status == FT_STATUS_DATAREADY)
+                port_state.status = FT_STATUS_IDLE;
         }
         return byte;
     }
@@ -391,46 +416,54 @@ static void ft_client_task(void* arg)
             continue;
         }
 
-        if (!wifi_is_connected()) {
-            ESP_LOGW(TAG, "WiFi not connected");
-            ft_disconnect();
-            ft_push_error_response();
-            continue;
-        }
+        ft_process_request(&request);
+    }
+}
 
-        if (!ft_ensure_connected()) {
-            ft_push_error_response();
-            continue;
-        }
+static void ft_process_request(const ft_request_t* request)
+{
+    if (!wifi_is_connected()) {
+        ESP_LOGW(TAG, "WiFi not connected");
+        ft_disconnect();
+        if (request->type == FT_REQ_GET_CHUNK)
+            ft_push_error_response(request->generation);
+        return;
+    }
 
-        bool ok = true;
-        if (request.type == FT_REQ_GET_CHUNK) {
-            if (!ft_send_get_chunk(&request)) {
+    if (!ft_ensure_connected()) {
+        if (request->type == FT_REQ_GET_CHUNK)
+            ft_push_error_response(request->generation);
+        return;
+    }
+    bool ok = true;
+    if (request->type == FT_REQ_GET_CHUNK) {
+        if (!ft_send_get_chunk(request)) {
+            ok = false;
+        } else {
+            ft_response_meta_t meta = {0};
+            meta.generation = request->generation;
+            if (!ft_receive_chunk(&meta)) {
                 ok = false;
-            } else {
-                ft_response_meta_t meta = {0};
-                if (!ft_receive_chunk(&meta)) {
-                    ok = false;
-                } else if (s_ft_response_queue) {
-                    xQueueOverwrite(s_ft_response_queue, &meta);
-                }
-            }
-        } else if (request.type == FT_REQ_CLOSE) {
-            if (!ft_send_close(&request)) {
-                ok = false;
-            } else {
-                uint8_t status = 0;
-                if (!ft_recv_all(s_ft_sock, &status, 1)) {
-                    ok = false;
-                }
+            } else if (s_ft_response_queue) {
+                xQueueOverwrite(s_ft_response_queue, &meta);
             }
         }
-
-        if (!ok) {
-            ft_disconnect();
-            if (request.type == FT_REQ_GET_CHUNK) {
-                ft_push_error_response();
+    } else if (request->type == FT_REQ_CLOSE) {
+        if (!ft_send_close(request)) {
+            ok = false;
+        } else {
+            uint8_t status = 0;
+            if (!ft_recv_all(s_ft_sock, &status, 1)) {
+                ok = false;
             }
+        }
+    }
+
+    if (!ok) {
+        ESP_LOGE(TAG, "FT server request failed");
+        ft_disconnect();
+        if (request->type == FT_REQ_GET_CHUNK) {
+            ft_push_error_response(request->generation);
         }
     }
 }
@@ -554,7 +587,7 @@ static bool ft_receive_chunk(ft_response_meta_t* meta)
             ESP_LOGE(TAG, "Invalid chunk size: %zu", payload_len);
             return false;
         }
-        if (payload_len > 0 && !ft_recv_all(s_ft_sock, s_ft_shared_data, payload_len)) {
+        if (payload_len > 0 && !ft_recv_all(s_ft_sock, meta->data, payload_len)) {
             return false;
         }
     }
@@ -580,7 +613,7 @@ static bool ft_send_close(const ft_request_t* request)
     return ft_send_all(s_ft_sock, buf, send_len);
 }
 
-static void ft_push_error_response(void)
+static void ft_push_error_response(uint32_t generation)
 {
     if (!s_ft_response_queue) {
         return;
@@ -590,7 +623,8 @@ static void ft_push_error_response(void)
         .status = FT_STATUS_ERROR,
         .count = 0,
         .len = 0,
-        .has_count = false
+        .has_count = false,
+        .generation = generation
     };
     xQueueOverwrite(s_ft_response_queue, &meta);
 }

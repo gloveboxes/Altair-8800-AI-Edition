@@ -51,6 +51,7 @@ if (-not $BuildOnly) {
 if (-not $BuildOnly -and $outputBase -eq 'FT') {
 	if ([string]::IsNullOrWhiteSpace($ToolsDiskImage)) {
 		$ToolsDiskImage = Join-Path $repoRoot 'disks' 'bdsc-v1.60.dsk'
+		$targetImages += (Resolve-Path -LiteralPath (Join-Path $repoRoot 'altair_mcp_server' 'pristine' 'bdsc-v1.60.dsk')).Path
 	}
 	$targetImages += (Resolve-Path -LiteralPath $ToolsDiskImage).Path
 }
