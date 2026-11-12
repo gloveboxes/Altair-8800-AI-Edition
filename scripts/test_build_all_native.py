@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from z80_container import CONTAINER
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,8 +27,9 @@ class BuildAllNativeTests(unittest.TestCase):
             scripts.mkdir()
             shutil.copyfile(ROOT / "Apps/build-all.ps1", apps / "build-all.ps1")
             shutil.copyfile(ROOT / "scripts/cpm-install-native.py", scripts / "cpm-install-native.py")
-            source = ROOT / "external/Z80ROMlessSBC/src"
-            target = root / "external/Z80ROMlessSBC/src"
+            shutil.copyfile(ROOT / "scripts/z80_container.py", scripts / "z80_container.py")
+            source = CONTAINER / "sbc/src"
+            target = root / "external/z80-cpm-container/sbc/src"
             (target / "cpm").mkdir(parents=True)
             (target / "disks").mkdir()
             shutil.copyfile(source / "cpm/build_images.py", target / "cpm/build_images.py")

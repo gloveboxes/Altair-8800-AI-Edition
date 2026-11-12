@@ -8,8 +8,9 @@ reference/
 references/
 altair_local/build/
 altair_local/build-sbc/
-external/Z80ROMlessSBC/build/
-external/Z80ROMlessSBC/.git
+external/z80-cpm-container/build/
+external/z80-cpm-container/.git
+external/Z80ROMlessSBC/
 altair_mcp_server/build/
 host_tests/build/
 sdkconfig

@@ -1,7 +1,7 @@
 Install Apple's `container` CLI on an Apple silicon Mac, plus Python 3, CMake
-and a C compiler. Check out `gloveboxes/z80-cpm-container` at
-`../../z80-cpm-container` relative to this project, or set `Z80_CPM_CONTAINER`
-to its absolute path. Initialize the project submodules:
+and a C compiler. The shared container is the `external/z80-cpm-container`
+submodule. Set `Z80_CPM_CONTAINER` to an alternate checkout when needed.
+Initialize the project submodules:
 
 ```sh
 git submodule update --init --recursive

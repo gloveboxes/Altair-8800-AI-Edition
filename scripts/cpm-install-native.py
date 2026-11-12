@@ -10,10 +10,12 @@ import subprocess
 import sys
 import tempfile
 
+from z80_container import CONTAINER
+
 ROOT = Path(__file__).resolve().parents[1]
-CPM = ROOT / "external" / "Z80ROMlessSBC" / "src" / "cpm"
+CPM = CONTAINER / "sbc" / "src" / "cpm"
 if not (CPM / "build_images.py").is_file():
-    raise SystemExit("Initialize the Z80ROMlessSBC submodule: git submodule update --init --recursive")
+    raise SystemExit("Initialize the z80-cpm-container submodule: git submodule update --init --recursive")
 sys.path.insert(0, str(CPM))
 import build_images
 

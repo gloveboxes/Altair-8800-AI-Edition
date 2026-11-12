@@ -15,6 +15,18 @@ spec.loader.exec_module(container)
 
 
 class ContainerEntryTests(unittest.TestCase):
+    def test_default_container_is_project_submodule(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        self.assertEqual(module.CONTAINER, (SCRIPTS.parent / "external/z80-cpm-container").resolve())
+
+    def test_container_override_is_respected(self):
+        with mock.patch.dict("os.environ", {"Z80_CPM_CONTAINER": "/tmp/custom-container"}):
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        self.assertEqual(module.CONTAINER, Path("/tmp/custom-container").resolve())
+
     def test_start_passes_project_disks(self):
         with mock.patch.object(sys, "argv", ["z80_container.py", "start", "--skip-build"]):
             with mock.patch.object(container, "execute") as execute:

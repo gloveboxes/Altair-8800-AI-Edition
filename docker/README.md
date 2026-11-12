@@ -2,12 +2,13 @@
 
 Local application testing and source debugging use
 [z80-cpm-container](https://github.com/gloveboxes/z80-cpm-container) on
-Apple silicon macOS. Check out the shared repository at
-`../../z80-cpm-container` relative to this repository, or set
-`Z80_CPM_CONTAINER` to its absolute path. Install the Apple `container` CLI,
+Apple silicon macOS. Initialize the `external/z80-cpm-container` submodule
+with `git submodule update --init --recursive`. Set `Z80_CPM_CONTAINER` to
+an alternate checkout when needed. Install the Apple `container` CLI,
 Python 3, CMake, a C compiler and the VS Code C/C++ extension for debugging.
 
-Build and install applications with `pwsh Apps/build-all.ps1`. Start the Apple
+Build and install applications with `pwsh Apps/build-all.ps1`; native disk
+installation requires host `cpmtools` (`cpmcp` and `cpmrm`). Start the Apple
 container service and run:
 
 ```sh

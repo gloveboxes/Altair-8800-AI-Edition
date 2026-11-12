@@ -1,6 +1,6 @@
 [submodule "altair_local/external/wsServer"]
 	path = altair_local/external/wsServer
 	url = https://github.com/Theldus/wsServer
-[submodule "external/Z80ROMlessSBC"]
-	path = external/Z80ROMlessSBC
-	url = https://github.com/gloveboxes/Z80ROMlessSBC.git
+[submodule "external/z80-cpm-container"]
+	path = external/z80-cpm-container
+	url = https://github.com/gloveboxes/z80-cpm-container.git

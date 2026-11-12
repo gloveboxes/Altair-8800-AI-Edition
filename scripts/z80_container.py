@@ -8,7 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 DISKS = ROOT / "disks" / "512kb"
 CONTAINER = Path(os.environ.get(
-    "Z80_CPM_CONTAINER", ROOT.parent.parent / "z80-cpm-container")).expanduser().resolve()
+    "Z80_CPM_CONTAINER", ROOT / "external" / "z80-cpm-container")).expanduser().resolve()
 
 
 def execute(script, arguments):
@@ -16,7 +16,7 @@ def execute(script, arguments):
     if not target.is_file():
         raise SystemExit(
             f"Shared container checkout not found: {target}. "
-            "Set Z80_CPM_CONTAINER to the z80-cpm-container checkout.")
+            "Run git submodule update --init --recursive or set Z80_CPM_CONTAINER.")
     os.execv(sys.executable, [sys.executable, str(target), *map(str, arguments)])
 
 

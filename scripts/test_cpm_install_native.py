@@ -9,8 +9,10 @@ import sys
 import tempfile
 import unittest
 
+from z80_container import CONTAINER
+
 ROOT = Path(__file__).resolve().parents[1]
-SBC = ROOT / "external/Z80ROMlessSBC"
+SBC = CONTAINER / "sbc"
 sys.path.insert(0, str(SBC / "src/cpm"))
 import build_images
 

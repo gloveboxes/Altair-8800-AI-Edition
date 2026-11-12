@@ -70,8 +70,8 @@ class FullNativeBuildTests(unittest.TestCase):
                             ignore=shutil.ignore_patterns("build", "__pycache__", ".DS_Store"))
             shutil.copytree(ROOT / "scripts", root / "scripts")
             shutil.copytree(ROOT / "disks/512kb", root / "disks/512kb")
-            source = ROOT / "external/Z80ROMlessSBC/src"
-            target = root / "external/Z80ROMlessSBC/src"
+            source = CONTAINER / "sbc/src"
+            target = root / "external/z80-cpm-container/sbc/src"
             (target / "cpm").mkdir(parents=True)
             (target / "disks").mkdir()
             shutil.copyfile(source / "cpm/build_images.py", target / "cpm/build_images.py")
