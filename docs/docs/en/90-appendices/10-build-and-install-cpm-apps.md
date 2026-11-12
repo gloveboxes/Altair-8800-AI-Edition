@@ -17,6 +17,13 @@ Windows.
 
 ## Prerequisites
 
+The default 512 KiB `Apps/build-all.ps1` workflow uses Apple container on
+Apple silicon macOS for disk installation, not host cpmtools. Start the
+container service and run `python3 scripts/z80_container.py prepare` before
+building. See [local container setup](../40-deploy-with-docker/15-install-prerequisites.md).
+
+The per-app Altair disk workflow requires the following host tools.
+
 Install these host tools and make sure they are available on `PATH`:
 
 - [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)

@@ -7,12 +7,14 @@ with `git submodule update --init --recursive`. Set `Z80_CPM_CONTAINER` to
 an alternate checkout when needed. Install the Apple `container` CLI,
 Python 3, CMake, a C compiler and the VS Code C/C++ extension for debugging.
 
-Build and install applications with `pwsh Apps/build-all.ps1`; native disk
-installation requires host `cpmtools` (`cpmcp` and `cpmrm`). Start the Apple
-container service and run:
+Native disk installation uses the shared container's `cpmtools`; host
+`cpmtools` is not required. Start the Apple container service and prepare
+the image before building applications:
 
 ```sh
 container system start
+python3 scripts/z80_container.py prepare
+pwsh Apps/build-all.ps1
 python3 scripts/z80_container.py start
 ```
 

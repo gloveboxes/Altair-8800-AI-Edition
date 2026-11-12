@@ -17,7 +17,29 @@ sys.path.insert(0, str(SBC / "src/cpm"))
 import build_images
 
 
-@unittest.skipUnless(shutil.which("cpmcp") and shutil.which("cpmrm"), "cpmtools required")
+HOST_TOOLS = bool(shutil.which("cpmcp") and shutil.which("cpmrm"))
+CONTAINER_TOOLS = sys.platform == "darwin" and bool(shutil.which("container"))
+
+
+def read_disk(directory: Path, image: Path, name: str) -> bytes:
+    output = directory / "readback"
+    output.unlink(missing_ok=True)
+    arguments = ["-f", "z80sbc", str(image.relative_to(directory)), f"0:{name}", "readback"]
+    if HOST_TOOLS:
+        command = ["cpmcp", *arguments]
+    else:
+        command = [
+            "container", "run", "--rm",
+            "--mount", f"type=bind,source={directory},target=/work",
+            "--workdir", "/work", "--env", "DISKDEFS=/work/diskdefs",
+            "--entrypoint", "cpmcp", "z80-cpm:local", *arguments,
+        ]
+    subprocess.run(command, cwd=directory,
+                   env={**os.environ, "DISKDEFS": str(directory / "diskdefs")}, check=True)
+    return output.read_bytes()
+
+
+@unittest.skipUnless(HOST_TOOLS or CONTAINER_TOOLS, "cpmtools or Apple container required")
 class NativeInstallTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="native disk test ")
@@ -32,16 +54,13 @@ class NativeInstallTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/cpm-install-native.py"),
              "--image", str(self.image), "--host-file", str(source),
-             "--cpm-file", destination], capture_output=True, text=True)
+             "--cpm-file", destination,
+             *(["--container-worker"] if not CONTAINER_TOOLS else [])],
+            capture_output=True, text=True)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
 
     def read(self, name: str) -> bytes:
-        output = self.directory / "readback"
-        output.unlink(missing_ok=True)
-        subprocess.run(["cpmcp", "-f", "z80sbc", str(self.image), f"0:{name}", str(output)],
-                       cwd=self.directory,
-                       env={**os.environ, "DISKDEFS": str(self.diskdefs)}, check=True)
-        return output.read_bytes()
+        return read_disk(self.directory, self.image, name)
 
     def test_install_replace_and_preserve_system_tracks(self):
         source = self.directory / "TEST.COM"

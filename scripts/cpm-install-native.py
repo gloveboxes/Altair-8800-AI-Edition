@@ -77,8 +77,39 @@ def main() -> None:
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--host-file", type=Path, required=True)
     parser.add_argument("--cpm-file", required=True)
+    parser.add_argument("--container-worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    install(args.image.resolve(), args.host_file.resolve(), args.cpm_file)
+    image = args.image.resolve()
+    source = args.host_file.resolve()
+    if args.container_worker:
+        install(image, source, args.cpm_file)
+        return
+    if sys.platform != "darwin" or not shutil.which("container"):
+        raise SystemExit("Native disk installation requires Apple container on macOS.")
+    for path in (image, source):
+        if not path.is_file():
+            raise SystemExit(f"Input file not found: {path}")
+    directories = (Path(__file__).resolve().parent, CONTAINER, image.parent, source.parent)
+    if any("," in str(path) for path in directories):
+        raise SystemExit("Container mount paths cannot contain commas.")
+    if source.is_relative_to(image.parent):
+        source_mount = []
+        container_source = f"/disks/{source.relative_to(image.parent).as_posix()}"
+    else:
+        source_mount = ["--mount", f"type=bind,source={source.parent},target=/input,readonly"]
+        container_source = f"/input/{source.name}"
+    subprocess.run([
+        "container", "run", "--rm",
+        "--mount", f"type=bind,source={directories[0]},target=/scripts,readonly",
+        "--mount", f"type=bind,source={CONTAINER},target=/toolchain,readonly",
+        "--mount", f"type=bind,source={image.parent},target=/disks",
+        *source_mount,
+        "--env", "Z80_CPM_CONTAINER=/toolchain",
+        "--entrypoint", "python3", "z80-cpm:local",
+        "/scripts/cpm-install-native.py", "--container-worker",
+        "--image", f"/disks/{image.name}", "--host-file", container_source,
+        "--cpm-file", args.cpm_file,
+    ], check=True)
 
 
 if __name__ == "__main__":
