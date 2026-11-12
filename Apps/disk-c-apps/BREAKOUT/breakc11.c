@@ -11,7 +11,6 @@
 #define ENTER_KEY 13
 #define RIGHT_KEY 4
 #define LEFT_KEY 19
-#define BELL_BYTE 7
 
 #include "../COMMON/DXSVC.H"
 #define INITIAL_BALL_DELAY_MS 80
@@ -61,7 +60,8 @@ static uint8_t bricks_left;
 static enum game_state state;
 static uint8_t ball_delay_ms;
 static bool quit_requested;
-static bool sound_enabled = true;
+static bool sound_enabled;
+static bool sound_available;
 
 static void console_flush(void)
 {
@@ -148,10 +148,11 @@ static inline void timer_start(void)
     svc_start_timer(1, ball_delay_ms);
 }
 
-static inline void ring_bell(void)
+/* Higher-priority cues survive less important collisions during playback. */
+static void play_sound(int priority, int preset)
 {
     if (sound_enabled)
-        console_put_byte(BELL_BYTE);
+        snd_preset(priority, preset);
 }
 
 static inline bool timer_expired(void)
@@ -159,9 +160,13 @@ static inline bool timer_expired(void)
     return svc_timer_active(1) == 0;
 }
 
+/* The utility service is absent on some hosts, so use input-poll jitter. */
+static unsigned entropy;
+
 static inline unsigned random_word(void)
 {
-    return svc_random_u16();
+    entropy = entropy * 25173u + 13849u;
+    return entropy >> 8;
 }
 
 static inline int read_key(void)
@@ -177,7 +182,8 @@ static void draw_status(void)
     write_unsigned(score);
     erase_to_end_of_line();
     cursor_move(1, 26);
-    write_text(sound_enabled ? "S:SOUND ON " : "S:SOUND OFF");
+    write_text(!sound_available ? "S:NO SPEAKER" :
+               sound_enabled ? "S:SOUND ON " : "S:SOUND OFF");
     cursor_move(1, 50);
     write_text("LIFE:");
     write_unsigned(lives);
@@ -367,6 +373,7 @@ static bool paddle_hit(void)
     else if (relative_column > PADDLE_WIDTH - 3)
         ball_dx = 1;
     score++;
+    play_sound(1, SND_PADDLE);
     draw_status();
     return true;
 }
@@ -405,7 +412,7 @@ static bool resolve_brick_collision(uint8_t previous_row, uint8_t previous_colum
             ball_dx = -ball_dx;
         else
             ball_dy = -ball_dy;
-        ring_bell();
+        play_sound(2, SND_BRICK);
         return true;
     }
     if (previous_row == ball_row || previous_column == ball_column)
@@ -418,13 +425,14 @@ static bool resolve_brick_collision(uint8_t previous_row, uint8_t previous_colum
         ball_dx = -ball_dx;
     if (!vertical_hit && !horizontal_hit)
         return false;
-    ring_bell();
+    play_sound(2, SND_BRICK);
     return true;
 }
 
 static void lose_ball(void)
 {
     lives--;
+    play_sound(3, lives == 0 ? SND_GAME_OVER : SND_BALL_LOST);
     draw_status();
     if (lives == 0) {
         state = GAME_OVER;
@@ -438,6 +446,7 @@ static void move_ball(void)
 {
     uint8_t previous_column;
     uint8_t previous_row;
+    bool wall_hit = false;
 
     if (state != PLAYING)
         return;
@@ -448,14 +457,19 @@ static void move_ball(void)
     if (ball_column <= MINIMUM_COLUMN) {
         ball_column = MINIMUM_COLUMN;
         ball_dx = 1;
+        wall_hit = true;
     } else if (ball_column >= MAXIMUM_COLUMN) {
         ball_column = MAXIMUM_COLUMN;
         ball_dx = -1;
+        wall_hit = true;
     }
     if (ball_row <= MINIMUM_ROW) {
         ball_row = MINIMUM_ROW;
         ball_dy = 1;
+        wall_hit = true;
     }
+    if (wall_hit)
+        play_sound(1, SND_WALL);
     paddle_hit();
     if (ball_row >= MAXIMUM_ROW) {
         restore_cell(previous_row, previous_column);
@@ -495,6 +509,7 @@ static void move_paddle(int direction)
 
 static void process_input(void)
 {
+    entropy++;
     int key = read_key();
 
     if (key == 0)
@@ -508,11 +523,16 @@ static void process_input(void)
     else if (key == RIGHT_KEY)
         move_paddle(PADDLE_STEP);
     else if (key == 'S' || key == 's') {
-        sound_enabled = !sound_enabled;
+        if (sound_available) {
+            sound_enabled = !sound_enabled;
+            if (!sound_enabled)
+                snd_stop();
+        }
         draw_status();
     } else if ((key == SPACE_KEY || key == ENTER_KEY) && state == WAITING_TO_LAUNCH) {
         clear_message();
         state = PLAYING;
+        play_sound(1, SND_ROUND_START);
         move_ball();
         console_flush();
         timer_start();
@@ -521,6 +541,8 @@ static void process_input(void)
 
 int main(void)
 {
+    sound_available = snd_init() != 0;
+    sound_enabled = sound_available;
     initialize_game();
     clear_screen();
     draw_status();
@@ -540,10 +562,14 @@ int main(void)
     }
 
     clear_message();
-    if (state == GAME_WON)
+    if (state == GAME_WON) {
+        play_sound(4, SND_FANFARE);
         show_message("YOU CLEARED THE WALL");
+    }
     else if (state == GAME_OVER)
         show_message("GAME OVER");
+    else if (sound_available)
+        snd_stop();
     cursor_move(25, 20);
     set_color(37);
     write_text("FINAL SCORE: ");

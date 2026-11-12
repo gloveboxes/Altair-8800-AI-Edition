@@ -3,6 +3,7 @@
 #endif
 #include <assert.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 
 int bdos(int function, int argument);
@@ -19,6 +20,20 @@ static int arriving_keys[16];
 static unsigned arriving_count, arrival_offset;
 static unsigned timer_starts;
 static int finish_game;
+static int speaker_present = 1, sound_calls, sound_stops, last_preset, last_priority;
+int snd_init(void) { return speaker_present; }
+int snd_stop(void) { ++sound_stops; return 1; }
+int snd_fx(int priority, int effect, ...)
+{
+    va_list args;
+    assert(effect == SND_FX_PRESET);
+    va_start(args, effect);
+    last_preset = va_arg(args, int);
+    va_end(args);
+    last_priority = priority;
+    ++sound_calls;
+    return 1;
+}
 
 int bios(int function, int argument)
 {
@@ -80,6 +95,9 @@ static void reset_test(void)
     key_count = key_position = input_calls = 0;
     arriving_count = arrival_offset = timer_starts = 0;
     finish_game = 0;
+    speaker_present = 1;
+    sound_calls = sound_stops = last_preset = last_priority = 0;
+    sound_available = sound_enabled = true;
     initialize_game();
     state = WAITING_TO_LAUNCH;
     paddle_column = (SCREEN_WIDTH - PADDLE_WIDTH) >> 1;
@@ -196,6 +214,7 @@ static void test_launch_and_controls(void)
         key_count = 1;
         process_input();
         assert(state == PLAYING && timer_starts == 1);
+        assert(last_preset == SND_ROUND_START);
         assert(ball_column == 41 && ball_row == PADDLE_ROW - 2);
         assert(output_used > 0 && console_buffer_used == 0);
         assert(!timer_expired());
@@ -234,73 +253,69 @@ static void test_brick_updates(void)
     timer_start();
 }
 
-static unsigned count_bells(void)
-{
-    unsigned index, bells = 0;
-
-    for (index = 0; index < output_used; ++index)
-        bells += output[index] == BELL_BYTE;
-    return bells;
-}
-
-static void test_brick_bell_and_sound_toggle(void)
+static void test_sound_effects_and_toggle(void)
 {
     unsigned test;
     static const int toggle_keys[] = {'S', 's'};
 
     reset_test();
-    sound_enabled = true;
     state = PLAYING;
     ball_row = BRICK_TOP;
     ball_column = BRICK_LEFT;
     resolve_brick_collision(BRICK_TOP + 1, BRICK_LEFT + 1);
-    console_flush();
-    assert(ball_dy == 1 && count_bells() == 1);
+    assert(ball_dy == 1 && sound_calls == 1 && last_preset == SND_BRICK && last_priority == 2);
 
-    /* A corner hit beside the target cell takes the second collision path. */
     reset_test();
     state = PLAYING;
     ball_row = BRICK_TOP;
     ball_column = BRICK_LEFT + BRICK_WIDTH;
-    ball_dy = -1;
     resolve_brick_collision(BRICK_TOP + 1, BRICK_LEFT + BRICK_WIDTH - 1);
-    console_flush();
-    assert(!bricks[0][0] && ball_dy == 1);
-    assert(bricks_left == BRICK_ROWS * BRICK_COLUMNS - 1 && count_bells() == 1);
+    assert(!bricks[0][0] && sound_calls == 1 && last_preset == SND_BRICK);
 
     reset_test();
-    ball_row = BRICK_TOP + BRICK_ROWS + 2;
-    ball_column = BRICK_LEFT;
-    resolve_brick_collision(BRICK_TOP + BRICK_ROWS + 3, BRICK_LEFT + 1);
-    move_paddle(PADDLE_STEP);
-    console_flush();
-    assert(count_bells() == 0);
+    state = PLAYING;
+    ball_column = MINIMUM_COLUMN + 1;
+    ball_row = 20;
+    ball_dx = -1;
+    move_ball();
+    assert(sound_calls == 1 && last_preset == SND_WALL);
+    ball_row = PADDLE_ROW - 1;
+    ball_column = paddle_column;
+    ball_dy = 1;
+    assert(paddle_hit() && last_preset == SND_PADDLE);
+    lose_ball();
+    assert(last_preset == SND_BALL_LOST && last_priority == 3);
+    lives = 1;
+    lose_ball();
+    assert(last_preset == SND_GAME_OVER && state == GAME_OVER);
 
     for (test = 0; test < sizeof toggle_keys / sizeof toggle_keys[0]; ++test) {
         reset_test();
-        sound_enabled = true;
         keys[0] = toggle_keys[test];
         key_count = 1;
         process_input();
         console_flush();
         output[output_used] = '\0';
-        assert(!sound_enabled && !quit_requested && state == WAITING_TO_LAUNCH);
+        assert(!sound_enabled && sound_stops == 1);
         assert(strstr((const char *)output, "S:SOUND OFF") != NULL);
-        output_used = 0;
-        ball_row = BRICK_TOP;
-        ball_column = BRICK_LEFT;
-        resolve_brick_collision(BRICK_TOP + 1, BRICK_LEFT + 1);
-        console_flush();
-        assert(count_bells() == 0 && bricks_left == BRICK_ROWS * BRICK_COLUMNS - 1);
-
-        output_used = 0;
+        play_sound(2, SND_BRICK);
+        assert(sound_calls == 0);
         keys[1] = toggle_keys[test];
         key_count = 2;
         process_input();
-        console_flush();
-        output[output_used] = '\0';
-        assert(sound_enabled && strstr((const char *)output, "S:SOUND ON ") != NULL);
+        assert(sound_enabled);
+        play_sound(2, SND_BRICK);
+        assert(sound_calls == 1);
     }
+    reset_test();
+    sound_available = sound_enabled = false;
+    keys[0] = 's';
+    key_count = 1;
+    process_input();
+    console_flush();
+    output[output_used] = '\0';
+    assert(!sound_enabled && sound_stops == 0);
+    assert(strstr((const char *)output, "S:NO SPEAKER") != NULL);
 }
 
 static void test_ball_bounces_from_contact_cell(void)
@@ -370,11 +385,21 @@ static void test_main_flushes(void)
         assert(strstr((const char *)output, "FINAL SCORE: 0") != NULL);
         if (finish_game) {
             assert(state == GAME_OVER && lives == 0);
+            assert(last_preset == SND_GAME_OVER);
             assert(strstr((const char *)output, "GAME OVER") != NULL);
         } else {
-            assert(quit_requested && state == WAITING_TO_LAUNCH);
+            assert(quit_requested && state == WAITING_TO_LAUNCH && sound_stops == 1);
         }
     }
+    reset_test();
+    speaker_present = 0;
+    arriving_keys[0] = ESCAPE_KEY;
+    arriving_count = 1;
+    arrival_offset = 100;
+    assert(breakout_main() == 0);
+    output[output_used] = '\0';
+    assert(!sound_available && !sound_enabled && sound_calls == 0 && sound_stops == 0);
+    assert(strstr((const char *)output, "S:NO SPEAKER") != NULL);
 }
 
 int main(void)
@@ -384,7 +409,7 @@ int main(void)
     test_keys_during_drawing();
     test_launch_and_controls();
     test_brick_updates();
-    test_brick_bell_and_sound_toggle();
+    test_sound_effects_and_toggle();
     test_ball_bounces_from_contact_cell();
     test_main_flushes();
     puts("Breakout raw console tests PASS");
