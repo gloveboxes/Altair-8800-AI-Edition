@@ -153,6 +153,7 @@
     },
     {
       "label": "Build active DCC C file for debugging",
+      "hide": true,
       "type": "shell",
       "command": "if [[ -f dccmake.txt ]]; then \"${env:DCC_DIR}/dccmake\" -g; else \"${env:DCC_DIR}/dccmake\" -g \"dcc-input=${file}\" \"dcc-output=${fileBasenameNoExtension}\" \"dcc-include-directory=${env:DCC_DIR}\" \"l80-command=${env:DCC_DIR}/l80c.com\" 'dcc-runtime=${DCC_DIR}/DCCRTL.MAC' dcc-build-dir=build; fi",
       "options": {
@@ -162,6 +163,7 @@
     },
     {
       "label": "Copy debug outputs back to source folder",
+      "hide": true,
       "type": "shell",
       "command": "if [[ -f dccmake.txt ]]; then output_base=$(sed -n 's/^[[:space:]]*dcc-output[[:space:]]*=[[:space:]]*//p' dccmake.txt | tail -1); fi; if [[ -z \"${output_base}\" ]]; then output_base=\"${fileBasenameNoExtension}\"; fi; output_base=$(printf '%s' \"${output_base}\" | tr '[:lower:]' '[:upper:]') && cp -f \"${fileDirname}/build/${output_base}.COM\" \"${fileDirname}/${fileBasenameNoExtension}.COM\" && cp -f \"${fileDirname}/build/${output_base}.DBG\" \"${fileDirname}/${fileBasenameNoExtension}.DBG\"",
       "options": {
@@ -171,6 +173,7 @@
     },
     {
       "label": "Build and copy active DCC C file for debugging",
+      "hide": true,
       "dependsOrder": "sequence",
       "dependsOn": [
         "Build active DCC C file for debugging",
@@ -180,6 +183,7 @@
     },
     {
       "label": "Build active DCC file for full CP/M debugging",
+      "hide": true,
       "dependsOrder": "sequence",
       "dependsOn": [
         "Build and copy active DCC C file for debugging",
@@ -198,6 +202,7 @@
     },
     {
       "label": "Prepare active DCC file for full CP/M debugging",
+      "hide": true,
       "dependsOrder": "sequence",
       "dependsOn": [
         "Build active DCC file for full CP/M debugging"
