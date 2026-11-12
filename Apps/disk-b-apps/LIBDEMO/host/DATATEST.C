@@ -3,6 +3,7 @@
 
 #include "API.H"
 #include "BANKLIB.H"
+#include "BIOSBANK.H"
 #include "HOSTCHK.H"
 
 static unsigned int previous_handle;
@@ -220,6 +221,28 @@ static unsigned int check_reload(void)
     return result && cleanup;
 }
 
+/* A pool reset hands the library's call frame to the next allocation. The
+ * following call and close must report BL_STALE and leave that block alone. */
+static unsigned int check_pool_reset(void)
+{
+    unsigned char pattern[16], data[16];
+    unsigned int frame, block, result;
+    frame = bank_bios_allocate(512);
+    if (!frame || !bank_bios_free(frame) || !bank_library_open("DATA.LIB"))
+        return 0;
+    result = add16(1, 2) == 3 && bank_library_last_error() == BL_OK;
+    memset(pattern, 0x5A, sizeof(pattern));
+    block = bank_bios_reset() ? bank_bios_allocate(512) : 0;
+    result = result && block == frame &&
+             bank_bios_write(block, pattern, sizeof(pattern)) &&
+             add16(1, 2) == 0 && bank_library_last_error() == BL_STALE &&
+             bank_bios_read(block, data, sizeof(data)) &&
+             !memcmp(data, pattern, sizeof(pattern)) &&
+             !bank_library_close() && bank_library_last_error() == BL_STALE &&
+             bank_bios_allocation_size(block) == 512;
+    return bank_bios_free(block) && result;
+}
+
 int main(void)
 {
     unsigned int step, loaded;
@@ -269,10 +292,10 @@ int main(void)
     puts("PASS: directory search preserved and transfer memory recovered.");
 
     step = 8;
-    puts("[8/8] Reload, reject old handles and clean up an open block");
-    if (!check_reload())
+    puts("[8/8] Reload, reject old handles, clean up an open block, reset the pool");
+    if (!check_reload() || !check_pool_reset())
         goto failed;
-    puts("PASS: reload isolation and unload cleanup.");
+    puts("PASS: reload isolation, unload cleanup and pool-reset rejection.");
     puts("PASS: all 8 bank-1 library checks.");
     return 0;
 

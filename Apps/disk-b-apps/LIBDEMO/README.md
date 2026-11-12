@@ -189,8 +189,8 @@ B>datatest
 DATATEST: ordinary C calls, separate banks.
 [1/8] Load DATA.LIB and run onload
 ...
-[8/8] Reload, reject old handles and clean up an open block
-PASS: reload isolation and unload cleanup.
+[8/8] Reload, reject old handles, clean up an open block, reset the pool
+PASS: reload isolation, unload cleanup and pool-reset rejection.
 PASS: all 8 bank-1 library checks.
 ```
 
@@ -207,7 +207,7 @@ cleanup. The program exits nonzero on failure.
 | 5. ABI | All eight names/signatures; wrong signature (including a changed record field name), truncated scalar/record frames and oversized-frame rejection with unchanged caller data. This section alone uses low-level `bank_library_call` to test intentionally invalid calls. |
 | 6. Records and blocks | Record IN/OUT/INOUT copying, unchanged input, output zeroing, 32-bit values, signed state, fixed arrays, guards, NULL/alias rejection, correct chunk contents, one-live-block rule, transfer/object bounds, zero/stale handles, replacement handles and double-free rejection. |
 | 7. Unload | Freeing a still-open block, an empty DCC heap, directory-search preservation and full recovery of the shared transfer pool. |
-| 8. Reload | Old handles remain invalid, the final block byte is correct, and unloading frees a still-open block and leaves the DCC heap empty. |
+| 8. Reload | Old handles remain invalid, the final block byte is correct, and unloading frees a still-open block and leaves the DCC heap empty. After an SDK pool reset, a call and close report `BL_STALE` and leave the block now holding the frame's address untouched. |
 
 This is a full regression example, not a timing benchmark or quick two-call
 demo. It loads the library twice and creates/initializes three 4 KiB blocks.

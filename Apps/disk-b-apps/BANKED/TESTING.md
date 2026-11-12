@@ -38,7 +38,7 @@ DCC_DIR=/path/to/dcc "$DCC_DIR/dccmake" \
 `banked_heap_z80_test.py` boots the production CP/M image with the bank-0
 BDOS shim, mirrored gateway and complete bank-1 resident image, then runs the
 COM file. Only console, disk and the stopwatch port are modeled. It checks
-all 24 patterns over 5,632 bytes, full pool recovery, PRIMEBK1 and SPREADS
+all 24 patterns over 5,632 bytes, full pool recovery, PRIMEBK1
 direct calls, the unavailable-bank path, timer parser recovery from
 incomplete commands and errors, and simulated 12-hour expiry without falsely
 counting an incomplete iteration. MEMPERF and ALLOCPRF tests use the same
@@ -55,11 +55,20 @@ package; firmware mirrors all 256 bytes into bank 1 and verifies them.
 
 ## Commands
 
-From the Z80ROMlessSBC repository root:
+From the Z80ROMlessSBC repository root, build the emulator library once
+(the tests load `build/cpm/z80_debug_host/libz80sbc-emulator`):
+
+```sh
+cmake -S src/cpm/z80_debug_host -B build/cpm/z80_debug_host \
+  -DZ80_DEBUG_HOST_BUILD_EXAMPLES=OFF
+cmake --build build/cpm/z80_debug_host --target z80sbc-emulator
+```
+
+Then run the suite with Python 3.10+ and `z80asm` on `PATH`:
 
 ```sh
 export PYTHONPATH=src/common/tests DCC_DIR=/path/to/dcc
-build/disk-emulator/bin/python -m unittest \
+python3.14 -m unittest \
   banked_memory_z80_test banked_allocator_z80_test bank1_bdos_z80_test \
   bank0_bdos_shim_z80_test bank1_system_boot_z80_test bank_sdk_z80_test \
   banked_heap_z80_test memperf_z80_test allocperf_z80_test

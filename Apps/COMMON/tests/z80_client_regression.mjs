@@ -49,7 +49,7 @@ const results = new Map();
 const client = path.join(repo, 'Apps/COMMON/DXSVC.C');
 const source = fs.readFileSync(client, 'utf8');
 const blocks = source.match(/^#asm\r?\n[\s\S]*?^#endasm\r?$/gm);
-assert.equal(blocks?.length, 2, 'Expected framing and transport assembly blocks');
+assert.equal(blocks?.length, 3, 'Expected framing, transport and speaker assembly blocks');
 const reference = path.join(work, 'DXREF.C');
 fs.writeFileSync(reference, '#define DXSVC_C_REFERENCE 1\n' +
     blocks.reduce((text, block) => text.replace(block, ''), source));
@@ -84,6 +84,19 @@ if (results.has('BEFORE')) {
             `Baseline regressed ${['linked size', 'polling', 'transfer'][index]}`);
 }
 console.log('All C/assembly protocol, timer validation/recovery, timeout, stack, IX/IY and interrupt-state checks passed.');
+
+const sound = new Map();
+for (const [name, inputs] of [['SNDREF', [reference, path.join(here, 'SVCCORE.C')]], ['SNDZ80', [client]]]) {
+    build(name, [path.join(here, 'SNDBEN.C'), ...inputs]);
+    const output = run(path.join(work, 'z80-client-fixture'), [path.join(work, name, name), '--sound']);
+    const match = output.match(/^PASS SOUND (.+)$/m);
+    assert(match, output);
+    console.log(`${name}: ${match[0]}`);
+    sound.set(name, Object.fromEntries([...match[1].matchAll(/(\w+)=(\d+)/g)]
+        .map(([, key, value]) => [key, Number(value)])));
+}
+for (const [key, value] of Object.entries(sound.get('SNDZ80')))
+    assert(value < sound.get('SNDREF')[key], `Speaker assembly regressed ${key}`);
 
 build('DATE', [path.join(repo, 'Apps/DATE/date.c'), client],
     ['dcc-floatio=false', 'dcc-flongio=false']);

@@ -52,7 +52,7 @@ address is directly usable while bank 1 is selected.
 Library LOAD validates a `.LIB` header and loads one fixed-origin image at
 `0100h`; INVALIDATE makes it uncallable. Up to eight named, signed exports are
 published. The SDK runs `onload` and `onunload`.
-See the [BIOS documentation](https://gloveboxes.github.io/Z80ROMlessSBC/cpm-dcc/bios/)
+See the [BIOS documentation](https://gloveboxes.github.io/Z80ROMlessSBC/system/cpm-execution/#banked-memory-bios-extension-abi-10)
 and [LIBDEMO example](../LIBDEMO/README.md) for the full design.
 
 Boot logs separately report bank-1 load and verify progress through

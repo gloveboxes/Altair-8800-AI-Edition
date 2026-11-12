@@ -21,6 +21,10 @@ Preparation, poisoning, verification and printing are outside the timed
 intervals. Both directions are verified afterward. Reported milliseconds
 are the **total for all 32 repeats**, and KiB/s uses the full 128 KiB.
 The 5,632-byte general pool must have a contiguous 4 KiB extent available.
+CP/M reinitializes this pool before every CCP-launched `.COM`, so repeated
+MEMPERF/DATATEST SUBMIT runs start with the full pool even if a previous app
+left allocations open. This requires matching application-start firmware
+and CP/M system images; SDK initialization alone does not reset the pool.
 
 A single 4 KiB copy measured with whole milliseconds can only report
 800.0 KiB/s at 5 ms or 666.6 KiB/s at 6 ms. That is too coarse to diagnose
@@ -34,7 +38,7 @@ current ABI and [ALLOCPRF](../ALLOCPRF/README.md) for allocator timing.
 
 ## Reproducible CPU-cycle measurements
 
-The independent Z80 emulator measures the actual linked checked C entry points,
+The C Z80 emulator measures the actual linked checked C entry points,
 not a replacement copy routine. Initialization, allocation and preparation
 are excluded; every measured call still queries the live allocation size.
 The adapter calls the BIOS checked entries, which read the live extent through
@@ -43,11 +47,11 @@ about 1,340 T-states beyond the 16-byte bursts.
 From the repository root, after building MEMPERF:
 
 ```sh
-PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
+PYTHONPATH=src/common/tests python3.14 \
   src/common/tests/banked_sdk_benchmark.py
-PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
+PYTHONPATH=src/common/tests python3.14 \
   src/common/tests/banked_transfer_benchmark.py
-PYTHONPATH=src/common/tests build/disk-emulator/bin/python \
+PYTHONPATH=src/common/tests python3.14 \
   src/common/tests/banked_sdk_benchmark.py --services
 ```
 

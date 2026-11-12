@@ -746,3 +746,417 @@ unsigned svc_random_u16(void)
     random_value |= high_byte << 8;
     return random_value;
 }
+
+/* Speaker options {flags, pitch, speed} and the last request ID. */
+unsigned char io_sound[4] = {0, 100, 100, 0};
+
+void snd_options(int flags, int pitch, int speed)
+{
+    io_sound[0] = flags;
+    io_sound[1] = pitch;
+    io_sound[2] = speed;
+}
+
+int snd_init(void)
+{
+    snd_options(0, 100, 100);
+    inp(SOUND_PORT);
+    outp(SOUND_PORT, 0);
+    if (inp(SOUND_PORT) != SOUND_PROTOCOL_VERSION)
+        return 0;
+    snd_stop();
+    while (snd_event())
+        ;
+    return 1;
+}
+
+/* Speaker packets: an IN restarts framing, then each byte is one OUT.
+ * snd_fx walks a per-effect field layout: 1 = byte (remembered as a count),
+ * 2 = big-endian word, 3 = pointer to count {word, word} pairs.
+ * Layouts share suffixes, so the ten effects need 24 bytes.
+ */
+#if defined(_DCC_) && !defined(DXSVC_C_REFERENCE) && !defined(__INTELLISENSE__) && !defined(__clang__)
+#asm
+;@dcc.lto begin SND_NEXT_ID
+SND_NEXT_ID:
+	ld a,(_io_sound+3)
+	inc a
+	jr nz,SND_ID_READY
+	inc a
+SND_ID_READY:
+	ld (_io_sound+3),a
+	ret
+;@dcc.lto end SND_NEXT_ID
+
+;@dcc.lto begin _snd_fx
+	public _snd_fx
+_snd_fx:
+	ld hl,5
+	add hl,sp
+	ld a,(hl)
+	dec hl
+	or a
+	jr nz,SND_FX_UNKNOWN
+	ld a,(hl)
+	dec a
+	cp 10
+	jr nc,SND_FX_UNKNOWN
+	add a,a
+	ld e,a
+	ld d,0
+	ld hl,SND_LAYOUTS
+	add hl,de
+	ld e,(hl)
+	inc hl
+	ld d,(hl)
+	in a,(21)
+	ld a,16
+	out (21),a
+	call SND_NEXT_ID
+	out (21),a
+	ld hl,2
+	add hl,sp
+	ld a,(hl)
+	out (21),a
+	ld a,(_io_sound)
+	out (21),a
+	ld a,(_io_sound+1)
+	out (21),a
+	ld a,(_io_sound+2)
+	out (21),a
+	inc hl
+	inc hl
+	ld a,(hl)
+	out (21),a
+SND_FX_NEXT:
+	inc hl
+	inc hl
+SND_FX_FIELD:
+	ld a,(de)
+	inc de
+	dec a
+	jr z,SND_FX_BYTE
+	dec a
+	jr z,SND_FX_WORD
+	dec a
+	jr nz,SND_FX_RETURN
+	ld a,(hl)
+	inc hl
+	ld h,(hl)
+	ld l,a
+	ld a,c
+	add a,a
+	jr z,SND_FX_RETURN
+	ld b,a
+SND_FX_ARRAY:
+	ld e,(hl)
+	inc hl
+	ld a,(hl)
+	inc hl
+	out (21),a
+	ld a,e
+	out (21),a
+	djnz SND_FX_ARRAY
+	jr SND_FX_RETURN
+SND_FX_BYTE:
+	ld a,(hl)
+	ld c,a
+	out (21),a
+	jr SND_FX_NEXT
+SND_FX_WORD:
+	inc hl
+	ld a,(hl)
+	out (21),a
+	dec hl
+	ld a,(hl)
+	out (21),a
+	jr SND_FX_NEXT
+SND_FX_UNKNOWN:
+	ld hl,0
+	ret
+SND_FX_RETURN:
+	ld a,(_io_sound+3)
+	ld l,a
+	ld h,0
+	ret
+SND_LAYOUTS:
+	dw SND_L_TONE,SND_L_SWEEP,SND_L_SIREN,SND_L_SEQUENCE,SND_L_SEGMENTS
+	dw SND_L_PULSES,SND_L_SIREN,SND_L_ARPEGGIO,SND_L_GATE,SND_L_PRESET
+SND_L_PULSES:
+	db 1,2,2,2,2,0
+SND_L_SIREN:
+	db 2
+SND_L_GATE:
+	db 2
+SND_L_SWEEP:
+	db 2
+SND_L_TONE:
+	db 2,2,0
+SND_L_SEQUENCE:
+	db 1,2,3
+SND_L_SEGMENTS:
+	db 1,2,2,3
+SND_L_ARPEGGIO:
+	db 2,2,2
+SND_L_PRESET:
+	db 1,0
+;@dcc.lto end _snd_fx
+
+;@dcc.lto begin SND_COMMAND
+SND_COMMAND:
+	in a,(21)
+	ld a,b
+	out (21),a
+	call SND_NEXT_ID
+	out (21),a
+	ld l,a
+	ld h,0
+	ret
+;@dcc.lto end SND_COMMAND
+
+;@dcc.lto begin _snd_stop
+	public _snd_stop
+_snd_stop:
+	ld b,17
+	jp SND_COMMAND
+;@dcc.lto end _snd_stop
+
+;@dcc.lto begin _snd_clear
+	public _snd_clear
+_snd_clear:
+	ld b,19
+	jp SND_COMMAND
+;@dcc.lto end _snd_clear
+
+;@dcc.lto begin _snd_update
+	public _snd_update
+_snd_update:
+	ld b,18
+	call SND_COMMAND
+	ld c,l
+	ld hl,2
+	add hl,sp
+	ld b,4
+SND_UPDATE_BYTE:
+	ld a,(hl)
+	out (21),a
+	inc hl
+	inc hl
+	djnz SND_UPDATE_BYTE
+	ld b,2
+SND_UPDATE_WORD:
+	inc hl
+	ld a,(hl)
+	out (21),a
+	dec hl
+	ld a,(hl)
+	out (21),a
+	inc hl
+	inc hl
+	djnz SND_UPDATE_WORD
+	ld l,c
+	ld h,0
+	ret
+;@dcc.lto end _snd_update
+
+;@dcc.lto begin _snd_read
+	public _snd_read
+_snd_read:
+	ld hl,2
+	add hl,sp
+	ld a,(hl)
+	inc hl
+	ld h,(hl)
+	ld l,a
+	in a,(21)
+	xor a
+	out (21),a
+	ld b,19
+SND_READ_BYTE:
+	in a,(21)
+	ld (hl),a
+	inc hl
+	djnz SND_READ_BYTE
+	ret
+;@dcc.lto end _snd_read
+
+;@dcc.lto begin _snd_busy
+	public _snd_busy
+_snd_busy:
+	in a,(21)
+	xor a
+	out (21),a
+	in a,(21)
+	in a,(21)
+	in a,(21)
+	ld l,a
+	ld h,0
+	ret
+;@dcc.lto end _snd_busy
+
+;@dcc.lto begin _snd_wait
+	public _snd_wait
+_snd_wait:
+	call _snd_busy
+	ld a,l
+	or a
+	jr nz,_snd_wait
+	ret
+;@dcc.lto end _snd_wait
+
+;@dcc.lto begin _snd_event
+	public _snd_event
+_snd_event:
+	in a,(21)
+	xor a
+	out (21),a
+	ld b,11
+SND_EVENT_SKIP:
+	in a,(21)
+	djnz SND_EVENT_SKIP
+	in a,(21)
+	ld d,a
+	in a,(21)
+	ld e,a
+	in a,(21)
+	ld l,a
+	in a,(21)
+	ld h,a
+	or a
+	jr z,SND_EVENT_NONE
+	ld a,20
+	out (21),a
+	ld a,d
+	out (21),a
+	ld a,e
+	out (21),a
+	ret
+SND_EVENT_NONE:
+	ld l,a
+	ret
+;@dcc.lto end _snd_event
+#endasm
+#endif
+
+#if !defined(_DCC_) || defined(DXSVC_C_REFERENCE) || defined(__INTELLISENSE__) || defined(__clang__)
+#include <stdarg.h>
+
+static int sound_command(int command)
+{
+    inp(SOUND_PORT);
+    outp(SOUND_PORT, command);
+    if (!++io_sound[3])
+        ++io_sound[3];
+    outp(SOUND_PORT, io_sound[3]);
+    return io_sound[3];
+}
+
+static void sound_word(unsigned value)
+{
+    outp(SOUND_PORT, (value >> 8) & 255);
+    outp(SOUND_PORT, value & 255);
+}
+
+int snd_fx(int priority, int effect, ...)
+{
+    static const unsigned char layouts[10][5] = {
+        {2, 2}, {2, 2, 2}, {2, 2, 2, 2, 2}, {1, 2, 3}, {1, 2, 2, 3},
+        {1, 2, 2, 2, 2}, {2, 2, 2, 2, 2}, {2, 2, 2, 1}, {2, 2, 2, 2}, {1}
+    };
+    const unsigned char *field;
+    const unsigned short *pairs;
+    unsigned count = 0, i;
+    int id;
+    va_list ap;
+
+    if (effect < 1 || effect > 10)
+        return 0;
+    id = sound_command(16);
+    outp(SOUND_PORT, priority & 255);
+    outp(SOUND_PORT, io_sound[0]);
+    outp(SOUND_PORT, io_sound[1]);
+    outp(SOUND_PORT, io_sound[2]);
+    outp(SOUND_PORT, effect);
+    va_start(ap, effect);
+    for (field = layouts[effect - 1]; field < layouts[effect - 1] + 5 && *field; ++field) {
+        if (*field == 1) {
+            count = va_arg(ap, int) & 255;
+            outp(SOUND_PORT, count);
+        } else if (*field == 2) {
+            sound_word(va_arg(ap, unsigned));
+        } else {
+            pairs = va_arg(ap, const unsigned short *);
+            for (i = 0; i < 2 * count; ++i)
+                sound_word(pairs[i]);
+        }
+    }
+    va_end(ap);
+    return id;
+}
+
+int snd_stop(void)
+{
+    return sound_command(17);
+}
+
+int snd_clear(void)
+{
+    return sound_command(19);
+}
+
+int snd_update(int target, int mask, int pitch, int speed, unsigned depth_hz,
+               unsigned period_ms)
+{
+    int id = sound_command(18);
+
+    outp(SOUND_PORT, target & 255);
+    outp(SOUND_PORT, mask & 255);
+    outp(SOUND_PORT, pitch & 255);
+    outp(SOUND_PORT, speed & 255);
+    sound_word(depth_hz);
+    sound_word(period_ms);
+    return id;
+}
+
+void snd_read(unsigned char *status)
+{
+    int i;
+
+    inp(SOUND_PORT);
+    outp(SOUND_PORT, 0);
+    for (i = 0; i < SND_STATUS_BYTES; ++i)
+        status[i] = inp(SOUND_PORT);
+}
+
+int snd_busy(void)
+{
+    inp(SOUND_PORT);
+    outp(SOUND_PORT, 0);
+    inp(SOUND_PORT);
+    inp(SOUND_PORT);
+    return inp(SOUND_PORT) & 255;
+}
+
+void snd_wait(void)
+{
+    while (snd_busy())
+        ;
+}
+
+int snd_event(void)
+{
+    unsigned char status[SND_S_EVENT_TYPE + 1];
+    int i;
+
+    inp(SOUND_PORT);
+    outp(SOUND_PORT, 0);
+    for (i = 0; i <= SND_S_EVENT_TYPE; ++i)
+        status[i] = inp(SOUND_PORT);
+    if (!status[SND_S_EVENT_TYPE])
+        return 0;
+    outp(SOUND_PORT, 20);
+    outp(SOUND_PORT, status[SND_S_EVENT_SEQUENCE]);
+    outp(SOUND_PORT, status[SND_S_EVENT_SEQUENCE + 1]);
+    return (status[SND_S_EVENT_TYPE] << 8) | status[SND_S_EVENT_ID];
+}
+#endif

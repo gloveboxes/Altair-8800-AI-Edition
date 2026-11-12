@@ -56,12 +56,14 @@ typedef struct {
 #define bank_bios_allocation_size bmsize
 #define bank_bios_available bmavl
 #define bank_bios_reset bmrset
+#define bank_bios_reset_count bmrcnt
 #define bank_bios_free bmfree
 #define bank_bios_read bmread
 #define bank_bios_write bmwrit
 #define bank_bios_call bmcall
 #define bank_bios_query bmqury
 #define bank_bios_library_control bmctrl
+#define bank_bios_library_invoke bminvk
 #define bank_bios_read_bytes bmrbyt
 #define bank_bios_write_bytes bmwbyt
 #define bank_bios_last_error bmerr
@@ -72,6 +74,10 @@ unsigned int bank_bios_allocate(unsigned int bytes);
 unsigned int bank_bios_allocation_size(unsigned int handle);
 unsigned int bank_bios_available(void);
 int bank_bios_reset(void);
+/* Successful bank_bios_reset() calls made by this program. Every pool reset
+ * must go through it: owners compare this count to detect a recycled extent
+ * without entering bank 1. */
+extern unsigned int bank_bios_reset_count;
 int bank_bios_free(unsigned int handle);
 /* These raw calls require successful INFO first; return 1 success / 0 error. */
 int bank_bios_read(unsigned int bank_address, void *base, unsigned int bytes);
@@ -80,6 +86,9 @@ unsigned int bank_bios_call(unsigned int code_handle, unsigned int stack_handle,
                            unsigned int entry_offset, unsigned int context_handle);
 int bank_bios_query(bank_bios_info_t *info);
 int bank_bios_library_control(unsigned int request_address, void *request);
+/* Submit a request whose only result is its status: the record is not read
+ * back. Used for CALL, whose results return in the call frame. */
+int bank_bios_library_invoke(unsigned int request_address, void *request);
 int bank_bios_read_bytes(unsigned int bank_address, void *base, unsigned int bytes);
 int bank_bios_write_bytes(unsigned int bank_address, const void *base, unsigned int bytes);
 unsigned int bank_bios_last_error(void);

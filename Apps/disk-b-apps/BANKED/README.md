@@ -82,8 +82,11 @@ Payload copies still use 16-byte register bursts through READ/WRITE. Partial
 transfers use a 16-byte bank-0 buffer. CP/M's DMA area is untouched.
 
 `binit` checks the BIOS ABI 1.0 descriptor, INFO and the capability query. `breset`
-invalidates all allocations without changing code. Warm boot preserves the
-heap; firmware reload initializes it. One application owns the shared heap.
+invalidates all pool allocations without changing the loaded library.
+Before every CCP-launched `.COM`, CP/M reclaims the full shared pool and
+invalidates the previous app's library and token state. This also recovers
+allocations abandoned by an app that returns without warm boot. `binit`
+does not reset live allocations. One application owns the shared pool.
 
 Install matching **ABI 1.0 firmware, boot package, drive A system records and
 rebuilt COM files** together. INFO reports `0100h`, heap start `C800h`, and
@@ -104,7 +107,7 @@ Build this finite test version from `examples/BANKED`, then run from the
 Z80ROMlessSBC root:
 
 ```sh
-build/disk-emulator/bin/python src/common/tests/banked_heap_z80_test.py \
+python3.14 src/common/tests/banked_heap_z80_test.py \
   --program examples/BANKED/build/emulator/BANKED.COM
 ```
 

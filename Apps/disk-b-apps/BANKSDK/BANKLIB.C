@@ -13,6 +13,7 @@ static unsigned int error_code;
 static unsigned int serial;
 static unsigned int generation;
 static unsigned int pool_epoch;
+static unsigned int pool_resets;
 static unsigned int workspace;
 
 static unsigned int word_at(const unsigned char *p)
@@ -34,13 +35,12 @@ static void begin_request(unsigned int action)
     put_word(4, action);
 }
 
-static unsigned int service(void)
+/* Map a rejected library request to its BL_* reason. */
+static unsigned int accepted(unsigned int result)
 {
-    unsigned int status;
-    if (bank_bios_library_control(capabilities.library_request, request))
+    if (result)
         return 1;
-    status = bank_bios_last_error();
-    switch (status)
+    switch (bank_bios_last_error())
     {
     case BANK_BIOS_ARGUMENT:
     case BANK_BIOS_HANDLE: error_code = BL_ARGUMENT; break;
@@ -53,6 +53,11 @@ static unsigned int service(void)
     default: error_code = BL_ABI; break;
     }
     return 0;
+}
+
+static unsigned int service(void)
+{
+    return accepted(bank_bios_library_control(capabilities.library_request, request));
 }
 
 static unsigned int query(void)
@@ -232,6 +237,11 @@ static unsigned int prepare(const char *signature, void *frame,
         error_code = BL_ARGUMENT;
         return 0;
     }
+    /* RESET may have reassigned the frame's address to another owner. The
+     * SDK counts its resets in bank 0, so this check stays in bank 0; the
+     * resident dispatcher validates generation and epoch. */
+    if (bank_bios_reset_count != pool_resets)
+        workspace = 0;
     if (!workspace)
     {
         error_code = BL_STALE;
@@ -247,7 +257,7 @@ static unsigned int prepare(const char *signature, void *frame,
         error_code = BL_EXHAUSTED;
         return 0;
     }
-    return live();
+    return 1;
 }
 
 static unsigned int resolve(const char *name, const char *signature)
@@ -285,7 +295,8 @@ static unsigned int invoke(unsigned int index, void *frame, unsigned int bytes)
         error_code = BL_IO;
         return 0;
     }
-    if (!service())
+    /* CALL results return in the frame; its status returns from the gateway. */
+    if (!accepted(bank_bios_library_invoke(capabilities.library_request, request)))
         return 0;
     if (!bank_bios_read(workspace, block, size))
     {
@@ -419,6 +430,7 @@ unsigned int bank_library_open(const char *filename)
     if (!query())
         return 0;
     pool_epoch = word_at(request + 30);
+    pool_resets = bank_bios_reset_count;
     workspace = bank_bios_allocate(BL_FRAME_MAX + 16);
     if (!workspace)
     {

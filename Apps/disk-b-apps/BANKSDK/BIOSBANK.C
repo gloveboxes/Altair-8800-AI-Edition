@@ -4,6 +4,7 @@
 #include "BIOSBANK.H"
 
 unsigned int bmres;
+unsigned int bmrcnt;
 
 #asm
 ;@dcc.lto begin _bmsize
@@ -31,6 +32,14 @@ _bmavl:
 _bmrset:
 	ld e,4
 	call 0ff10h
+	ld a,h
+	or l
+	jp z,_bmcap
+	push hl
+	ld hl,(_bmrcnt)
+	inc hl
+	ld (_bmrcnt),hl
+	pop hl
 	jp _bmcap
 ;@dcc.lto end _bmrset
 
@@ -192,46 +201,66 @@ BMQ_ERROR:
 ;@dcc.lto begin _bmctrl
 	public _bmctrl
 _bmctrl:
+	ld a,1
+	jp _bmsubm
+;@dcc.lto end _bmctrl
+;@dcc.lto begin _bminvk
+	public _bminvk
+_bminvk:
+	xor a
+	jp _bmsubm
+;@dcc.lto end _bminvk
+; Stack on entry: ret, request address, request. A is nonzero to read the
+; record back after the service returns its status in HL.
+;@dcc.lto begin _bmsubm
+	public _bmsubm
+_bmsubm:
 	push ix
 	push iy
+	push af
 	ld ix,0
 	add ix,sp
-	ld e,(ix+6)
-	ld d,(ix+7)
-	ld l,(ix+8)
-	ld h,(ix+9)
+	ld e,(ix+8)
+	ld d,(ix+9)
+	ld l,(ix+10)
+	ld h,(ix+11)
 	ld bc,32
 	call 0ff03h
-	jr c,BMCT_IO
-	ld l,(ix+6)
-	ld h,(ix+7)
-	ld e,8
-	call 0ff10h
-	push hl
-	ld e,(ix+6)
-	ld d,(ix+7)
+	jr c,BMS_IO
 	ld l,(ix+8)
 	ld h,(ix+9)
+	ld e,8
+	call 0ff10h
+	ld a,(ix+1)
+	or a
+	jr z,BMS_STATUS
+	push hl
+	ld e,(ix+8)
+	ld d,(ix+9)
+	ld l,(ix+10)
+	ld h,(ix+11)
 	ld bc,32
 	call 0ff00h
-	pop de
-	jr c,BMCT_IO
-	ld (_bmres),de
-	ld a,d
-	or e
+	pop hl
+	jr c,BMS_IO
+BMS_STATUS:
+	ld (_bmres),hl
+	ld a,h
+	or l
 	ld hl,0
-	jr nz,BMCT_END
+	jr nz,BMS_END
 	inc l
-	jr BMCT_END
-BMCT_IO:
+	jr BMS_END
+BMS_IO:
 	ld hl,8
 	ld (_bmres),hl
 	ld hl,0
-BMCT_END:
+BMS_END:
+	pop af
 	pop iy
 	pop ix
 	ret
-;@dcc.lto end _bmctrl
+;@dcc.lto end _bmsubm
 ;@dcc.lto begin _bmrbyt
 	public _bmrbyt
 _bmrbyt:

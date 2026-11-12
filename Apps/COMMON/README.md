@@ -118,10 +118,58 @@ but does not roll back completed service side effects. RESET during a BUSY
 file read cancels the FT session. File transfer uses `SERVICE_GROUP_HTTP`
 (`0x70`); see the [FT protocol](../disk-c-apps/FT/README.MD#protocol).
 
+## Speaker sound API
+
+The `snd_*` helpers drive the Stage 11 ATtiny85 sound engine on port 21
+(`SOUND_PORT`, `0x15`). Port 21 carries the engine's command packets byte for
+byte; the engine owns timing, so a game sends one fire-and-forget request per
+sound and keeps running. Every request begins with an IN, which restarts the
+engine's packet framing, so no prior error can desynchronize it.
+
+| Helper | Result |
+| --- | --- |
+| `snd_init()` | Reset options, stop sound, drain events; 1 when protocol 1 answers |
+| `snd_options(flags, pitch, speed)` | Flags (`SND_ENQUEUE`) and 25-200% pitch/speed for later requests |
+| `snd_fx(priority, effect, ...)` | Play an effect; request ID 1-255, or 0 for an unknown effect |
+| `snd_stop()` / `snd_clear()` | Silence and clear the queue / clear the queue only |
+| `snd_update(target, mask, pitch, speed, depth_hz, period_ms)` | Change the playing sound only if its ID is `target` |
+| `snd_read(status)` | Copy the 19-byte status (`SND_S_*` offsets) |
+| `snd_busy()` / `snd_wait()` | Playing request ID, 0 when silent / poll until silent |
+| `snd_event()` | Oldest event as `(type << 8) \| id`, acknowledged; 0 when none |
+
+Wrapper macros name each effect: `snd_tone`, `snd_sweep`, `snd_siren`,
+`snd_sequence`, `snd_segments`, `snd_pulses`, `snd_vibrato`, `snd_arpeggio`,
+`snd_gate` and `snd_preset` with `SND_COIN` to `SND_OBJECTIVE_FAILED`
+(63 presets). Sequence and segment tables are arrays of `unsigned`
+Hz/millisecond pairs; Hz 0 is a rest. ENGINE, HEARTBEAT, LOW_HEALTH and
+TIME_WARNING repeat until stopped or replaced.
+
+```c
+if (!snd_init()) return 1;
+snd_preset(2, SND_COIN);              /* returns at once */
+id = snd_preset(1, SND_ENGINE);
+snd_update(id, SND_PITCH, 160, 0, 0, 0); /* rev the running engine */
+```
+
+`snd_fx` packs arguments from a 24-byte shared layout table; requests,
+status reads and event handling are assembly. Measured on the real Z80 core
+(cycles from entry through RET, port callbacks excluded):
+
+| Operation | C reference | Assembly |
+| --- | ---: | ---: |
+| `snd_tone` | 4,122 | 613 |
+| `snd_sequence` (3 notes) | 9,609 | 950 |
+| `snd_preset` | 2,898 | 492 |
+| `snd_update` | 2,679 | 458 |
+| `snd_read` | 5,737 | 600 |
+| `snd_busy` | 769 | 80 |
+| `snd_event` | 6,170 | 310 |
+| Fixture linking every `snd_*` helper | 2,176 bytes | 1,280 bytes |
+
 ## Embedded dcc assembly core
 
 Assembly is the only production transport implementation. The core is embedded
-directly in [DXSVC.C](DXSVC.C) as two dcc `#asm` blocks. Existing app build
+directly in [DXSVC.C](DXSVC.C) as three dcc `#asm` blocks. Existing app build
 configurations need no extra source, header or feature flag:
 
 ```sh
@@ -214,6 +262,9 @@ no disk images or deployment files are changed.
 The runner also builds the C DATE application, enforces a 2,048-byte size
 ceiling, and executes its exact console output, asynchronous response,
 error-draining and oversized-reply/nonzero-exit cases on the Z80 core.
+The SNDREF/SNDZ80 stage builds [tests/SNDBEN.C](tests/SNDBEN.C) with both
+sound implementations, checks every packet, status and event byte against a
+port-21 fixture and asserts the assembly uses fewer cycles than C.
 Single-helper builds verify text/random, each timer API and the shared error
 bridge retain exactly the needed assembly entry points; an unstripped build
 checks the opt-out behavior.

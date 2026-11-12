@@ -27,6 +27,10 @@ static std::vector<uint8_t> timer_writes;
 static size_t timer_reads;
 static std::string output;
 static std::map<std::string, unsigned> symbols;
+static std::vector<uint8_t> sound_out;
+static unsigned sound_ins, sound_cursor;
+static bool sound_framed;
+static uint8_t sound_status[19];
 static uint8_t no_in() { return 0; }
 static void no_out(uint8_t) {}
 static disk_controller_t disk = {no_out, no_in, no_out, no_in, no_out, no_in};
@@ -46,6 +50,11 @@ static unsigned symbol_address(const std::string& name)
 
 static uint8_t input(uint8_t port)
 {
+    if (port == 21) {
+        ++sound_ins;
+        sound_framed = true;
+        return sound_cursor < sizeof(sound_status) ? sound_status[sound_cursor++] : 0xff;
+    }
     if (port == 23) {
         assert(timer_reads + 2 < frame.size());
         return frame[2 + timer_reads++];
@@ -70,6 +79,12 @@ static uint8_t input(uint8_t port)
 
 static void out(uint8_t port, uint8_t byte)
 {
+    if (port == 21) {
+        if (sound_framed && byte == 0) sound_cursor = 0;
+        else sound_out.push_back(byte);
+        sound_framed = false;
+        return;
+    }
     if (port == 23) {
         timer_writes.push_back(byte);
         return;
@@ -204,11 +219,102 @@ static void invalid_timer(const std::string& name, const std::vector<unsigned>& 
     assert(output == expected);
 }
 
+static uint64_t sound_call(const std::string& name, const std::vector<unsigned>& args,
+                           int expected, const std::vector<uint8_t>& bytes, unsigned ins)
+{
+    sound_out.clear();
+    sound_ins = 0;
+    uint64_t cycles = call(name, args, expected);
+    if (sound_out != bytes || sound_ins != ins) {
+        std::fprintf(stderr, "%s: ins=%u out=", name.c_str(), sound_ins);
+        for (uint8_t byte : sound_out) std::fprintf(stderr, "%u ", byte);
+        std::fprintf(stderr, "\n");
+    }
+    assert(sound_out == bytes && sound_ins == ins);
+    return cycles;
+}
+
+static void sound_tests()
+{
+    const unsigned notes = 0x9800, steps = 0x9810, copy = 0xa000;
+    const uint16_t note_words[] = {262, 100, 330, 100, 392, 200}, step_words[] = {1000, 50, 250, 60};
+    for (unsigned i = 0; i < 6; ++i) {
+        memory[notes + 2 * i] = uint8_t(note_words[i]);
+        memory[notes + 2 * i + 1] = uint8_t(note_words[i] >> 8);
+    }
+    for (unsigned i = 0; i < 4; ++i) {
+        memory[steps + 2 * i] = uint8_t(step_words[i]);
+        memory[steps + 2 * i + 1] = uint8_t(step_words[i] >> 8);
+    }
+    for (unsigned i = 0; i < sizeof(sound_status); ++i) sound_status[i] = uint8_t(100 + i);
+    sound_cursor = sizeof(sound_status);
+    uint64_t tone = sound_call("snd_fx", {5, 1, 1000, 100}, 1,
+        {16, 1, 5, 0, 100, 100, 1, 3, 232, 0, 100}, 1);
+    call("snd_options", {1, 150, 50}, -65536);
+    uint64_t sequence = sound_call("snd_fx", {9, 4, 3, 2, notes}, 2,
+        {16, 2, 9, 1, 150, 50, 4, 3, 0, 2, 1, 6, 0, 100, 1, 74, 0, 100, 1, 136, 0, 200}, 1);
+    call("snd_options", {0, 100, 100}, -65536);
+    sound_call("snd_fx", {1, 5, 2, 0, 500, steps}, 3,
+        {16, 3, 1, 0, 100, 100, 5, 2, 0, 0, 1, 244, 3, 232, 0, 50, 0, 250, 0, 60}, 1);
+    sound_call("snd_fx", {0, 2, 200, 40000, 300}, 4,
+        {16, 4, 0, 0, 100, 100, 2, 0, 200, 156, 64, 1, 44}, 1);
+    sound_call("snd_fx", {2, 3, 600, 1200, 400, 300, 5000}, 5,
+        {16, 5, 2, 0, 100, 100, 3, 2, 88, 4, 176, 1, 144, 1, 44, 19, 136}, 1);
+    sound_call("snd_fx", {3, 6, 12, 880, 20, 200, 30}, 6,
+        {16, 6, 3, 0, 100, 100, 6, 12, 3, 112, 0, 20, 0, 200, 0, 30}, 1);
+    sound_call("snd_fx", {4, 7, 700, 900, 2000, 40, 60}, 7,
+        {16, 7, 4, 0, 100, 100, 7, 2, 188, 3, 132, 7, 208, 0, 40, 0, 60}, 1);
+    sound_call("snd_fx", {5, 8, 1047, 100, 1200, 1}, 8,
+        {16, 8, 5, 0, 100, 100, 8, 4, 23, 0, 100, 4, 176, 1}, 1);
+    sound_call("snd_fx", {6, 9, 440, 50, 25, 600}, 9,
+        {16, 9, 6, 0, 100, 100, 9, 1, 184, 0, 50, 0, 25, 2, 88}, 1);
+    uint64_t preset = sound_call("snd_fx", {255, 10, 1}, 10, {16, 10, 255, 0, 100, 100, 10, 1}, 1);
+    for (unsigned effect : {0U, 11U, 0x100U, 0xff01U})
+        sound_call("snd_fx", {1, effect, 1000, 100}, 0, {}, 0);
+    uint64_t update = sound_call("snd_update", {10, 5, 120, 100, 30, 80}, 11,
+        {18, 11, 10, 5, 120, 100, 0, 30, 0, 80}, 1);
+    sound_call("snd_clear", {}, 12, {19, 12}, 1);
+    for (unsigned id = 13; id <= 255; ++id)
+        sound_call("snd_stop", {}, int(id), {17, uint8_t(id)}, 1);
+    sound_call("snd_stop", {}, 1, {17, 1}, 1);
+    std::memset(memory + copy, 0, sizeof(sound_status));
+    uint64_t read = sound_call("snd_read", {copy}, -65536, {}, 20);
+    assert(std::memcmp(memory + copy, sound_status, sizeof(sound_status)) == 0);
+    uint64_t busy = sound_call("snd_busy", {}, sound_status[2], {}, 4);
+    sound_status[11] = 0x12;
+    sound_status[12] = 0x34;
+    sound_status[13] = 7;
+    sound_status[14] = 3;
+    uint64_t event = sound_call("snd_event", {}, 0x0307, {20, 0x12, 0x34}, 16);
+    sound_status[14] = 0;
+    sound_call("snd_event", {}, 0, {}, 16);
+    sound_status[2] = 0;
+    sound_call("snd_wait", {}, -65536, {}, 4);
+    sound_status[0] = 1;
+    call("snd_options", {1, 50, 50}, -65536);
+    sound_call("snd_init", {}, 1, {17, 2}, 19);
+    sound_call("snd_fx", {0, 1, 100, 10}, 3, {16, 3, 0, 0, 100, 100, 1, 0, 100, 0, 10}, 1);
+    std::memset(sound_status, 0xff, sizeof(sound_status));
+    sound_call("snd_init", {}, 0, {}, 2);
+    std::printf("PASS SOUND bytes=%zu tone=%llu sequence=%llu preset=%llu update=%llu "
+                "read=%llu busy=%llu event=%llu\n", image.size(),
+                (unsigned long long)tone, (unsigned long long)sequence,
+                (unsigned long long)preset, (unsigned long long)update,
+                (unsigned long long)read, (unsigned long long)busy,
+                (unsigned long long)event);
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 2 || (argc == 3 &&
-        (std::string(argv[2]) == "--date" || std::string(argv[2]) == "--clock")));
+        (std::string(argv[2]) == "--date" || std::string(argv[2]) == "--clock" ||
+         std::string(argv[2]) == "--sound")));
     load(argv[1], argc == 2);
+    if (argc == 3 && std::string(argv[2]) == "--sound") {
+        setup(1, {});
+        sound_tests();
+        return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--clock") {
         symbols[symbol_key("ctime")] = symbols.at("CLOCK:get_time");
         symbols[symbol_key("cdate")] = symbols.at("CLOCK:get_date");
