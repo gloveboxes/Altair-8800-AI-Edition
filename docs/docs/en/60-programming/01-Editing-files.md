@@ -15,8 +15,7 @@ Follow this fast loop for most development:
 4. **Build C on the host** using dcc and the app's `build-app.ps1`, or use
    `dccmake` for a build without installing into a disk image. See
    [C Programming](03-C-programming.md).
-5. **Make text/assembly files available to FT**. Local/Docker builds serve
-   the configured `Apps` root; ESP32 uses its configured remote FT server.
+5. **Make text/assembly files available to FT**. ESP32 uses its configured remote FT server.
    The retired GF HTTP utility and BDS build workflows are not supported.
 6. **Transfer a file into CP/M** with the current FT client:
 

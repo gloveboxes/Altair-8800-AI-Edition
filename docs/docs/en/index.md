@@ -51,7 +51,7 @@ The Altair emulator runs in three main ways:
 
 1. **ESP32-S3 microcontroller boards** &mdash; the primary, most interesting target. The emulator runs natively on ESP32-S3 boards with a physical Altair front panel, VT100 or TFT LCD display output, SD-card disk storage, WiFi, and a WebSocket browser terminal.
 2. **Desktop** &mdash; compile and run the emulator natively on [POSIX](https://en.wikipedia.org/wiki/POSIX){:target=_blank} compatible operating systems including Linux, ChromeOS, Windows with [WSL 2](https://docs.microsoft.com/en-us/windows/wsl/install){:target=_blank}, and macOS on Apple Silicon and Intel.
-3. **Docker** &mdash; the **fastest** and **easiest** way to get going. Run the emulator in a container on Linux, macOS, Windows, ChromeOS, and Raspberry Pi OS, including single-board computers like the [Raspberry Pi](https://www.raspberrypi.org/){:target=_blank}. You'll be up and running in minutes.
+3. **Apple container** &mdash; run the SBC emulator with a browser terminal and host sound on an Apple silicon Mac.
 
 ### ESP32-S3 with the Altair front panel
 

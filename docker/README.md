@@ -1,187 +1,49 @@
-# Dockerised `altair_local`
+# Apple container CP/M
 
-This folder packages the local Altair runner as a small multi-stage Alpine image.
-The container always serves the **browser terminal**: it serves the web terminal
-UI over HTTP and bridges it to the emulator over a WebSocket, so you run it
-detached and connect from a browser. The Dockerfile is buildx-ready for
-`linux/arm64`, `linux/arm/v7`, `linux/arm/v6` (32-bit ARM, e.g. Raspberry Pi OS 32-bit and older Pi/Zero boards), and `linux/amd64`.
+Local application testing and source debugging use
+[z80-cpm-container](https://github.com/gloveboxes/z80-cpm-container) on
+Apple silicon macOS. Check out the shared repository at
+`../../z80-cpm-container` relative to this repository, or set
+`Z80_CPM_CONTAINER` to its absolute path. Install the Apple `container` CLI,
+Python 3, CMake, a C compiler and the VS Code C/C++ extension for debugging.
 
-## Quick start (prebuilt image)
-
-A prebuilt multi-arch image is published on Docker Hub as
-[`glovebox/altair8800v2`](https://hub.docker.com/r/glovebox/altair8800v2):
-
-```sh
-docker run -d --name altair8800v2 -p 8080:8080 glovebox/altair8800v2:latest
-```
-
-Then open <http://localhost:8080/> in a browser. Stop it with
-`docker stop altair8800v2` (and `docker rm altair8800v2` to remove). To bind-mount
-your own disks/apps, see [Run (detached)](#run-detached) below.
-
-> The browser terminal is backed by the
-> [wsServer](https://github.com/Theldus/wsServer) git submodule. If you build the
-> image yourself, initialise it first so it is present in the build context:
->
-> ```sh
-> git submodule update --init altair_local/external/wsServer
-> ```
->
-> If the submodule is missing the image still builds, but the browser terminal is
-> unavailable and the container falls back to the stdio terminal.
-
-## Build
+Build and install applications with `pwsh Apps/build-all.ps1`. Start the Apple
+container service and run:
 
 ```sh
-docker build -f docker/Dockerfile -t glovebox/altair8800v2:latest .
+container system start
+python3 scripts/z80_container.py start
 ```
 
-The build runs the shared-service and file-backend regression tests.
-FT uses group `0x70` on ports `0x02/0x03/0x04`, reading beneath
-`ALTAIR_APPS_ROOT`. Ports `0x15/0x16` are available.
+The VS Code task **Altair: Start Apple Container CP/M** does the same. The
+container always mounts this project's `disks/512kb` read/write, so CP/M
+changes persist and installed apps are current. Its startup refreshes drive A
+boot tracks and AUTORUN while preserving the other files. Stop the container
+before building apps or modifying the images; do not run two sessions against
+the writable disks. Use Ctrl+C to stop the session.
 
-To check the installed FT client inside an isolated container with temporary
-disk copies (requires Python 3 on a POSIX host):
+Input and output start in the task terminal. Open http://127.0.0.1:8080/ for
+browser-exclusive I/O; disconnect to return to the console. Sound plays through
+the host audio client. Options `--skip-build`, `--web-port`, `--sound-port`
+and `--console-port` are passed to the shared launcher.
 
-```sh
-python3 scripts/test_ft_transfer.py --docker-image glovebox/altair8800v2:latest
-```
+## Debugging
 
-## Build multi-architecture images
+Open an app's C source, then select **DCC CP/M: Debug active C file in Apple
+container** from the Run and Debug dropdown before pressing F5. VS Code remembers
+the selected configuration; **ESP-IDF: Debug hardware (OpenOCD)** is for the
+physical ESP32 and requires OpenOCD. The pre-launch task builds the app with
+`-g` and prepares the shared image. A separate debug container mounts
+`disks/512kb` read-only and
+creates a fresh private snapshot; it installs the debug build on snapshot
+drive B and leaves the project disks unchanged. Stop the writable interactive
+session before starting a debug session so the snapshot is consistent.
 
-To build and push a combined `linux/arm64` + `linux/arm/v7` + `linux/arm/v6` + `linux/amd64` image to Docker Hub,
-log in first and either set your Docker Hub username or let the script prompt for it:
+Open http://127.0.0.1:8081/ for debug target output and keyboard input;
+continue execution after a breakpoint before typing. The browser terminal
+loads xterm scripts from a CDN. Set `--web-port` or `--sound-port` in the
+launch configuration if the default debug ports are in use.
 
-```sh
-docker login
-./docker/build-multiarch.sh
-```
-
-The helper script creates or reuses a buildx builder, bootstraps it, and pushes
-the multi-architecture manifest list to your Docker account.
-
-Optional environment variables:
-
-- `DOCKER_USER` sets the Docker Hub namespace when `DOCKER_IMAGE` is not provided.
-- `IMAGE_NAME` defaults to `altair8800v2`.
-- `DOCKER_TAG` defaults to `latest`.
-- `DOCKER_IMAGE` overrides the fully-qualified image reference directly.
-- `PLATFORMS` defaults to `linux/arm64,linux/arm/v7,linux/arm/v6,linux/amd64`.
-- `BUILDER_NAME` defaults to `altair8800v2-multiarch`.
-- `DOCKERFILE` defaults to `docker/Dockerfile`.
-- `BUILD_CONTEXT` defaults to the repository root.
-
-The helper always builds with `--no-cache`.
-
-Example with an explicit tag:
-
-```sh
-DOCKER_USER=your-dockerhub-user DOCKER_TAG=2026-05-28 ./docker/build-multiarch.sh
-```
-
-Example overriding the whole image reference directly:
-
-```sh
-DOCKER_IMAGE=your-dockerhub-user/altair8800v2:2026-05-28 ./docker/build-multiarch.sh
-```
-
-## Run (detached)
-
-The container always serves the browser terminal, so run it detached and connect
-from a browser. No TTY is required.
-
-```sh
-docker run -d --name altair8800v2 \
-  -p 8080:8080 \
-  -v "$PWD/docker/altair_env.txt:/opt/altair/runtime/altair_env.txt:ro" \
-  -v "$PWD/Apps:/opt/altair/Apps:ro" \
-  -v "$PWD/disks:/opt/altair/disks" \
-  glovebox/altair8800v2:latest
-```
-
-Then open <http://localhost:8080/> in a browser. The emulator waits to boot until
-the first browser connects, then streams the CP/M banner to the page. Stop it with
-`docker stop altair8800v2` (and `docker rm` to remove).
-
-Use a different port with `ALTAIR_WEB_PORT` (publish the matching `-p`):
-
-```sh
-docker run -d --name altair8800v2 -e ALTAIR_WEB_PORT=9000 -p 9000:9000 \
-  -v "$PWD/disks:/opt/altair/disks" \
-  glovebox/altair8800v2:latest
-```
-
-The entrypoint always passes explicit runtime paths:
-
-- `ALTAIR_APPS_ROOT` selects the Apps folder used by FT file lookups.
-- `ALTAIR_ENV_FILE` selects the mapped `altair_env.txt`.
-- `ALTAIR_DISKS_DIR` points at the mounted disks directory.
-- `ALTAIR_DRIVE_A` through `ALTAIR_DRIVE_D` override filenames inside that directory.
-- `ALTAIR_DRIVE_A_PATH` through `ALTAIR_DRIVE_D_PATH` override each drive with a full path.
-- `ALTAIR_WEB_PORT` selects the served/published port (default `8080`).
-- `ALTAIR_WEB_ROOT` locates the bundled terminal UI (default `/opt/altair`); rarely
-  needs changing.
-
-By default the image includes a copy of the repo `Apps` folder, but FT is usually
-more useful if you bind-mount your working Apps tree over `/opt/altair/Apps`.
-
-Example with an external env file and an alternate disk folder:
-
-```sh
-docker run -d --name altair8800v2 -p 8080:8080 \
-  -v /absolute/path/to/altair_env.txt:/opt/altair/runtime/altair_env.txt:ro \
-  -v /absolute/path/to/Apps:/opt/altair/Apps:ro \
-  -v /absolute/path/to/disks:/opt/altair/disks \
-  glovebox/altair8800v2:latest
-```
-
-Example overriding only drive B while keeping the default disk directory mount:
-
-```sh
-docker run -d --name altair8800v2 -p 8080:8080 \
-  -v "$PWD/docker/altair_env.txt:/opt/altair/runtime/altair_env.txt:ro" \
-  -v "$PWD/Apps:/opt/altair/Apps:ro" \
-  -v "$PWD/disks:/opt/altair/disks" \
-  -e ALTAIR_DRIVE_B=my-workbench.dsk \
-  glovebox/altair8800v2:latest
-```
-
-Example using a different Apps folder for FT without changing the container path:
-
-```sh
-docker run -d --name altair8800v2 -p 8080:8080 \
-  -v /absolute/path/to/other-apps:/opt/altair/Apps:ro \
-  -v "$PWD/docker/altair_env.txt:/opt/altair/runtime/altair_env.txt:ro" \
-  -v "$PWD/disks:/opt/altair/disks" \
-  glovebox/altair8800v2:latest
-```
-
-## Compose
-
-`compose.yaml` runs the container detached with the browser terminal published on
-port 8080:
-
-```sh
-docker compose -f docker/compose.yaml up -d
-```
-
-Then open <http://localhost:8080/>. Stop it with
-`docker compose -f docker/compose.yaml down`.
-
-Override the mounted resources without editing the compose file:
-
-```sh
-ALTAIR_ENV_FILE=/absolute/path/to/altair_env.txt \
-ALTAIR_APPS_DIR=/absolute/path/to/Apps \
-ALTAIR_DISKS_DIR=/absolute/path/to/disks \
-docker compose -f docker/compose.yaml run --rm altair8800v2
-```
-
-## Verify a single target platform locally
-
-If you want to test one non-native Linux target before pushing a multi-arch image,
-build a single-platform image with buildx and load it into your local Docker image store:
-
-```sh
-docker buildx build --platform linux/amd64 -f docker/Dockerfile -t altair8800v2:amd64 --load .
-```
+The ESP32 hardware uses its own disk format; local container tests use the
+512 KiB images. The shared repository's local checkout must contain its
+container sources; see its README for image and sound-client requirements.

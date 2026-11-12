@@ -18,17 +18,14 @@ if /I "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
     set "PLATFORM=ARM64"
     set "VSARCH=arm64"
     set "VCPKG_TRIPLET=arm64-windows"
-    set "LOCAL_BUILDDIR=altair_local\build-msvc-arm64"
     set "MCP_BUILDDIR=altair_mcp_server\build-msvc-arm64"
 ) else (
     set "PLATFORM=x64"
     set "VSARCH=amd64"
     set "VCPKG_TRIPLET=x64-windows"
-    set "LOCAL_BUILDDIR=altair_local\build-msvc"
     set "MCP_BUILDDIR=altair_mcp_server\build-msvc"
 )
 
-set "CMAKE_EXTRA_ARGS_LOCAL="
 set "CMAKE_EXTRA_ARGS_MCP="
 if not defined VCPKG_ROOT (
     if exist "%USERPROFILE%\vcpkg\scripts\buildsystems\vcpkg.cmake" (
@@ -50,15 +47,15 @@ if not defined VCPKG_ROOT (
 
 if defined VCPKG_ROOT (
     if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
-        set "CMAKE_EXTRA_ARGS_LOCAL=-DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET%"
-        if not exist "%LOCAL_BUILDDIR%\CMakeCache.txt" (
-            set "CMAKE_EXTRA_ARGS_LOCAL=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake %CMAKE_EXTRA_ARGS_LOCAL%"
+        set "CMAKE_EXTRA_ARGS_MCP=-DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET%"
+        if not exist "%MCP_BUILDDIR%\CMakeCache.txt" (
+            set "CMAKE_EXTRA_ARGS_MCP=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET%"
         )
         echo Using vcpkg from "%VCPKG_ROOT%" with triplet %VCPKG_TRIPLET%.
     )
 )
 
-if not defined CMAKE_EXTRA_ARGS_LOCAL (
+if not defined CMAKE_EXTRA_ARGS_MCP (
     echo vcpkg was not found. Building without libcurl support.
     echo To enable chat and weather on Windows from PowerShell, run:
     echo   git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
@@ -116,18 +113,6 @@ if not defined VSDEVCMD (
 )
 
 call "%VSDEVCMD%" -arch=%VSARCH%
-if errorlevel 1 (
-    popd
-    exit /b %errorlevel%
-)
-
-cmake -S altair_local -B "%LOCAL_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM% %CMAKE_EXTRA_ARGS_LOCAL%
-if errorlevel 1 (
-    popd
-    exit /b %errorlevel%
-)
-
-cmake --build "%LOCAL_BUILDDIR%" --config Release
 if errorlevel 1 (
     popd
     exit /b %errorlevel%

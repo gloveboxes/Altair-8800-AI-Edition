@@ -23,27 +23,6 @@
       }
     },
     {
-      "label": "Altair: Start Local Altair CP/M 2.2 - Windows",
-      "type": "process",
-      "command": "cmd.exe",
-      "args": [
-        "/d",
-        "/c",
-        "${workspaceFolder}/scripts/start-local-altair-windows.cmd"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": true,
-        "panel": "dedicated",
-        "clear": true
-      }
-    },
-    {
       "label": "Altair: Switch config to Waveshare 3.5B AXS15231B",
       "type": "shell",
       "command": "export PATH=\"$(dirname \"${config:idf.pythonInstallPath}\"):$PATH\" && source \"${config:idf.espIdfPath}/export.sh\" && rm -f sdkconfig && idf.py -D SDKCONFIG_DEFAULTS=\"sdkconfig.defaults;sdkconfig.WAVESHARE-ESP32-S3-Touch-LCD-3.5B.defaults\" reconfigure",
@@ -139,15 +118,17 @@
       }
     },
     {
-      "label": "Altair: Start Local Altair CP/M 2.2 - macOS/Linux",
-      "type": "shell",
-      "command": "cmake -S altair_local -B altair_local/build && cmake --build altair_local/build && ./altair_local/build/altair-local",
+      "label": "Altair: Start Apple Container CP/M",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/scripts/z80_container.py",
+        "start"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "problemMatcher": [
-        "$gcc"
-      ],
+      "problemMatcher": [],
       "presentation": {
         "echo": true,
         "reveal": "always",
@@ -157,40 +138,18 @@
       }
     },
     {
-      "label": "Altair: Start Local Altair CP/M 3 - macOS/Linux",
-      "type": "shell",
-      "command": "cmake -S altair_local -B altair_local/build && cmake --build altair_local/build && ./altair_local/build/altair-local --cpm3",
+      "label": "Prepare Z80 Apple container",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/scripts/z80_container.py",
+        "prepare"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "problemMatcher": [
-        "$gcc"
-      ],
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": true,
-        "panel": "dedicated",
-        "clear": true
-      }
-    },
-    {
-      "label": "Altair: Start Local Altair Web Terminal - macOS/Linux",
-      "type": "shell",
-      "command": "cmake -S altair_local -B altair_local/build && cmake --build altair_local/build && ./altair_local/build/altair-local --web 8080",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [
-        "$gcc"
-      ],
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": true,
-        "panel": "dedicated",
-        "clear": true
-      }
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
     },
     {
       "label": "Build active DCC C file for debugging",
@@ -220,70 +179,13 @@
       "problemMatcher": []
     },
     {
-      "label": "Build DCC debugger I/O adapter",
-      "type": "shell",
-      "command": "cmake -S dcc_debug_io_adapter -B dcc_debug_io_adapter/build && cmake --build dcc_debug_io_adapter/build",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [
-        "$gcc"
-      ]
-    },
-    {
-      "label": "Build DCC full CP/M debugger host",
-      "type": "shell",
-      "command": "cmake -S \"${env:DCC_DIR}/src/dcc_debug_host\" -B \"${env:DCC_DIR}/build/dcc_debug_host\" && cmake --build \"${env:DCC_DIR}/build/dcc_debug_host\"",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [
-        "$gcc"
-      ]
-    },
-    {
       "label": "Build active DCC file for full CP/M debugging",
       "dependsOrder": "sequence",
       "dependsOn": [
         "Build and copy active DCC C file for debugging",
-        "Build DCC debugger I/O adapter",
-        "Build DCC full CP/M debugger host"
+        "Prepare Z80 Apple container"
       ],
       "problemMatcher": []
-    },
-    {
-      "label": "Start DCC full CP/M debug terminal",
-      "type": "process",
-      "command": "python3",
-      "windows": {
-        "command": "python"
-      },
-      "args": [
-        "${env:DCC_DIR}/src/dcc_debug_host/dcc_host_terminal_bridge.py",
-        "--endpoint-file",
-        "${env:DCC_DIR}/build/dcc_debug_host/terminal.endpoint"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": [
-        {
-          "base": "$gcc",
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "^DCC debug terminal starting$",
-            "endsPattern": "^DCC debug terminal ready$"
-          }
-        }
-      ],
-      "presentation": {
-        "echo": false,
-        "reveal": "always",
-        "focus": true,
-        "panel": "dedicated",
-        "clear": true
-      }
     },
     {
       "label": "Build banked ISAM library and clients",
@@ -298,8 +200,7 @@
       "label": "Prepare active DCC file for full CP/M debugging",
       "dependsOrder": "sequence",
       "dependsOn": [
-        "Build active DCC file for full CP/M debugging",
-        "Start DCC full CP/M debug terminal"
+        "Build active DCC file for full CP/M debugging"
       ],
       "problemMatcher": []
     }

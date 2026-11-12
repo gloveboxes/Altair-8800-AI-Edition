@@ -10,10 +10,10 @@ The folder containing an application controls where it is installed:
 
 | Folder | Destination image |
 | --- | --- |
-| `disk-a-apps` | A: `disks/cpm63k.dsk` |
-| `disk-b-apps` | B: `disks/bdsc-v1.60.dsk` |
-| `disk-c-apps` | C: `disks/escape-posix.dsk` |
-| `disk-d-apps` | D: `disks/blank.dsk` |
+| `disk-a-apps` | A: `disks/512kb/drive_a_cpm63k.img` |
+| `disk-b-apps` | B: `disks/512kb/drive_b_bdsc.img` |
+| `disk-c-apps` | C: `disks/512kb/drive_c_escape.img` |
+| `disk-d-apps` | D: `disks/512kb/drive_d_blank.img` |
 | `disk-all-apps` | All four images above |
 
 Applications can sit directly in a disk folder or in nested application
@@ -25,8 +25,8 @@ are excluded, as are generated sources and build directories.
   multi-source configurations and output names. ISAM builds ISAM.LIB in bank 1
   and the DOCTOR/DOCGEN clients in bank 0. In directories without a configuration, each `.c` file is treated as
   a standalone program using dccmake defaults.
-- Fixed-address libraries use `dcc-output-format=lib` and the matching special
-  `l80cc`, not the ordinary COM linker.
+- Fixed-address libraries use `dcc-output-format=lib` and the native `l80c`
+  library linker.
 - A composite application has a root `dccmake.txt` containing
   `dcc-projects=lib,host`. It is discovered once; its children are not also
   scheduled as standalone applications. One root `dccmake` builds children
@@ -41,6 +41,10 @@ are excluded, as are generated sources and build directories.
 - `.bas` applications are copied as source files with CRLF line endings and
   a CP/M Ctrl-Z end marker so MBASIC can load them. Repository sources retain
   their original line endings.
+
+The local runner uses the Z80 ROMless SBC port map. Applications that require
+Altair-specific peripherals need a compatible implementation. The runner
+installs its own `AUTORUN.COM` on drive A when preparing the CP/M system.
 
 [BANKSDK](disk-b-apps/BANKSDK/README.md) contains shared banked-memory and
 library support, not applications. The bulk builder excludes that folder
@@ -67,7 +71,8 @@ implementations whose executable names belong to C applications):
 ./Apps/build-all.ps1 -AssemblyOnly
 ```
 
-Requirements: PowerShell 7, the updated composite/library-capable `dccmake`,
+Requirements: PowerShell 7, Python 3.10+, the initialized Z80 ROMless SBC
+submodule, the composite/library-capable `dccmake`,
 `ntvcm`, `cpmrm` and `cpmcp` on PATH,
 plus `M80.COM` and `L80.COM` in the dcc directory. Set `DCC_DIR` and
 `NTVCM_DIR` as required by the C application configurations. Their shared source
@@ -77,19 +82,23 @@ Override tool locations or destination images when needed:
 
 ```powershell
 ./Apps/build-all.ps1 -DccDirectory /path/to/dcc -Ntvcm /path/to/ntvcm `
-    -DiskA /tmp/a.dsk -DiskB /tmp/b.dsk -DiskC /tmp/c.dsk -DiskD /tmp/d.dsk
+    -DiskA /tmp/a.img -DiskB /tmp/b.img -DiskC /tmp/c.img -DiskD /tmp/d.img
 ```
 
-`-Dccmake` can separately select the C build executable. Image overrides must
-refer to existing Altair disk images. Full images report an installation error;
+`-Dccmake` can separately select the C build executable and `-Python` selects
+the Python interpreter. Image overrides must refer to existing 512 KiB SBC
+images. Full images report an installation error;
 the script does not remove unrelated files to make room.
 
-For the copied LIBDEMO example, supply the special linker explicitly because
-its original relative linker path refers to the source repository's layout:
+To build the ESP32 and Docker 88-DCDD images, use `-DiskFormat Altair`. This
+selects the images directly under `disks/`; overrides must then use that
+format. `-Clone` and `-CloneOnly` clone the images selected by `-DiskFormat`.
+
+To select the native library linker explicitly:
 
 ```powershell
 ./Apps/build-all.ps1 -DccDirectory /path/to/dcc `
-    -LibraryLinker /path/to/Z80ROMlessSBC/l80cc
+    -LibraryLinker /path/to/dcc/l80c
 ```
 
 `-LibraryLinker` defaults to `DCC_L80CC` when set. It overrides only LIB
@@ -104,20 +113,12 @@ Run the isolated build/discovery regression tests with:
 
 ```powershell
 python3 -m unittest scripts.test_build_all -v
+python3 -m unittest scripts.test_build_all_native scripts.test_cpm_install_native -v
 ```
 
 These compile real copied library/host sources in temporary directories,
 test ordering and early failure, and use an installation recorder without
 writing the repository's disk images.
 
-Run the isolated disk installation regression check with:
-
-```powershell
-python3 ./scripts/test_cpm_install.py
-```
-
-This requires the built local emulator, PowerShell and cpmtools. It installs
-into temporary images, checks track/sector headers and checksums, and boots
-CP/M to run a program and switch between B: and A:. Unused sectors can retain
-track-0 headers, so the installer initializes address fields as well as payloads
-and checksums. The two boot tracks and trailing image bytes are preserved.
+The 88-DCDD execution tests require a 137-byte-disk emulator backend and are
+reported as skipped.

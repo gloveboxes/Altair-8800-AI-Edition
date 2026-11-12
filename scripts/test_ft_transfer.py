@@ -105,6 +105,7 @@ def boot(directory: Path, docker_image: str | None) -> str:
 
 
 def main() -> None:
+    raise SystemExit("FT tests for 137-byte disks require an appropriate emulator backend")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker-image", help="test this locally built runtime image")
     args = parser.parse_args()

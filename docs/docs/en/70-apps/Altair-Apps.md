@@ -205,7 +205,7 @@ Press **Ctrl-W** inside the editor at any time to show the help screen.
 ## ENV
 
 The environment-variable manager for CP/M. Variables are stored on the ESP32
-(or in `altair_local/altair_env.txt` on the host emulator) and shared by other
+and shared by other
 apps such as [Chat](#chat) and [Clock](#clock). The command line is parsed by
 the firmware/host driver, which supports value copying, arithmetic, and
 increment/decrement operators in addition to plain set/get.

@@ -1,14 +1,13 @@
 There are three ways to deploy the Altair 8800 emulator.
 
-1. [Deploy with Docker](../40-deploy-with-docker/10-introduction.md)
+1. [Run in an Apple container](../40-deploy-with-docker/10-introduction.md)
 2. [Build from source](../45-build-from-source/01-Introduction.md)
 3. [Deploy on Azure Sphere](../50-azsphere/01-Introduction.md)
 
-## Deploying the Altair 8800 with Docker
+## Apple container
 
-The **fastest** and **easiest** way to get started with the Altair emulator is on a system running Docker.
-
-For more information, refer to [Deploy with Docker](../40-deploy-with-docker/10-introduction.md).
+The Apple container runs the SBC emulator on macOS, with a browser terminal and
+host sound. See [Apple container](../40-deploy-with-docker/10-introduction.md).
 
 ## Build from source
 
@@ -17,7 +16,7 @@ You can also build the Altair emulator from the source code and run it as a nati
 Reasons to do this include:
 
 1. You want to make changes to the Altair emulator code.
-2. You want to run the Altair emulator on a device that does not support Docker.
+2. You want to run the emulator natively.
 3. You'd want to learn how to build the Altair emulator from the source code.
 4. You have an Apple Silicon Mac and want to run the Altair emulator natively on one of the Apple Silicon efficiency cores.
 

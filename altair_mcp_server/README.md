@@ -103,8 +103,8 @@ To build both macOS/Linux host tools together, use the shared helper from the re
 ./scripts/build-host-tools.sh
 ```
 
-That script builds both `altair_local` and `altair_mcp_server` in their default
-`build` directories. Pass `--clean` to remove both build directories first, or
+That script builds `altair_mcp_server` in its default
+`build` directory. Pass `--clean` to remove the build directory first, or
 `--debug` to configure Debug builds instead of Release.
 
 To build both Windows host tools together, use the shared helper from the repo root or the `scripts` folder:
@@ -113,7 +113,7 @@ To build both Windows host tools together, use the shared helper from the repo r
 .\scripts\build-host-tools-windows.cmd
 ```
 
-That script builds both `altair_local` and `altair_mcp_server` in the matching MSVC build directories.
+That script builds `altair_mcp_server` in the matching MSVC build directory.
 
 Run from the `altair_mcp_server` folder so the default disk paths resolve:
 

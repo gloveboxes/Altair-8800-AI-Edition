@@ -142,8 +142,8 @@ response returns READY. Other shared services can run between reads without
 closing the FT session. RESET while a read is BUSY cancels that session.
 Transfer failure returns shared error `0x21`.
 
-ESP32 uses its remote FT TCP server on port 8090. Local and Docker read
-the configured Apps tree. See the [complete service reference](01-ROMless-IO-Mapping.md)
+ESP32 uses its remote FT TCP server on port 8090. See the
+[complete service reference](01-ROMless-IO-Mapping.md)
 for transport recovery and backend details.
 
 ## Reboot

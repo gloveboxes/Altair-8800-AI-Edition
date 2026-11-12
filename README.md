@@ -6,7 +6,8 @@ Altair 8800 emulator for ESP32-S3 boards, built and tested with ESP-IDF v6.0.2 (
 
 ## Cloning (with submodules)
 
-This repo uses a git submodule ([wsServer](https://github.com/Theldus/wsServer) at `altair_local/external/wsServer`) for the local emulator's browser terminal. Clone recursively so it is fetched automatically:
+This repo uses submodules for the local Z80 ROMless SBC emulator. Clone
+recursively:
 
 ```bash
 git clone --recurse-submodules https://github.com/gloveboxes/esp32-altair-8800
@@ -15,10 +16,11 @@ git clone --recurse-submodules https://github.com/gloveboxes/esp32-altair-8800
 If you already cloned without `--recurse-submodules`, initialize the submodule afterwards:
 
 ```bash
-git submodule update --init altair_local/external/wsServer
+git submodule update --init --recursive
 ```
 
-The submodule only affects the local/docker browser terminal — the ESP32 firmware build does not require it, and the local build still succeeds without it (the `--web` browser terminal is just disabled).
+The ESP32 firmware does not require the submodules. See
+[Apple container CP/M](docker/README.md) for local app testing and debugging.
 
 ## Current Hardware Support
 
@@ -159,11 +161,7 @@ python3 scripts/build_cpm64_bios.py --check
 
 `--check` does not write files. It fails if the runtime disk does not match the
 assembled BIOS or either pristine reset image has different system tracks. For
-a final behavior check, boot the normal local emulator and run `DIR`:
-
-```bash
-./altair_local/build/altair-local --drive-a disks/cpm63k.dsk
-```
+a final behavior check of the ESP32-format disks, use the ESP32 hardware.
 
 ## Build Prerequisites
 

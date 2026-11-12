@@ -22,7 +22,7 @@ nav:
     - Start the Web Terminal: "20-fundamentals/25-Web-Terminal.md"
     - Learn about CP/M: "20-fundamentals/30-introduction-cpm.md"
     - Rebooting the Emulator: "20-fundamentals/40-Rebooting-the-Altair.md"
-  - Deploy with Docker:
+  - Apple Container:
     - Introduction: "40-deploy-with-docker/10-introduction.md"
     - Install Prerequisites: "40-deploy-with-docker/15-install-prerequisites.md"
     - Start the Emulator: "40-deploy-with-docker/17-start-container.md"
@@ -51,8 +51,8 @@ nav:
     - Intel 8080 Assembler: "60-programming/04-Assembly-programming.md"
     - Altair BASIC Programming: "60-programming/05-Altair-BASIC-programming.md"
     - Front Panel Programming: "60-programming/06-Front-panel-programming.md"
-  - Docker Images:
-      - Build Docker Images: "40-deploy-with-docker/100-Create-Docker-images.md" 
+  - Container Images:
+      - Build Container Image: "40-deploy-with-docker/100-Create-Docker-images.md"
   - Appendices:
     - Build and Install CP/M Apps: "90-appendices/10-build-and-install-cpm-apps.md"
   - Run on Azure Sphere:

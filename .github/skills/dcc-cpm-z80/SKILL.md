@@ -1,14 +1,14 @@
 ---
 name: dcc-cpm-z80
-description: 'Write, build, test, and debug C89/C99/C11-targeted code for the dcc compiler targeting CP/M 2.2 on the Z80 (run under the ntvcm Altair 8800 emulator). Use for .c/.h sources compiled with dcc, or tasks mentioning dcc, dccmake, C89, C99, C11, CP/M, CP/M 2.2, Z80, ntvcm, DCCRTL, DXSVC, ROMLESS-SVC, or VT100/ANSI CP/M terminal apps; also covers `static inline` helper support. Treat dcc as standard C89 plus a first-class _Bool scalar type and target-appropriate C99/C11 front-end compatibility EXCEPT for the Z80/CP/M deviations this skill documents: no double or long long, 32-bit float as the only floating type, 16-bit int/short/pointer/size_t, 32-bit long, signed char, and a subset library/runtime. Full library/printf/scanf inventory and pitfalls are in the reference files.'
-argument-hint: 'Describe the C89/C99/C11 CP/M-Z80 task (write code, build, run under ntvcm, debug a failure)'
+description: 'Write, build, test and debug dcc C applications for Z80 CP/M using the Apple container. Use for dcc, dccmake, C89/C99/C11, CP/M, DCCRTL, DXSVC, ROMLESS-SVC or VT100/ANSI terminal apps. Covers the 16-bit target and runtime subset.'
+argument-hint: 'Describe the C CP/M-Z80 task (write, build, test or debug)'
 ---
 
 # dcc C for CP/M 2.2 / Z80
 
 dcc is a cross-compiler (runs on the host) that emits Z80 assembly for CP/M 2.2.
 The runtime is [DCCRTL.MAC](DCCRTL.MAC); programs run on real hardware or an
-emulator such as **ntvcm** (Altair 8800).
+the shared Z80 CP/M Apple container.
 
 **Assume standard C89 plus dcc's first-class `_Bool` scalar type and
 target-appropriate C99/C11 front-end compatibility.** dcc is not a hosted
@@ -34,7 +34,7 @@ host ABI expectations.
 ## When to use
 
 - Writing, porting, or reviewing C89/C99/C11 code compiled by `dcc`.
-- Building/running/debugging a dcc program (`dccmake`, `ntvcm`).
+- Building/running/debugging a dcc program (`dccmake`, Apple container).
 - Using the repository's ROMLESS-SVC client (`Apps/COMMON/DXSVC.H` / `DXSVC.C`).
 - CP/M file I/O, VT100/ANSI console UIs, or DCCRTL work.
 
@@ -123,7 +123,7 @@ Conversion tables in library.md.
 Size the stack with `-stack N` (default 512); keep big buffers `static`/global.
 
 **Source filenames MUST be 8.3 and uppercase-safe** (≤ 8-char base, ≤ 3-char
-extension, no extra dots). `foo.c` → `FOO.COM`, run as `ntvcm FOO`. A source
+extension, no extra dots). `foo.c` → `FOO.COM`. A source
 whose name violates 8.3 (e.g. `my_long_name.c`, `parse.test.c`) won't build —
 ntvcm reports `argument is not a valid CP/M 8.3 filename`; rename the file when
 you see that error.
@@ -224,21 +224,23 @@ characters can silently collide at link time — make such a one-file helper
 
 ## Build and run
 
-The standard build helper is `dccmake`, which runs the full CP/M pipeline and
-uses the local tools on `PATH` by default. If needed, put the dcc and ntvcm
-directories first on `PATH`:
-
-```sh
-export PATH="/Users/<USER_NAME_FOLDER>/GitHub/ntvcm:/Users/<USER_NAME_FOLDER>/GitHub/dcc:$PATH"
-```
+The standard build helper is `dccmake`, which runs the full CP/M pipeline.
+ntvcm is a compiler build tool; run application tests in the Apple container.
 
 **Build/run one program** (compile → peephole → strip runtime → M80 → L80):
 
 ```sh
-dccmake foo.c dcc-output=FOO dcc-peep=true   # foo.c -> build/FOO.COM
-ntvcm build/FOO.COM                          # run it
-ntvcm build/FOO.COM ARG1 ARG2                # with CP/M command-line args
+dccmake foo.c dcc-output=FOO dcc-peep=true
 ```
+
+Use `pwsh Apps/build-all.ps1` to build and install applications on
+`disks/512kb`. Stop any container before building or changing disks. Run
+`python3 scripts/z80_container.py start` or the VS Code task **Altair: Start
+Apple Container CP/M**, select the drive, and run the installed application.
+The host disks are writable and changes persist. For source debugging, use
+**DCC CP/M: Debug active C file in Apple container**; this builds with `-g`
+and snapshots the project disks. Open http://127.0.0.1:8081/ for target I/O.
+See [container instructions](../../../docker/README.md).
 
 Use `dcc-peep=false` for an unoptimized build. `dccmake` also accepts common dcc
 options and settings, for example:
@@ -308,6 +310,5 @@ for the full function inventory and `printf`/`scanf` conversion tables see
 3. **Match repo conventions.** Read a nearby working program first. In the dcc
    repo, the exhaustive reference is
    [dcc-c89-reference-guide.md](dcc-c89-reference-guide.md) at the repo root.
-4. **Build and run**: `dccmake app.c dcc-output=APP dcc-peep=true && ntvcm build/APP.COM`
-  (set `dcc-floatio=true` if you use `%f`); redirect stdin for interactive apps
-  and compare against expected output.
+4. **Build and run** on the project disks in the Apple container; set
+   `dcc-floatio=true` if you use `%f`. Compare observed output to expectations.

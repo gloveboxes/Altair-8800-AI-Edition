@@ -172,30 +172,11 @@ any other label. Reference implementation: `Apps/MCPDONE/MCPDONE.ASM` (built via
    changed files in one command.
 4. Update the app's `.SUB` to call `mac` (not `asm`) and to erase the extra
    `.HEX` / `.PRN` / `.SYM` artifacts (or use a `era <app>.*` wildcard).
-5. Build end-to-end in real CP/M via the `altair-cpm-build` MCP server. Use
-   `build_app` with `app: "<app>"` for apps whose `.SUB` ends with
-   `mcpdone <app>` (the `MCP-TOOL-COMPLETED <APP>` marker is the only success
-  signal), or `run_submit` for a custom submit workflow. Apps with no `mcpdone` marker
-   (e.g. `AUTORUN`) will assemble and produce a `.COM`, but `build_app` reports
-   a timeout because there is no completion marker — that is expected, not a
-   build failure.
+5. Build with `pwsh Apps/build-all.ps1` and test the installed program in the
+   Apple container using the project's 512 KiB disks.
 
-## Build And Test In CP/M Via The MCP Server
+## Test In The Apple Container
 
-This repo ships an MCP server at `altair_mcp_server/` that boots the Altair 8800
-emulator into CP/M 2.2 and exposes build tools. Drives:
-
-- `A:` `altair_mcp_server/disks/cpm63k.dsk` (CP/M boot)
-- `B:` `altair_mcp_server/disks/bdsc-v1.60.dsk` (MAC, LOAD, CC, CLINK, FT,
-  MCPDONE, SuperSUB — note: no ASM.COM, MAC is the only assembler)
-- `C:` / `D:` blank scratch disks
-
-`FT` (`ft -g ...`) serves files from this repo's `Apps/` directory. Use
-`build_app` for the normal edit/build loop and `run_submit` for custom submit workflows.
-Treat `MCP-TOOL-COMPLETED <NAME>` as the only success signal.
-
-The MCP console path is good for smoke tests with printable characters, Enter,
-Tab, and ordinary command text. Some control bytes are swallowed or transformed
-by host flow control / JSON escaping (`Ctrl-Q`/XON and sometimes ESC or `Ctrl-F`),
-so do not treat failure to inject those keys as proof that the CP/M program is
-broken. Use source-level review or an interactive terminal for those paths.
+Stop the container before building disks. Run `python3 scripts/z80_container.py
+start` and test the installed app on its target drive. See
+[container instructions](../../../docker/README.md) for terminal and disk use.

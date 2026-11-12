@@ -13,7 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 DCC = Path(os.environ.get("DCC_DIR", str(ROOT.parents[1] / "dcc")))
 LINKER = Path(os.environ.get(
-    "DCC_L80CC", str(ROOT.parents[1] / "Z80ROMlessSBC/l80cc")))
+    "DCC_L80CC", str(DCC / "l80c")))
 
 
 class BuildAllTests(unittest.TestCase):
@@ -81,7 +81,8 @@ class BuildAllTests(unittest.TestCase):
         arguments = [
             "pwsh", "-NoLogo", "-NoProfile", "-File",
             str(self.apps / "build-all.ps1"),
-            "-DccDirectory", str(DCC), "-LibraryLinker", str(LINKER)]
+            "-DccDirectory", str(DCC), "-LibraryLinker", str(LINKER),
+            "-DiskFormat", "Altair"]
         for drive, image in zip("ABCD", self.images):
             arguments += [f"-Disk{drive}", str(image)]
         return subprocess.run(arguments, capture_output=True, text=True,
@@ -126,7 +127,7 @@ class BuildAllTests(unittest.TestCase):
             "B.dsk|0:DATA.LIB", "B.dsk|0:DATATEST.COM", "B.dsk|0:SUPPORT.COM"])
         installed = self.root / "installed"
         library = (installed / "DATA.LIB").read_bytes()
-        self.assertEqual(library[:5], b"B1LB\x04")
+        self.assertEqual(library[:5], b"B1LB\x01")
         self.assertEqual(int.from_bytes(library[12:14], "little"), 8)
         self.assertGreater((installed / "DATATEST.COM").stat().st_size, 1024)
         self.assertTrue((self.example / "host/generated/B1HOST.C").is_file())

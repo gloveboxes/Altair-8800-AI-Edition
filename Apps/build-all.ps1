@@ -11,6 +11,9 @@ param(
     [string] $DiskB,
     [string] $DiskC,
     [string] $DiskD,
+    [ValidateSet('Native', 'Altair')]
+    [string] $DiskFormat = 'Native',
+    [string] $Python = $(if ($IsWindows) { 'python' } else { 'python3' }),
     [Alias('c')]
     [string] $Clone,
     [switch] $CloneOnly,
@@ -22,11 +25,17 @@ Set-StrictMode -Version Latest
 $appsRoot = $PSScriptRoot
 $repoRoot = Split-Path $appsRoot -Parent
 $scriptsRoot = Join-Path $repoRoot 'scripts'
+$defaults = if ($DiskFormat -eq 'Native') {
+    @('disks/512kb/drive_a_cpm63k.img', 'disks/512kb/drive_b_bdsc.img',
+      'disks/512kb/drive_c_escape.img', 'disks/512kb/drive_d_blank.img')
+} else {
+    @('disks/cpm63k.dsk', 'disks/bdsc-v1.60.dsk', 'disks/escape-posix.dsk', 'disks/blank.dsk')
+}
 $images = [ordered]@{
-    A = $(if ($DiskA) { $DiskA } else { Join-Path $repoRoot 'disks/cpm63k.dsk' })
-    B = $(if ($DiskB) { $DiskB } else { Join-Path $repoRoot 'disks/bdsc-v1.60.dsk' })
-    C = $(if ($DiskC) { $DiskC } else { Join-Path $repoRoot 'disks/escape-posix.dsk' })
-    D = $(if ($DiskD) { $DiskD } else { Join-Path $repoRoot 'disks/blank.dsk' })
+    A = $(if ($DiskA) { $DiskA } else { Join-Path $repoRoot $defaults[0] })
+    B = $(if ($DiskB) { $DiskB } else { Join-Path $repoRoot $defaults[1] })
+    C = $(if ($DiskC) { $DiskC } else { Join-Path $repoRoot $defaults[2] })
+    D = $(if ($DiskD) { $DiskD } else { Join-Path $repoRoot $defaults[3] })
 }
 
 function New-BuildJob {
@@ -213,6 +222,9 @@ if ($CloneOnly) {
 foreach ($drive in @($images.Keys)) {
     $images[$drive] = (Resolve-Path -LiteralPath $images[$drive]).Path
 }
+if ($DiskFormat -eq 'Native') {
+    $Python = (Get-Command $Python -CommandType Application -ErrorAction Stop).Source
+}
 if ($DccDirectory) {
     $DccDirectory = (Resolve-Path -LiteralPath $DccDirectory).Path
     if ($Dccmake -eq 'dccmake') {
@@ -290,8 +302,15 @@ for ($index = 0; $index -lt $jobs.Count; $index++) {
     foreach ($artifact in $artifacts) {
         if ($job.Kind -eq 'composite') { $hostFile = Join-Path $artifact.Directory $artifact.Output }
         foreach ($drive in $artifact.Targets) {
-            & (Join-Path $scriptsRoot 'cpm-install.ps1') -Image $images[$drive] `
-                -HostFile $hostFile -CpmFile "0:$($artifact.Output)"
+            if ($DiskFormat -eq 'Native') {
+                & $Python (Join-Path $scriptsRoot 'cpm-install-native.py') --image $images[$drive] `
+                    --host-file $hostFile --cpm-file "0:$($artifact.Output)"
+                if ($LASTEXITCODE -ne 0) { throw "Native disk installation failed with exit code $LASTEXITCODE" }
+            }
+            else {
+                & (Join-Path $scriptsRoot 'cpm-install.ps1') -Image $images[$drive] `
+                    -HostFile $hostFile -CpmFile "0:$($artifact.Output)"
+            }
         }
     }
 }

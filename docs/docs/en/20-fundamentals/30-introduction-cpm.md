@@ -62,9 +62,8 @@ Here are some CP/M commands to get you started:
 
 ## Download a retro game
 
-The `Apps/GAMES` folder contains classic BASIC games. The local/Docker
-FT service can copy them from the configured Apps root into CP/M.
-On ESP32, make them available through the configured remote FT server.
+The `Apps/GAMES` folder contains classic BASIC games. On ESP32, make them
+available through the configured remote FT server.
 The obsolete GF HTTP downloader has been retired.
 
 ### Using the Built-in Games Repository

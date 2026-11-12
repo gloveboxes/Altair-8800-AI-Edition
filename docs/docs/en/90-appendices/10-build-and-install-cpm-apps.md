@@ -1,7 +1,12 @@
 # Build and Install CP/M Apps
 
 Host-compiled dcc applications can be built and installed directly into a
-CP/M disk image. The ATTN application provides the reference workflow:
+CP/M disk image. The local runner uses the separate 512 KiB SBC images;
+`Apps/build-all.ps1` installs applications into those images by default.
+See [Apps/README.md](https://github.com/gloveboxes/esp32-altair-8800/blob/main/Apps/README.md)
+for the complete build and disk selection.
+
+The per-app Altair disk workflow is:
 
 ```powershell
 pwsh ./Apps/ATTN/build-app.ps1
@@ -45,7 +50,7 @@ Get-Command cpmcp
 ```
 
 !!! warning "Stop the emulator first"
-    Do not update a disk image while `altair-local`, the ESP32 emulator, or
+    Do not update a disk image while the Apple container, the ESP32 emulator, or
     another process has that image mounted. Stop the emulator before running
     an app build script, then restart it after installation.
 
@@ -78,7 +83,7 @@ Build and install the complete dcc application cohort with:
 
 ```powershell
 pwsh ./Apps/build-all.ps1 -DccDirectory /path/to/dcc `
-    -LibraryLinker /path/to/Z80ROMlessSBC/l80cc
+    -LibraryLinker /path/to/dcc/l80c
 ```
 
 The script scans `Apps/disk-{all,a,b,c,d}-apps` recursively. Folder placement
@@ -103,10 +108,12 @@ file-by-file, not a transaction covering all drives or outputs.
 
 `-LibraryLinker` (defaulting to `DCC_L80CC`) supplies the special fixed-address
 library linker only to LIB children. COM children keep their normal linker.
-Without an override, child configurations select their own linkers. The
-copied example's original relative linker path must be overridden for this
-repository layout. Neither a JSON manifest nor a Python library builder is
-required.
+Without an override, child configurations select their own linkers.
+
+The default targets are `disks/512kb/drive_{a,b,c,d}_*.img`. The SBC installer
+copies into a temporary image, verifies the file and preserves the reserved
+tracks before replacing the image. Use `-DiskFormat Altair` to select the
+ESP32 88-DCDD images described below. The Apple container uses the 512 KiB images.
 
 Preview with `-ListOnly` without invoking tools or writing disks. The summary
 counts build units; a composite unit can produce more than one installed file.
@@ -125,8 +132,8 @@ Other application build scripts can call the shared installer directly:
 ```
 
 The CP/M destination starts with a user number, not a drive letter. The disk
-image passed to `-Image` determines the emulated drive. In the default local
-CP/M 2.2 configuration, `disks/escape-posix.dsk` is drive C:.
+image passed to `-Image` determines the emulated drive. In the ESP32 CP/M 2.2 configuration,
+`disks/escape-posix.dsk` is drive C:.
 
 ## Why the shared installer is required
 
@@ -168,27 +175,18 @@ checksums.
 
 ## Validate an installation
 
-Start the local emulator after the build:
+Start the local SBC emulator after a default build:
 
 ```bash
-./altair_local/build/altair-local
+python3 scripts/z80_container.py start
 ```
 
 Then select the target drive, list the installed file, and run its help command:
 
 ```cpm
 A>C:
-C>DIR ATTNC11.COM
-C>ATTNC11 -H
+C>DIR
 ```
 
-A `Bdos Err On C: Bad Sector` message indicates invalid physical framing,
-checksum data, or sector mapping. Stop the emulator and restore the image from
-version control before investigating further:
-
-```bash
-git restore disks/escape-posix.dsk
-```
-
-The authoritative BIOS implementation and disk parameter block are in
-`disks/cpm64_bios.asm`.
+For ESP32, the authoritative BIOS implementation and disk
+parameter block are in `disks/cpm64_bios.asm`.

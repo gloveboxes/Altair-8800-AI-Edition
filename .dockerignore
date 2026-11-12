@@ -7,6 +7,9 @@ managed_components/
 reference/
 references/
 altair_local/build/
+altair_local/build-sbc/
+external/Z80ROMlessSBC/build/
+external/Z80ROMlessSBC/.git
 altair_mcp_server/build/
 host_tests/build/
 sdkconfig

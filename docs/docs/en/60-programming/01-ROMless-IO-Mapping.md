@@ -1,8 +1,10 @@
 # ROMless service I/O reference
 
-ESP32, Altair Local, Docker and the DCC debug adapter compile the same
+ESP32 and the Altair DCC debug adapter compile the same
 [`io_ports.c`](https://github.com/gloveboxes/esp32-altair-8800/blob/main/port_drivers/io_ports.c)
-transport. Platform drivers supply the service backends.
+transport. Platform drivers supply the service backends. The local SBC emulator
+and Apple container use the SBC adapter and its
+[I/O port map](https://gloveboxes.github.io/Z80ROMlessSBC/system/io-ports/).
 
 ## Address decoding and allocation
 
@@ -110,8 +112,8 @@ Core 0 on ESP32, a background thread on hosts. The CPU polls completion
 without blocking on network or flash operations. Timer groups are
 synchronous CPU-thread operations sharing state with port `0x17`.
 
-FT has its own backend. ESP32 uses queued Core 0 TCP work; Local, Docker
-and the DCC adapter read the configured filesystem. FT reads occupy the
+FT has its own backend. ESP32 uses queued Core 0 TCP work; the DCC adapter
+reads the configured filesystem. FT reads occupy the
 shared transaction until their response is consumed. Between reads, other
 shared services can run without closing the FT session. Interrupt rate and
 dedicated timer operations remain independent of shared transactions.
@@ -260,8 +262,7 @@ pending replies and buffered data. Other service transactions between FT
 reads preserve its filename and offset.
 
 ESP32 connects to its configured remote FT server on TCP port 8090.
-Local/Docker use `--apps-root`/`ALTAIR_APPS_ROOT`; the DCC adapter uses the
-session's native files root. This shared ABI also supports HTTP(S) hosts:
+The DCC adapter uses the session's native files root. This shared ABI also supports HTTP(S) hosts:
 error `0x20` means their required `HTTP_BASE_URL` is missing.
 
 ## Interrupt timer: physical port `0x07`
@@ -275,15 +276,10 @@ path; a port assignment alone does not provide interrupt wiring.
 ## Validation
 
 ```sh
-cmake -S altair_local -B altair_local/build
-cmake --build altair_local/build
-ctest --test-dir altair_local/build --output-on-failure
-python3 scripts/test_ft_transfer.py
-python3 scripts/test_ft_transfer.py --docker-image altair-ft-shared:local
+cmake -S dcc_debug_io_adapter -B dcc_debug_io_adapter/build
+cmake --build dcc_debug_io_adapter/build
+ctest --test-dir dcc_debug_io_adapter/build --output-on-failure
 ```
 
-Build the Docker image locally before its test. The tests cover framing,
-invalid requests, ACK/RESET, abandoned replies, binary zeros, 256-byte reads,
-EOF, error recovery, and unmapped `0x15/0x16` aliases. The CP/M tests use
-temporary disks and verify the installed FT client byte-for-byte, including
-text normalization and files larger than 64 KiB.
+The adapter tests cover service framing, invalid requests, ACK/RESET,
+abandoned replies and error recovery.

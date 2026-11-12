@@ -122,8 +122,8 @@ Match `status[SND_S_REQUEST_ID]` to your request before checking
 6 updated, 7 stopped, 8 cleared, 9 invalid (0 means no result).
 Status words, including completion/rejection counters, are big-endian.
 
-Run the demo and the app in the same sound-capable environment, such as the
-Z80ROMlessSBC interactive emulator. Verify completion, queue order/full,
+Run the demo and the app in the Apple container using the project's 512 KiB
+disks; see [container instructions](../../../docker/README.md). Verify completion, queue order/full,
 priority rejection/replacement, mute and cancellation. Unit-test cue selection
 with stubs, but use the real SDK/backend to validate playback.
 If the demo works but the app is silent, check the deployed binary, init result,
