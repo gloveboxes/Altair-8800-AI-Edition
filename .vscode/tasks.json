@@ -118,7 +118,8 @@
       }
     },
     {
-      "label": "Altair: Start Apple Container CP/M",
+      "label": "Run interactive CP/M emulator",
+      "detail": "Open disks/512kb read/write. CP/M file edits persist in the base disks used by build-all and copying to the Z80 SBC. Ctrl+C stops the session; stop it before building or copying.",
       "type": "process",
       "command": "python3",
       "args": [
@@ -138,7 +139,8 @@
       }
     },
     {
-      "label": "Prepare Z80 Apple container",
+      "label": "Build Apple container",
+      "detail": "Build the shared container image and host audio client. Does not start CP/M, build applications, or copy disks.",
       "type": "process",
       "command": "python3",
       "args": [
@@ -150,6 +152,35 @@
       },
       "problemMatcher": [],
       "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Altair: Build apps and copy disks to Z80 SBC",
+      "detail": "Stop both emulators first. Build/install applications in disks/512kb, preserving unrelated files, then overwrite the SBC's four native disks. Built application files are replaced.",
+      "dependsOn": "Build Apple container",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoLogo", "-NoProfile", "-File",
+        "${workspaceFolder}/Apps/build-all.ps1",
+        "-c", "${input:sbcNativeDiskDirectory}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Altair: Copy current disks to Z80 SBC",
+      "detail": "Stop both emulators first. Copy disks/512kb to the SBC's native disk folder without rebuilding applications. Overwrites all four destination disks, including D's database.",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoLogo", "-NoProfile", "-File",
+        "${workspaceFolder}/Apps/build-all.ps1",
+        "-CloneOnly", "-c", "${input:sbcNativeDiskDirectory}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
       "label": "Build active DCC C file for debugging",
@@ -187,7 +218,7 @@
       "dependsOrder": "sequence",
       "dependsOn": [
         "Build and copy active DCC C file for debugging",
-        "Prepare Z80 Apple container"
+        "Build Apple container"
       ],
       "problemMatcher": []
     },
@@ -208,6 +239,14 @@
         "Build active DCC file for full CP/M debugging"
       ],
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "sbcNativeDiskDirectory",
+      "type": "promptString",
+      "description": "Existing Z80ROMlessSBC src/disks/native directory. A-D will be overwritten; stop both emulators and save wanted work first. Relative paths are from the ESP32 repository root.",
+      "default": "../../Z80ROMlessSBC/src/disks/native"
     }
   ]
 }

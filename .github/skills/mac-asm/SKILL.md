@@ -180,3 +180,8 @@ any other label. Reference implementation: `Apps/MCPDONE/MCPDONE.ASM` (built via
 Stop the container before building disks. Run `python3 scripts/z80_container.py
 start` and test the installed app on its target drive. See
 [container instructions](../../../docker/README.md) for terminal and disk use.
+
+The normal start task edits `disks/512kb/` base images directly. To keep files
+created or assembled inside CP/M, stop the session and use the copy-only workflow
+when sending disks to the Z80 SBC; a host rebuild replaces built app files.
+See [editing and copying base disks](../../../docs/docs/en/90-appendices/10-build-and-install-cpm-apps.md#edit-base-disks-and-copy-to-the-z80-sbc).

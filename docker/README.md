@@ -18,7 +18,9 @@ pwsh Apps/build-all.ps1
 python3 scripts/z80_container.py start
 ```
 
-The VS Code task **Altair: Start Apple Container CP/M** does the same. The
+The VS Code task **Run interactive CP/M emulator** starts CP/M. Use
+**Build Apple container** to build the image and host audio client without
+starting CP/M. The
 container always mounts this project's `disks/512kb` read/write, so CP/M
 changes persist and installed apps are current. Its startup refreshes drive A
 boot tracks and AUTORUN while preserving the other files. Stop the container

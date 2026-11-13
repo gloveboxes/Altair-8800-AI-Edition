@@ -2,6 +2,7 @@
 """Verify build-all installs into the separate 512 KiB disks."""
 
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -49,9 +50,21 @@ class BuildAllNativeTests(unittest.TestCase):
                 cwd=root, check=True, capture_output=True, text=True)
             self.assertEqual((clones / "cpm63k.dsk").read_bytes(), b"untouched")
             self.assertEqual(len(list(clones.glob("*.dsk"))), 4)
-            subprocess.run(["pwsh", "-NoLogo", "-NoProfile", "-File", str(apps / "build-all.ps1"),
-                            "-c", str(clones)],
-                           cwd=root, check=True, capture_output=True, text=True)
+            sbc_disks = root / "Z80ROMlessSBC/src/disks/native"
+            sbc_disks.mkdir(parents=True)
+
+            def run_copy_task(label):
+                tasks = json.loads((ROOT / ".vscode/tasks.json").read_text())["tasks"]
+                task = next(task for task in tasks if task["label"] == label)
+                arguments = [
+                    argument.replace("${workspaceFolder}", str(root))
+                    .replace("${input:sbcNativeDiskDirectory}", str(sbc_disks))
+                    for argument in task["args"]
+                ]
+                subprocess.run([task["command"], *arguments],
+                               cwd=root, check=True, capture_output=True, text=True)
+
+            run_copy_task("Altair: Build apps and copy disks to Z80 SBC")
             self.assertEqual(old_disk.read_bytes(), b"untouched")
             sys_path = str(source / "cpm")
             import sys
@@ -63,7 +76,23 @@ class BuildAllNativeTests(unittest.TestCase):
                 sys.path.remove(sys_path)
             for image in disks.glob("*.img"):
                 self.assertTrue(read_disk(root, image, "HELLO.BAS").startswith(b"10 PRINT 1\r\n\x1a"))
-                self.assertEqual((clones / image.name).read_bytes(), image.read_bytes())
+                self.assertEqual((sbc_disks / image.name).read_bytes(), image.read_bytes())
+            (apps / "disk-all-apps/HELLO.BAS").write_bytes(b"10 PRINT 2\n")
+            edits = root / "NOTES.TXT"
+            edits.write_bytes(b"content edited in CP/M\r\n")
+            edited_disk = disks / "drive_d_blank.img"
+            subprocess.run(
+                [sys.executable, str(scripts / "cpm-install-native.py"),
+                 "--image", str(edited_disk), "--host-file", str(edits),
+                 "--cpm-file", "0:NOTES.TXT"],
+                cwd=root, check=True, capture_output=True, text=True,
+            )
+            run_copy_task("Altair: Copy current disks to Z80 SBC")
+            self.assertTrue(read_disk(root, sbc_disks / edited_disk.name, "NOTES.TXT")
+                            .startswith(edits.read_bytes()))
+            for image in disks.glob("*.img"):
+                self.assertEqual((sbc_disks / image.name).read_bytes(), image.read_bytes())
+                self.assertTrue(read_disk(root, image, "HELLO.BAS").startswith(b"10 PRINT 1\r\n\x1a"))
 
 
 if __name__ == "__main__":

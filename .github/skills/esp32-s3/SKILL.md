@@ -90,6 +90,12 @@ idf.py -p <PORT> flash monitor
 idf.py storage-flash         # flash the CP/M SD-card disk images only
 ```
 
+`storage-flash` uses the ESP32 hardware's 88-DCDD images. The Apple container
+and SBC copy tasks use separate 512 KiB base images in `disks/512kb/`; running
+those tasks neither updates nor flashes ESP32 hardware storage.
+For persistent CP/M edits and copying to the Z80 SBC, use the
+[application disk workflow](../../../docs/docs/en/90-appendices/10-build-and-install-cpm-apps.md#edit-base-disks-and-copy-to-the-z80-sbc).
+
 - Console is **USB Serial/JTAG** (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y`), not a
   UART bridge. On macOS the port is typically `/dev/cu.usbmodem*`; on Linux
   `/dev/ttyACM*`. Ask the user for the port rather than guessing if unset.

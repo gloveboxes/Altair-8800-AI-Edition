@@ -71,12 +71,15 @@ implementations whose executable names belong to C applications):
 ./Apps/build-all.ps1 -AssemblyOnly
 ```
 
-Requirements: PowerShell 7, Python 3.10+, the initialized Z80 ROMless SBC
-submodule, the composite/library-capable `dccmake`,
-`ntvcm`, `cpmrm` and `cpmcp` on PATH,
+Requirements: PowerShell 7, Python 3.10+, the initialized `z80-cpm-container`
+submodule, Apple Container on Apple silicon macOS, the composite/library-capable
+`dccmake` and `ntvcm` on PATH,
 plus `M80.COM` and `L80.COM` in the dcc directory. Set `DCC_DIR` and
 `NTVCM_DIR` as required by the C application configurations. Their shared source
 and include paths point to `Apps/COMMON` in the reorganized layout.
+Native disk installation runs inside the shared container; prepare it with
+`python3 scripts/z80_container.py prepare` after starting the container service.
+The `-DiskFormat Altair` workflow requires host `cpmrm` and `cpmcp`.
 
 Override tool locations or destination images when needed:
 
@@ -93,6 +96,19 @@ the script does not remove unrelated files to make room.
 To build the ESP32 and Docker 88-DCDD images, use `-DiskFormat Altair`. This
 selects the images directly under `disks/`; overrides must then use that
 format. `-Clone` and `-CloneOnly` clone the images selected by `-DiskFormat`.
+
+To build and copy the native disks for the Z80 ROMless SBC, run from `Apps`:
+
+```powershell
+pwsh ./build-all.ps1 -c /path/to/Z80ROMlessSBC/src/disks/native
+```
+
+The destination directory must exist. This overwrites the SBC's A-D sources,
+including D's database. Stop both emulators and save wanted work first.
+Use `-CloneOnly -c ...` to copy current disks without rebuilding applications.
+The SBC's emulator and Pico flash tasks read these same sources, validate them,
+and patch Drive A with the SBC checkout's current CP/M, BDOS, BIOS and AUTORUN.
+No separate import task is required.
 
 To select the native library linker explicitly:
 

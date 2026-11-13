@@ -1,13 +1,13 @@
 ---
 name: dcc-cpm-z80
-description: 'Write, build, test and debug dcc C applications for Z80 CP/M using the Apple container. Use for dcc, dccmake, C89/C99/C11, CP/M, DCCRTL, DXSVC, ROMLESS-SVC or VT100/ANSI terminal apps. Covers the 16-bit target and runtime subset.'
+description: 'Write, build, test and debug dcc C applications for Z80 CP/M using the Apple container; edit persistent base disks and build/copy them to the Z80 SBC. Use for dcc, dccmake, C89/C99/C11, CP/M, DCCRTL, DXSVC, ROMLESS-SVC or VT100/ANSI terminal apps. Covers the 16-bit target and runtime subset.'
 argument-hint: 'Describe the C CP/M-Z80 task (write, build, test or debug)'
 ---
 
 # dcc C for CP/M 2.2 / Z80
 
 dcc is a cross-compiler (runs on the host) that emits Z80 assembly for CP/M 2.2.
-The runtime is [DCCRTL.MAC](DCCRTL.MAC); programs run on real hardware or an
+The runtime is [DCCRTL.MAC](DCCRTL.MAC); programs run on real hardware or in
 the shared Z80 CP/M Apple container.
 
 **Assume standard C89 plus dcc's first-class `_Bool` scalar type and
@@ -59,7 +59,7 @@ response polling, error draining, and channel reset.
   result as an unsigned little-endian 32-bit count.
 - The generic client can encode any operation number; that does not mean a
   firmware or emulator backend implements it. Check the corresponding service
-  dispatcher before using an operation. For example, the legacy BLINK.BAS
+  dispatcher before using an operation. For example, the BLINK.BAS
   utility operation 4 is not implemented by the current utility service.
 
 Do not duplicate the DXSVC inline-assembly transport or poll service status
@@ -235,12 +235,43 @@ dccmake foo.c dcc-output=FOO dcc-peep=true
 
 Use `pwsh Apps/build-all.ps1` to build and install applications on
 `disks/512kb`. Stop any container before building or changing disks. Run
-`python3 scripts/z80_container.py start` or the VS Code task **Altair: Start
-Apple Container CP/M**, select the drive, and run the installed application.
+`python3 scripts/z80_container.py start` or the VS Code task **Run interactive
+CP/M emulator**, select the drive, and run the installed application.
 The host disks are writable and changes persist. For source debugging, use
 **DCC CP/M: Debug active C file in Apple container**; this builds with `-g`
 and snapshots the project disks. Open http://127.0.0.1:8081/ for target I/O.
 See [container instructions](../../../docker/README.md).
+
+**Persistent base disks and SBC copies.**
+
+The normal start task mounts `disks/512kb/` read/write. CP/M edits change those
+same base images that `Apps/build-all.ps1` installs into and copies; there is
+no separate session-save command in this project.
+Finish the CP/M application and stop with Ctrl+C before building or copying.
+Never run an installer alongside a writable emulator.
+
+From `Apps`, choose:
+
+```sh
+pwsh ./build-all.ps1 -c /path/to/Z80ROMlessSBC/src/disks/native
+pwsh ./build-all.ps1 -CloneOnly -c /path/to/Z80ROMlessSBC/src/disks/native
+```
+
+The first builds applications, replaces their destination files while preserving
+unrelated files, then copies A-D. The second preserves all current disk files
+without rebuilding. The existing destination folder is overwritten, including
+D's database; stop the SBC emulator and save wanted changes first.
+Use **Altair: Build apps and copy disks to Z80 SBC** or
+**Altair: Copy current disks to Z80 SBC** for equivalent tasks; both prompt
+for the SBC native directory. Neither flashes hardware.
+
+Native installation uses the shared container's cpmtools, not host cpmtools.
+The SBC validates the copied disks and patches A with its current CP/M, BDOS,
+BIOS and AUTORUN before use. SBC session edits and ESP32 debug-snapshot edits
+are not automatically copied back into ESP32 base disks.
+See the [documented disk workflow](../../../docs/docs/en/90-appendices/10-build-and-install-cpm-apps.md#edit-base-disks-and-copy-to-the-z80-sbc).
+
+**Compiler options.**
 
 Use `dcc-peep=false` for an unoptimized build. `dccmake` also accepts common dcc
 options and settings, for example:

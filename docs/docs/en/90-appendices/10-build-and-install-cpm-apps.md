@@ -1,8 +1,8 @@
 # Build and Install CP/M Apps
 
 Host-compiled dcc applications can be built and installed directly into a
-CP/M disk image. The local runner uses the separate 512 KiB SBC images;
-`Apps/build-all.ps1` installs applications into those images by default.
+CP/M disk image. The Apple container and `Apps/build-all.ps1` use the same
+writable 512 KiB base images in `disks/512kb/`.
 See [Apps/README.md](https://github.com/gloveboxes/esp32-altair-8800/blob/main/Apps/README.md)
 for the complete build and disk selection.
 
@@ -126,6 +126,68 @@ Preview with `-ListOnly` without invoking tools or writing disks. The summary
 counts build units; a composite unit can produce more than one installed file.
 See [Apps/README.md](https://github.com/gloveboxes/esp32-altair-8800/blob/main/Apps/README.md)
 for assembly-only builds, image overrides and isolated regression commands.
+
+## Edit base disks and copy to the Z80 SBC
+
+1. Run **Run interactive CP/M emulator** from **Tasks: Run Task**, or
+   `python3 scripts/z80_container.py start` from this repository root.
+2. Edit, create or delete files in CP/M. Changes persist directly in
+   `disks/512kb/`; there is no session-disk save step in this project.
+3. Finish the CP/M application and stop the container with **Ctrl+C**. Stop
+   the SBC emulator too before copying its disk sources.
+4. From this project's `Apps` directory, choose one of these commands:
+
+```sh
+# Build/install applications, then copy all four disks.
+pwsh ./build-all.ps1 -c /path/to/Z80ROMlessSBC/src/disks/native
+
+# Copy current disks, including CP/M edits, without building anything.
+pwsh ./build-all.ps1 -CloneOnly -c /path/to/Z80ROMlessSBC/src/disks/native
+```
+
+The destination directory must exist. Both commands overwrite all four SBC
+native images, including D's database. Build-and-copy replaces each built
+application's destination file but preserves unrelated files. Use copy-only
+when you want to keep an edited file that the application build would replace.
+Copying only occurs after a successful build; a failed build can leave earlier
+successful application installations in the ESP32 base disks.
+
+### VS Code tasks
+
+Open **Tasks: Run Task**:
+
+| Task | Function |
+| --- | --- |
+| **Run interactive CP/M emulator** | Start CP/M using the writable base disks; edits persist. Ctrl+C stops it. |
+| **Build Apple container** | Build the container image and host audio client without starting CP/M or copying disks. |
+| **Altair: Build apps and copy disks to Z80 SBC** | Prepare the container, build/install applications, then copy A-D to the chosen SBC native folder. |
+| **Altair: Copy current disks to Z80 SBC** | Copy A-D without rebuilding applications. |
+
+Both copy tasks prompt for the existing SBC `src/disks/native/` directory.
+The suggested relative path is for sibling checkouts under
+`GitHub/esp32/esp32-altair-8800` and `GitHub/Z80ROMlessSBC`; enter an absolute
+path for another layout. These tasks do not flash either board.
+
+For C debugging, choose **DCC CP/M: Debug active C file in Apple container**
+and press **F5**. It automatically builds the active application with debug
+metadata and prepares a private disk snapshot. Debug-session file changes do
+not update the base disks. The preparation helpers are hidden from the task
+picker; use the normal start task when editing persistent disk contents.
+
+### Use the copies in the SBC project
+
+The SBC's **Run interactive CP/M emulator**, **Refresh CP/M container and
+session disks**, and Pico disk tasks all read `src/disks/native/`.
+They check exact image sizes and validate source and prepared filesystems with
+the container's `fsck.cpm -n`. Drive A is patched with the SBC checkout's current
+CP/M, BDOS, BIOS and AUTORUN; B-D are unchanged copies.
+No import task is required.
+
+SBC emulator writes go to its `build/cpm-session/` copies, not back to the ESP32
+base disks. Copying is one-way; SBC edits do not automatically synchronize to
+this project. See the
+[SBC disk workflow](https://gloveboxes.github.io/Z80ROMlessSBC/en/related-projects/#altair-8800-ai-edition)
+and follow its power/confirmation requirements before any Pico flashing.
 
 ## Reusing the installer
 
