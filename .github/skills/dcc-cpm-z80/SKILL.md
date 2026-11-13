@@ -247,6 +247,9 @@ See [container instructions](../../../docker/README.md).
 The normal start task mounts `disks/512kb/` read/write. CP/M edits change those
 same base images that `Apps/build-all.ps1` installs into and copies; there is
 no separate session-save command in this project.
+Startup checks the size and filesystem of all four images with the container's
+read-only `fsck.cpm -n` before refreshing A. Validation failures stop CP/M
+startup without modifying disks; do not bypass checks or repair automatically.
 Finish the CP/M application and stop with Ctrl+C before building or copying.
 Never run an installer alongside a writable emulator.
 

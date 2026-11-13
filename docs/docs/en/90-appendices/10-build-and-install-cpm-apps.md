@@ -158,7 +158,7 @@ Open **Tasks: Run Task**:
 
 | Task | Function |
 | --- | --- |
-| **Run interactive CP/M emulator** | Start CP/M using the writable base disks; edits persist. Ctrl+C stops it. |
+| **Run interactive CP/M emulator** | Check all four base disks with read-only `fsck.cpm` before refreshing A and starting CP/M; abort without disk changes on failure. CP/M edits persist. Ctrl+C stops it. |
 | **Build Apple container** | Build the container image and host audio client without starting CP/M or copying disks. |
 | **Altair: Build apps and copy disks to Z80 SBC** | Prepare the container, build/install applications, then copy A-D to the chosen SBC native folder. |
 | **Altair: Copy current disks to Z80 SBC** | Copy A-D without rebuilding applications. |
