@@ -25,7 +25,8 @@ container always mounts this project's `disks/512kb` read/write, so CP/M
 changes persist and installed apps are current. Its startup refreshes drive A
 boot tracks and AUTORUN while preserving the other files. Stop the container
 before building apps or modifying the images; do not run two sessions against
-the writable disks. Use Ctrl+C to stop the session.
+the writable disks. Use Ctrl+] in the task terminal to stop the session;
+Ctrl+C is sent to CP/M for application interrupts.
 
 Input and output start in the task terminal. Open http://127.0.0.1:8080/ for
 browser-exclusive I/O; disconnect to return to the console. Sound plays through

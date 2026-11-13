@@ -250,7 +250,8 @@ no separate session-save command in this project.
 Startup checks the size and filesystem of all four images with the container's
 read-only `fsck.cpm -n` before refreshing A. Validation failures stop CP/M
 startup without modifying disks; do not bypass checks or repair automatically.
-Finish the CP/M application and stop with Ctrl+C before building or copying.
+Finish the CP/M application and stop with Ctrl+] in the task terminal before
+building or copying. Ctrl+C is sent to CP/M for application interrupts.
 Never run an installer alongside a writable emulator.
 
 From `Apps`, choose:

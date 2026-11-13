@@ -119,7 +119,7 @@
     },
     {
       "label": "Run interactive CP/M emulator",
-      "detail": "Check all four disks/512kb images with read-only fsck.cpm before refreshing A or starting CP/M; abort on failure. CP/M edits persist in these base disks. Ctrl+C stops the session; stop it before building or copying.",
+      "detail": "Check all four disks/512kb images with read-only fsck.cpm before refreshing A or starting CP/M; abort on failure. CP/M edits persist. Ctrl+] stops the session; Ctrl+C goes to CP/M. Stop before building or copying.",
       "type": "process",
       "command": "python3",
       "args": [

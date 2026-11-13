@@ -133,8 +133,8 @@ for assembly-only builds, image overrides and isolated regression commands.
    `python3 scripts/z80_container.py start` from this repository root.
 2. Edit, create or delete files in CP/M. Changes persist directly in
    `disks/512kb/`; there is no session-disk save step in this project.
-3. Finish the CP/M application and stop the container with **Ctrl+C**. Stop
-   the SBC emulator too before copying its disk sources.
+3. Finish the CP/M application and stop the container with **Ctrl+]** in the
+   task terminal. Stop the SBC emulator too before copying its disk sources.
 4. From this project's `Apps` directory, choose one of these commands:
 
 ```sh
@@ -158,7 +158,7 @@ Open **Tasks: Run Task**:
 
 | Task | Function |
 | --- | --- |
-| **Run interactive CP/M emulator** | Check all four base disks with read-only `fsck.cpm` before refreshing A and starting CP/M; abort without disk changes on failure. CP/M edits persist. Ctrl+C stops it. |
+| **Run interactive CP/M emulator** | Check all four base disks with read-only `fsck.cpm` before refreshing A and starting CP/M; abort without disk changes on failure. CP/M edits persist. Ctrl+] in the task terminal stops it; Ctrl+C goes to CP/M. |
 | **Build Apple container** | Build the container image and host audio client without starting CP/M or copying disks. |
 | **Altair: Build apps and copy disks to Z80 SBC** | Prepare the container, build/install applications, then copy A-D to the chosen SBC native folder. |
 | **Altair: Copy current disks to Z80 SBC** | Copy A-D without rebuilding applications. |
