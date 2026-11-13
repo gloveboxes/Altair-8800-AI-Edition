@@ -1,0 +1,3057 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Altair 8800 AI Edition">
+      
+      
+        <meta name="author" content="Dave Glover">
+      
+      
+      
+        <link rel="prev" href="../01-i8080-IO-Ports/">
+      
+      
+        <link rel="next" href="../02-Z80-interrupts/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../media/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>ROMless Z80 IO Mapping - Altair 8800 AI Edition</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../css/custom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#romless-service-io-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Altair 8800 AI Edition" class="md-header__button md-logo" aria-label="Altair 8800 AI Edition" data-md-component="logo">
+      
+  <img src="../../media/favicon.ico" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Altair 8800 AI Edition
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ROMless Z80 IO Mapping
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="pink" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 2c-1.82 0-3.53.5-5 1.35C8 5.08 10 8.3 10 12s-2 6.92-5 8.65C6.47 21.5 8.18 22 10 22a10 10 0 0 0 10-10A10 10 0 0 0 10 2"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="cyan" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/gloveboxes/esp32-altair-8800" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    Altair 8800 AI Edition
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Altair 8800 AI Edition" class="md-nav__button md-logo" aria-label="Altair 8800 AI Edition" data-md-component="logo">
+      
+  <img src="../../media/favicon.ico" alt="logo">
+
+    </a>
+    Altair 8800 AI Edition
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/gloveboxes/esp32-altair-8800" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    Altair 8800 AI Edition
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../navigating-the-docs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Navigating the Docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fundamentals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Fundamentals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../20-fundamentals/05-Introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../20-fundamentals/10-deployment-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../20-fundamentals/23-Altair-emulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../20-fundamentals/25-Web-Terminal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start the Web Terminal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../20-fundamentals/30-introduction-cpm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learn about CP/M
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../20-fundamentals/40-Rebooting-the-Altair/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rebooting the Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apple Container
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Apple Container
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../40-deploy-with-docker/10-introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../40-deploy-with-docker/15-install-prerequisites/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../40-deploy-with-docker/17-start-container/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start the Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5">
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from source
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Build from source
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/01-Introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/03-Build-from-vs-code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Visual Studio Code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3">
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Build from Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1">
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_1" id="__nav_5_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Install Prerequisites
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/Install%20prerequisites/01-Linux-users/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/Install%20prerequisites/02-macOS-users/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/Install%20prerequisites/03-Windows-users/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/Install%20prerequisites/04-Raspberry-Pi-users/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raspberry Pi OS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/04-Compile-from-CLI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../45-build-from-source/05-Run-the-emulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start the Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../70-apps/Altair-Apps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Altair Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked="">
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Program the Altair
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Program the Altair
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../00-Introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../00-Manuals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manuals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-Vibe-Coding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Engineering the Altair
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-Editing-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Editing Files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-i8080-IO-Ports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intel 8080 IO Ports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROMless Z80 IO Mapping
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROMless Z80 IO Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#address-decoding-and-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address decoding and allocation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-transport-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared transport conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dedicated-timer-port-0x17-decimal-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dedicated timer port: 0x17 (decimal 23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-operation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group operation details
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interrupt-timer-physical-port-0x07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupt timer: physical port 0x07
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-Z80-interrupts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Z80 Interrupts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-Microsoft-BASIC-programming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Microsoft BASIC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-C-programming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Programming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-Assembly-programming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intel 8080 Assembler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-Altair-BASIC-programming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Altair BASIC Programming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-Front-panel-programming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Front Panel Programming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8">
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Container Images
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Container Images
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../40-deploy-with-docker/100-Create-Docker-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Container Image
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9">
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Appendices
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Appendices
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../90-appendices/10-build-and-install-cpm-apps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build and Install CP/M Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10">
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run on Azure Sphere
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run on Azure Sphere
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/03-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_3">
+        
+          
+          <label class="md-nav__link" for="__nav_10_3" id="__nav_10_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploy the Altair
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deploy the Altair
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/01-Deployment-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/02-Clone-Altair-repo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clone the Altair repo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/03-Deploy-prebuilt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploy Pre-built Images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/04-WiFi-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wi-Fi Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/05-Create-boot-SD-card/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create a Boot SD Card
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/06-Power-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Power Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/01-Deploy-the-Altair/07-Connect-Altair-web-terminal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connect Altair Web Terminal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_4">
+        
+          
+          <label class="md-nav__link" for="__nav_10_4" id="__nav_10_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud services
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cloud services
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/Cloud-services/01-Add-cloud-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adding Cloud Services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_5">
+        
+          
+          <label class="md-nav__link" for="__nav_10_5" id="__nav_10_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compile and Deploy
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Compile and Deploy
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/Compile-and-deploy/01-Install-developer-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Developer Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/Compile-and-deploy/02-Deploy-the-Altair-to-Azure-Sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploy the Altair Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../50-azsphere/40-Manage-disk-images/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manage Disk Images
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#address-decoding-and-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address decoding and allocation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-transport-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared transport conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dedicated-timer-port-0x17-decimal-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dedicated timer port: 0x17 (decimal 23)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-operation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group operation details
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interrupt-timer-physical-port-0x07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupt timer: physical port 0x07
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="romless-service-io-reference">ROMless service I/O reference<a class="headerlink" href="#romless-service-io-reference" title="Permanent link">¶</a></h1>
+<p>ESP32 and the Altair DCC debug adapter compile the same
+<a href="https://github.com/gloveboxes/esp32-altair-8800/blob/main/port_drivers/io_ports.c"><code>io_ports.c</code></a>
+transport. Platform drivers supply the service backends. The local SBC emulator
+and Apple container use the SBC adapter and its
+<a href="https://gloveboxes.github.io/Z80ROMlessSBC/system/io-ports/">I/O port map</a>.</p>
+<h2 id="address-decoding-and-allocation">Address decoding and allocation<a class="headerlink" href="#address-decoding-and-allocation" title="Permanent link">¶</a></h2>
+<p>The service router decodes <code>address &amp; 0x17</code>, giving 16 canonical addresses.
+Use canonical addresses in programs. The
+<a href="https://gloveboxes.github.io/Z80ROMlessSBC/system/io-ports/">physical ROMless allocation</a>
+reserves terminal, disk and diagnostic addresses:</p>
+<table>
+<thead>
+<tr>
+<th>Hex</th>
+<th>Decimal</th>
+<th>Physical ROMless allocation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x00</code></td>
+<td>0</td>
+<td>Terminal data</td>
+</tr>
+<tr>
+<td><code>0x01</code></td>
+<td>1</td>
+<td>Terminal status</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>2</td>
+<td>Shared service command (OUT) / status (IN)</td>
+</tr>
+<tr>
+<td><code>0x03</code></td>
+<td>3</td>
+<td>Shared length-prefixed request (OUT)</td>
+</tr>
+<tr>
+<td><code>0x04</code></td>
+<td>4</td>
+<td>Shared length-prefixed response (IN)</td>
+</tr>
+<tr>
+<td><code>0x05</code></td>
+<td>5</td>
+<td>Reserved BIOS/qualification diagnostics</td>
+</tr>
+<tr>
+<td><code>0x06</code></td>
+<td>6</td>
+<td>Reserved diagnostic data</td>
+</tr>
+<tr>
+<td><code>0x07</code></td>
+<td>7</td>
+<td>Interrupt timer rate (OUT/IN)</td>
+</tr>
+<tr>
+<td><code>0x10</code></td>
+<td>16</td>
+<td>Disk command/status</td>
+</tr>
+<tr>
+<td><code>0x11</code></td>
+<td>17</td>
+<td>Disk drive selection</td>
+</tr>
+<tr>
+<td><code>0x12</code></td>
+<td>18</td>
+<td>Disk sector address low</td>
+</tr>
+<tr>
+<td><code>0x13</code></td>
+<td>19</td>
+<td>Disk sector address high</td>
+</tr>
+<tr>
+<td><code>0x14</code></td>
+<td>20</td>
+<td>Disk data</td>
+</tr>
+<tr>
+<td><code>0x15</code></td>
+<td>21</td>
+<td>Available</td>
+</tr>
+<tr>
+<td><code>0x16</code></td>
+<td>22</td>
+<td>Available</td>
+</tr>
+<tr>
+<td><code>0x17</code></td>
+<td>23</td>
+<td>Dedicated countdown/stopwatch interface</td>
+</tr>
+</tbody>
+</table>
+<h3 id="emulator-versus-physical-hardware">Emulator versus physical hardware<a class="headerlink" href="#emulator-versus-physical-hardware" title="Permanent link">¶</a></h3>
+<p>The emulator's CPU adapter intercepts terminal ports <code>0x00/0x01</code> and
+<code>0x10/0x11</code>, disk ports <code>0x08/0x09/0x0A</code>, and front-panel input <code>0xFF</code>
+before forwarding other ports to the service router. These intercepts
+support the supplied CP/M disks. Do not apply <code>&amp; 0x17</code> globally: that would
+alias emulator disk ports onto terminal/service ports.</p>
+<h2 id="shared-transport-conventions">Shared transport conventions<a class="headerlink" href="#shared-transport-conventions" title="Permanent link">¶</a></h2>
+<p>Command bytes identify groups, not physical ports. Group requests begin
+with an operation byte. All <code>u16</code>/<code>u32</code> values use little-endian wire order.
+The <a href="https://github.com/gloveboxes/esp32-altair-8800/blob/main/Apps/COMMON/README.md">CP/M SDK reference</a>
+describes the C helpers.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Group</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x00</code></td>
+<td>ACK: acknowledge COMPLETE or a fully consumed error</td>
+</tr>
+<tr>
+<td><code>0x01</code></td>
+<td>RESET: abandon/reset the shared transport</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>IDENTIFY: return <code>ROMLESS-SVC/1</code></td>
+</tr>
+<tr>
+<td><code>0x10</code></td>
+<td>Countdown timers</td>
+</tr>
+<tr>
+<td><code>0x11</code></td>
+<td>Stopwatches</td>
+</tr>
+<tr>
+<td><code>0x20</code></td>
+<td>Clock/date/uptime</td>
+</tr>
+<tr>
+<td><code>0x21</code></td>
+<td>Utilities/system information/reboot</td>
+</tr>
+<tr>
+<td><code>0x30</code></td>
+<td>Persistent environment variables and CLI</td>
+</tr>
+<tr>
+<td><code>0x40</code></td>
+<td>Weather</td>
+</tr>
+<tr>
+<td><code>0x50</code></td>
+<td>Chat</td>
+</tr>
+<tr>
+<td><code>0x60</code></td>
+<td>Host Sense HAT panel/sensors</td>
+</tr>
+<tr>
+<td><code>0x70</code></td>
+<td>File transfer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="framing-and-status">Framing and status<a class="headerlink" href="#framing-and-status" title="Permanent link">¶</a></h3>
+<ol>
+<li>Wait for READY on <code>IN 0x02</code>.</li>
+<li>Write the group to <code>OUT 0x02</code>.</li>
+<li>Write a u16 payload length to <code>OUT 0x03</code>, then exactly that many payload
+   bytes. Execution starts after the final byte.</li>
+<li>Poll <code>IN 0x02</code> with a bounded timeout.</li>
+<li>On RESPONSE_READY, read a u16 length from <code>IN 0x04</code>, then that many
+   response bytes. Consuming the full frame returns READY.</li>
+<li>On COMPLETE, write ACK to <code>OUT 0x02</code>.</li>
+<li>On ERROR, consume its framed error code and ACK, or RESET.</li>
+</ol>
+<p>ACK, RESET and IDENTIFY execute immediately without request framing.
+IDENTIFY requires READY and returns a normal framed response.</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x00</code></td>
+<td>READY</td>
+</tr>
+<tr>
+<td><code>0x01</code></td>
+<td>COMPLETE; ACK required</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>RESPONSE_READY</td>
+</tr>
+<tr>
+<td><code>0x03</code></td>
+<td>COLLECTING request length/payload</td>
+</tr>
+<tr>
+<td><code>0x04</code></td>
+<td>BUSY</td>
+</tr>
+<tr>
+<td><code>0xFF</code></td>
+<td>ERROR; framed error available</td>
+</tr>
+</tbody>
+</table>
+<p>Status polling neither acknowledges completion nor consumes payload.
+Text excludes its terminating NUL; binary zero is ordinary data.
+The shared payload limit is 2048 bytes, excluding the two length bytes.
+Do not truncate a request or response and report success.</p>
+<p>Only one shared transaction may be active. A group command during an active
+transaction produces a busy/state error and requires RESET. ACK is valid
+only for COMPLETE or a fully consumed error. RESET discards partial frames
+and invalidates late worker completions. A worker-backed request can remain
+BUSY while an abandoned job finishes.</p>
+<p>Common error codes are <code>0x01</code> unknown group, <code>0x02</code> unknown operation,
+<code>0x03</code> invalid length, <code>0x04</code> invalid parameter, <code>0x05</code> unavailable,
+<code>0x06</code> busy, <code>0x07</code> timeout, <code>0x08</code> invalid state, <code>0x09</code> response underflow,
+<code>0x10</code> storage open, <code>0x11</code> storage read, <code>0x12</code> storage write,
+<code>0x13</code> capacity, <code>0x14</code> not found, <code>0x15</code> unsynchronized clock,
+<code>0x16</code> invalid reboot confirmation, <code>0x20</code> missing HTTP base URL,
+and <code>0x21</code> transfer failure. Error codes are not port addresses.</p>
+<h3 id="execution-ownership">Execution ownership<a class="headerlink" href="#execution-ownership" title="Permanent link">¶</a></h3>
+<p>Calendar, environment, weather, chat and utility transactions use a worker:
+Core 0 on ESP32, a background thread on hosts. The CPU polls completion
+without blocking on network or flash operations. Timer groups are
+synchronous CPU-thread operations sharing state with port <code>0x17</code>.</p>
+<p>FT has its own backend. ESP32 uses queued Core 0 TCP work; the DCC adapter
+reads the configured filesystem. FT reads occupy the
+shared transaction until their response is consumed. Between reads, other
+shared services can run without closing the FT session. Interrupt rate and
+dedicated timer operations remain independent of shared transactions.</p>
+<p><code>io_ports_init()</code> starts the shared worker after platform initialization;
+shutdown stops it and closes FT. Response generation tags prevent abandoned
+jobs from replacing a current response. ESP32 FT queue replies own their
+payload until the CPU consumes them.</p>
+<h2 id="dedicated-timer-port-0x17-decimal-23">Dedicated timer port: <code>0x17</code> (decimal 23)<a class="headerlink" href="#dedicated-timer-port-0x17-decimal-23" title="Permanent link">¶</a></h2>
+<p>All countdown and stopwatch commands, parameters and results use port 23,
+without framing, BUSY polling or ACK.</p>
+<table>
+<thead>
+<tr>
+<th>OUT command</th>
+<th>Following OUT bytes</th>
+<th>IN result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x00</code></td>
+<td>None</td>
+<td>Reset interface; countdown running mask</td>
+</tr>
+<tr>
+<td><code>0x10</code>-<code>0x12</code></td>
+<td>Duration u16</td>
+<td>Start millisecond timer 0-2; running mask</td>
+</tr>
+<tr>
+<td><code>0x13</code></td>
+<td>Duration u8</td>
+<td>Start seconds timer 3; running mask</td>
+</tr>
+<tr>
+<td><code>0x20</code>-<code>0x23</code></td>
+<td>None</td>
+<td>Selected countdown: 1 running, 0 expired/unset</td>
+</tr>
+<tr>
+<td><code>0x30</code></td>
+<td>None</td>
+<td>Running mask, bits 0-3</td>
+</tr>
+<tr>
+<td><code>0x40</code>-<code>0x42</code></td>
+<td>None</td>
+<td>Reset stopwatch 0-2; running mask</td>
+</tr>
+<tr>
+<td><code>0x50</code>-<code>0x52</code></td>
+<td>None</td>
+<td>Stopwatch seconds, u32</td>
+</tr>
+<tr>
+<td><code>0x60</code>-<code>0x62</code></td>
+<td>None</td>
+<td>Stopwatch milliseconds, u32</td>
+</tr>
+</tbody>
+</table>
+<p>Timers 0-2 accept 0-65535 ms; timer 3 accepts 0-255 seconds. Zero expires
+immediately. A complete duration replaces its timer atomically. Stopwatch
+reads latch all four bytes at command time; values wrap modulo 2^32.
+Before first reset, stopwatches measure time since boot.</p>
+<p>Finish parameter writes and drain all four stopwatch bytes before another
+user accesses this interface. Invalid commands, interrupted parameters and
+response overreads enter an error state (<code>IN</code> returns <code>0xFF</code>). Recover with
+one <code>IN 23</code>, then <code>OUT 23,0</code>; this does not change timers or the shared
+channel. <code>0xFF</code> within a valid stopwatch response is ordinary data.</p>
+<p>The SDK timer helpers use this interface. Groups <code>0x10/0x11</code> provide framed
+access to the same timers/stopwatches with separate transaction state.</p>
+<h2 id="group-operation-details">Group operation details<a class="headerlink" href="#group-operation-details" title="Permanent link">¶</a></h2>
+<h3 id="countdown-timers-and-stopwatches-0x100x11">Countdown timers and stopwatches: <code>0x10/0x11</code><a class="headerlink" href="#countdown-timers-and-stopwatches-0x100x11" title="Permanent link">¶</a></h3>
+<p>Countdown START is <code>[0, id, duration:u32]</code>, returning COMPLETE; QUERY is
+<code>[1, id]</code>, returning one running byte. IDs and ranges match port <code>0x17</code>.
+Stopwatch requests are <code>[operation, id]</code>: 0 reset (COMPLETE), 1 read seconds
+(u32), 2 read milliseconds (u32). IDs are 0-2.</p>
+<h3 id="clock-and-utilities-0x200x21">Clock and utilities: <code>0x20/0x21</code><a class="headerlink" href="#clock-and-utilities-0x200x21" title="Permanent link">¶</a></h3>
+<p>Clock requests contain one operation byte: 0 boot seconds, 1 UTC ISO time,
+2 local ISO time, 3 long local date, 4 DATE-style local time. Results are
+text. Calendar requests fail explicitly when the clock is unsynchronized.</p>
+<p>Utility requests are <code>[0]</code> for two random bytes; <code>[1, selector]</code> for hostname
+(0), IP (1), or device ID (2); <code>[2, 0xA5]</code> for confirmed reboot; and <code>[3]</code>
+for firmware version text. ESP32 schedules reboot outside the CPU handler
+after COMPLETE. Host builds report UNAVAILABLE for reboot.</p>
+<h3 id="environment-0x30">Environment: <code>0x30</code><a class="headerlink" href="#environment-0x30" title="Permanent link">¶</a></h3>
+<p>Keys, values and CLI lines are raw text without a terminating NUL.</p>
+<table>
+<thead>
+<tr>
+<th>Request payload</th>
+<th>Successful result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[0]</code> RESET</td>
+<td>COMPLETE; clear ENV request state</td>
+</tr>
+<tr>
+<td><code>[1]</code> INIT</td>
+<td>COMPLETE</td>
+</tr>
+<tr>
+<td><code>[2, key_length, key...]</code> GET</td>
+<td>Value text</td>
+</tr>
+<tr>
+<td><code>[3, key_length, key..., value_length:u16, value...]</code> SET</td>
+<td>COMPLETE</td>
+</tr>
+<tr>
+<td><code>[4, key_length, key...]</code> DELETE</td>
+<td>COMPLETE</td>
+</tr>
+<tr>
+<td><code>[5]</code> LIST</td>
+<td>Formatted key/value text</td>
+</tr>
+<tr>
+<td><code>[6]</code> COUNT</td>
+<td>Decimal entry count text</td>
+</tr>
+<tr>
+<td><code>[7]</code> CLEAR</td>
+<td>COMPLETE</td>
+</tr>
+<tr>
+<td><code>[8, key_length, key...]</code> EXISTS</td>
+<td>COMPLETE if present; NOT_FOUND otherwise</td>
+</tr>
+<tr>
+<td><code>[9, line...]</code> EXECUTE</td>
+<td>CLI result text, possibly empty</td>
+</tr>
+</tbody>
+</table>
+<p>Requests are self-contained and reject embedded NULs and inconsistent lengths.
+Keys are normalized and limited to 16 characters, values to 255, and CLI
+lines to 511. LIST overflow is an explicit capacity error.
+Empty values are valid; missing keys return NOT_FOUND.</p>
+<h3 id="weather-0x40">Weather: <code>0x40</code><a class="headerlink" href="#weather-0x40" title="Permanent link">¶</a></h3>
+<p><code>[0, field]</code> returns field text; <code>[1]</code> returns weather-service status:
+0 no data, 1 fetching, 2 ready, 3 error. This payload byte is independent
+of shared transaction status.</p>
+<p>Fields are 0 city, 1 current main, 2 current description, 3 temperature,
+4 humidity, 5 wind, 6 forecast main, 7 forecast description,
+8 forecast temperature, 9 forecast valid-at time, 10 last-fetch age
+(seconds), 11 units, 12 last error, 13 current feels-like temperature,
+14 forecast feels-like temperature.</p>
+<p>Cached readings remain available during refresh or a subsequent fetch error.
+Missing readings report UNAVAILABLE. Units/error diagnostics are readable
+without cached measurements.</p>
+<h3 id="chat-0x50">Chat: <code>0x50</code><a class="headerlink" href="#chat-0x50" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Request payload</th>
+<th>Successful result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[0]</code> RESET_REQUEST</td>
+<td>COMPLETE; empty the assembled request</td>
+</tr>
+<tr>
+<td><code>[1, text bytes...]</code> APPEND</td>
+<td>COMPLETE</td>
+</tr>
+<tr>
+<td><code>[2]</code> RESET_RESPONSE</td>
+<td>COMPLETE</td>
+</tr>
+<tr>
+<td><code>[3]</code> SUBMIT</td>
+<td>COMPLETE once queued</td>
+</tr>
+<tr>
+<td><code>[4]</code> STATUS</td>
+<td>Stream-status byte: 0 EOF, 1 waiting, 2 data ready</td>
+</tr>
+<tr>
+<td><code>[5, maximum:u16]</code> READ_CHUNK</td>
+<td><code>[stream_status, count:u16, bytes...]</code></td>
+</tr>
+</tbody>
+</table>
+<p>APPEND accepts up to 2047 text bytes per transaction within the backend's
+request capacity, reserving room for its internal NUL. SUBMIT resets response
+generation but preserves the assembled request. Reject a second SUBMIT
+while a chat job is active. Completion is queue acceptance, not network
+completion.</p>
+<p>READ_CHUNK accepts a maximum of 1-256 and does not wait for network data.
+Available bytes have status 2 and a positive count; waiting/EOF have zero
+count and status 1/0. Deliver buffered bytes before EOF. Each chunk is a
+separate transaction, allowing other services between reads. ESP32 applies
+queue back-pressure; host ring overflow has an explicit truncation marker.
+An unavailable backend reports an error, not EOF-shaped success.</p>
+<h3 id="sense-hat-0x60">Sense HAT: <code>0x60</code><a class="headerlink" href="#sense-hat-0x60" title="Permanent link">¶</a></h3>
+<p>Requests are <code>[selector, data]</code>: selectors 63 sensor read, 65 panel color,
+80 mode, 81 font color, 85 character, 90-97 bitmap rows, 98 pixel on,
+99 pixel off, 100 pixel flip, 101 clear, 102 draw. These are operation
+bytes, not ports. Sensor selection uses <code>data</code> and returns text; panel
+writes return COMPLETE. Unsupported/absent hardware returns UNAVAILABLE,
+including on ESP32 and the DCC adapter.</p>
+<h3 id="file-transfer-0x70">File transfer: <code>0x70</code><a class="headerlink" href="#file-transfer-0x70" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Request payload</th>
+<th>Successful result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[1, filename bytes...]</code></td>
+<td>Open/replace session; COMPLETE, then ACK</td>
+</tr>
+<tr>
+<td><code>[3]</code></td>
+<td><code>[state, up to 256 file bytes...]</code></td>
+</tr>
+<tr>
+<td><code>[4]</code></td>
+<td>Cancel/close; COMPLETE, then ACK</td>
+</tr>
+</tbody>
+</table>
+<p>Filenames contain 1-127 bytes without a terminating NUL. Read and close
+accept no extra bytes. State 0 means more data; 2 means EOF, optionally
+with final bytes. Empty EOF has payload <code>[2]</code> and length 1; a full chunk
+has length 257. Consume the entire framed response before another request.
+Repeated EOF reads return empty EOF. Transfer failures return error <code>0x21</code>.
+RESET during a BUSY read cancels the FT session; close also invalidates
+pending replies and buffered data. Other service transactions between FT
+reads preserve its filename and offset.</p>
+<p>ESP32 connects to its configured remote FT server on TCP port 8090.
+The DCC adapter uses the session's native files root. This shared ABI also supports HTTP(S) hosts:
+error <code>0x20</code> means their required <code>HTTP_BASE_URL</code> is missing.</p>
+<h2 id="interrupt-timer-physical-port-0x07">Interrupt timer: physical port <code>0x07</code><a class="headerlink" href="#interrupt-timer-physical-port-0x07" title="Permanent link">¶</a></h2>
+<p><code>OUT 0x07</code> sets 0 to disable or 1-255 Hz and clears pending timer requests.
+<code>IN 0x07</code> returns the configured rate, not an interrupt-pending flag.
+The emulator's interrupt provider/acknowledgement path is independent of
+shared transactions. A physical implementation requires an INT/acknowledge
+path; a port assignment alone does not provide interrupt wiring.</p>
+<h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">¶</a></h2>
+<div class="highlight"><pre><span></span><code>cmake<span class="w"> </span>-S<span class="w"> </span>dcc_debug_io_adapter<span class="w"> </span>-B<span class="w"> </span>dcc_debug_io_adapter/build
+cmake<span class="w"> </span>--build<span class="w"> </span>dcc_debug_io_adapter/build
+ctest<span class="w"> </span>--test-dir<span class="w"> </span>dcc_debug_io_adapter/build<span class="w"> </span>--output-on-failure
+</code></pre></div>
+<p>The adapter tests cover service framing, invalid requests, ACK/RESET,
+abandoned replies and error recovery.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer">
+        
+          
+          <a href="../01-i8080-IO-Ports/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Intel 8080 IO Ports">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Intel 8080 IO Ports
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../02-Z80-interrupts/" class="md-footer__link md-footer__link--next" aria-label="Next: Z80 Interrupts">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Z80 Interrupts
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright © 2023 - present Dave Glover
+
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.footer", "content.code.copy", "navigation.tabs.sticky", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
